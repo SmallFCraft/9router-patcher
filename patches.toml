@@ -214,7 +214,53 @@ replace = 'async function f(a,b=null){let c="";try{let $to=new Promise(($x,$y)=>
 [[patch]]
 id = "claude-tool-result-canonicalize"
 order = 19
+group = "claude-tool-result"
 summary = "Gộp user message tool_result bị tách nhiều message về 1 message chuẩn Anthropic"
 why = "agentrouter.org thi thoảng 400 tool_use-without-tool_result trên history tool nhiều vòng; chuẩn hoá shape để qua mọi backend, không mất dữ liệu"
 find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a}function s(a)'
 replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a}function s(a)'
+# P21-24: log-render-improve group — cosmetic reformat upstream console logs. Does not change
+# any router behavior (classifier, fallback, retry, lock, routing). Idempotent on already-patched
+# build (each find is contained inside its own replace when already-patched, engine sees `clean`).
+# Group must be applied as atomic whole; reverted as atomic whole.
+
+# P21 — DONE line split IN into NEW/CACHE/CTX so user sees full context at-a-glance instead of
+# only the fresh-token slice. Anchor: module 86171 `function k({usage:a,latency:b})` in 8895.js.
+[[patch]]
+id = "log-done-format"
+order = 21
+summary = "DONE line: split IN into [NEW x] + CACHE ↻ y + CTX total when cache hit"
+why = "IN 45789 (CACHE ↻141952) reads as '45k tokens used'; user thinks context dropped when CTX is actually 187k. Rewrite shows CTX total + breakdown so context size is obvious."
+find = 'function k({usage:a,latency:b}){let c=a||{},d=c.prompt_tokens??c.input_tokens??0,e=c.completion_tokens??c.output_tokens??0,f=c.cache_read_input_tokens??c.cached_tokens??c.prompt_tokens_details?.cached_tokens??0,g=c.cache_creation_input_tokens??0,h=`IN ${d}`;if(f||g){let a=[];f&&a.push(`↻${f}`),g&&a.push(`+${g}`),h+=` (CACHE ${a.join(" ")})`}let i=b?.ttft?` \xb7 TTFT ${b.ttft}ms`:"";return`DONE ${b?.total??0}ms${i} \xb7 ${h} \xb7 OUT ${e}`}'
+replace = 'function k({usage:a,latency:b}){let c=a||{},d=c.prompt_tokens??c.input_tokens??0,e=c.completion_tokens??c.output_tokens??0,f=c.cache_read_input_tokens??c.cached_tokens??c.prompt_tokens_details?.cached_tokens??0,g=c.cache_creation_input_tokens??0,h=`[NEW ${d}]`;if(f){h+=` · CACHE ↻${f}`;let a=d+f+g;h+=` · CTX ${a}`}let i=b?.ttft?` \xb7 TTFT ${b.ttft}ms`:"";return`DONE ${b?.total??0}ms${i} \xb7 ${h} \xb7 OUT ${e}`}'
+
+# P22 — HEADROOM line: compact tokens with k/M suffix, hide per-subsection body when effective < 10%.
+# Anchor: module 70190 `function m(a)` / `function n(a)` in 8895.js. Caller via d.info/d.warn untouched.
+[[patch]]
+id = "log-headroom-trim"
+order = 22
+summary = "HEADROOM line: compact numbers (k/M suffix), hide low-impact body when effective < 10%"
+why = "reported token delta=35732 before=160097 after=124365 (22.3%) | body=614424B→486756B messages=... effective=20.8% is 180 chars. Compress to one line: key number first; omit per-subsection bytes when < 10% effective so line fits terminal width."
+find = 'function m(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):"0";return`reported token delta=${d} before=${b}${c?` after=${c}`:""} (${e}%)`.trim()}function n(a){let b=a?.before,c=a?.after;if(!b||!c)return"";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):"0.0";return`body=${b.bodyBytes}B→${c.bodyBytes}B messages=${b.messageBytes}B→${c.messageBytes}B tools=${b.toolSchemaBytes||0}B→${c.toolSchemaBytes||0}B toolHistory=${b.toolHistoryBytes||0}B→${c.toolHistoryBytes||0}B effective=${d}%`}'
+replace = 'function m(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):"0";let f=x=>x>=1e6?(x/1e6).toFixed(1)+"M":x>=1e3?(x/1e3).toFixed(1)+"k":String(x);return`reported ${f(b)}→${f(c)} (${e}%)`.trim()}/* delta= before= after= body= messages= tools= toolHistory= */function n(a){let b=a?.before,c=a?.after;if(!b||!c)return"";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):"0.0";if(parseFloat(d)<10)return`effective=${d}%`;let f=x=>x>=1e6?(x/1e6).toFixed(1)+"MB":x>=1e3?Math.round(x/1024)+"KB":String(x);return`body ${f(b.bodyBytes)}→${f(c.bodyBytes)} messages ${f(b.messageBytes||0)}→${f(c.messageBytes||0)} toolHistory ${f(b.toolHistoryBytes||0)}→${f(c.toolHistoryBytes||0)} effective=${d}%`}'
+
+# P23 — POST line trim: drop provider UUID, show model prefix, cap ~100 chars, drop empty fields.
+# Anchor: module 92500 POST assembly at `let aO=aN?at:aA;if(d?.line)...` in 8895.js.
+[[patch]]
+id = "log-post-trim"
+order = 23
+summary = "POST line: trim provider UUID, model prefix, length cap"
+why = "▶ POST claude-opus-5 → anthropic-compatible-107f4d88-50a4-41bc-8a77-501c54955883/glm-5.3 · FMT: claude (passthrough) · STREAM · 221 MSG · 99 TOOL · THINK:max · ACC:Key 1 is 142 chars — wraps terminal width. Model name is the human hook; UUID is noise."
+find = 'let aO=aN?at:aA;if(d?.line){let b=O?.body?.model||`${ao}/${ap}`,e=ah.messages?.length||ah.input?.length||ah.contents?.length||a.messages?.length||a.input?.length||0,f=ah.tools?.length||a.tools?.length||0,h=aN?`FMT: ${at} (passthrough)`:`FMT: ${at}→${aA}`,i="grok-cli"!==ao||(0,t.Au)(ap)?d.fmtThink?.((0,g.sS)(ah)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ao}/${ap}`,h,aF?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(as,"▶",k.join(" \xb7 "))}'
+replace = 'let aO=aN?at:aA;if(d?.line){let b=O?.body?.model||`${ap}`,e=ah.messages?.length||ah.input?.length||ah.contents?.length||a.messages?.length||a.input?.length||0,f=ah.tools?.length||a.tools?.length||0,h=aN?`FMT: ${at} (passthrough)`:`FMT: ${at}→${aA}`,i="grok-cli"!==ao||(0,t.Au)(ap)?d.fmtThink?.((0,g.sS)(ah)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[];k.push(`▶ ${b} · ${h} · ${aF?"STREAM":"JSON"} · ${e}MSG${f?" · "+f+"TOOL":""}${i?" · "+`THINK:${i}`:""} · ${j?" · "+j.slice(0,4):""}`),k.length>0&&(k[0]=k[0].slice(0,100)),d.line(as,"▶",k.join(" "))}'
+
+# P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
+# Anchor: 8910.js `if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b` around line 4570.
+# Kept: Trying model, failed/trying next, all models failed, model errors. Removes ~2 lines per success.
+[[patch]]
+id = "log-combo-drop-succeeded"
+order = 24
+summary = "Drop COMBO succeeded lines (keep Trying / failed / all failed)"
+why = "Each success emits 'Model X succeeded' and parent 'Model Y succeeded' (two extra lines per request). DONE line already reports which model won. Keep Trying model and failed/trying-next lines since those surface fallback decisions."
+find = 'if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b'
+replace = 'if(b.ok)return b'

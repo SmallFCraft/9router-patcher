@@ -114,7 +114,7 @@ def unlink_dir(link: Path) -> None:
 # ---------- structural ----------
 
 def test_load_patches_real_file(patches):
-    assert len(patches) == 19
+    assert len(patches) == 23
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -129,7 +129,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 15  # 13 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist
+    assert len(grouped) == 19  # 17 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -1213,3 +1213,93 @@ const f = new Function("a", 'return (async()=>{let c="";try{' + inner + '}catch{
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0 and "RACE-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
+
+
+# ---------- log-render-improve group (p21-p24, cosmetic console format) ----------
+
+def _patch_replace(patches, pid):
+    return by_id(patches, pid).replace
+
+
+def test_log_done_format_split_new_cache_ctx(patches):
+    """P21 function k: no-cache shows [NEW x]; cache shows [NEW x] · CACHE ↻y · CTX x+y; z không phải
+    replace — module 86171 giữ nguyên CTX hợp lệ khi có cache_creation."""
+    rep = _patch_replace(patches, "log-done-format")
+    inner = rep[rep.index("{usage:a,latency:b}){"):]          # rest of function body
+    body = "return`" + "X"  # noqa: F841 — not used, we exec the actual function
+    # extract the actual function declaration to test as JS
+    script = """
+%s
+const enc = (v) => v;
+function fmt(usage, latency) { return k({ usage, latency }); }
+// no cache
+let a = fmt({input_tokens:45789, output_tokens:91, cache_read_input_tokens:0}, {ttft:5182, total:6269});
+if (!a.includes("[NEW 45789]")) throw new Error("no-cache NEW: " + a);
+if (!a.includes("OUT 91")) throw new Error("no-cache OUT: " + a);
+if (a.includes("CTX")) throw new Error("no-cache CTX should not appear: " + a);
+// cache read
+a = fmt({input_tokens:45789, output_tokens:91, cache_read_input_tokens:141952}, {ttft:5182, total:6269});
+if (!a.includes("[NEW 45789]")) throw new Error("NEW: " + a);
+if (!a.includes("CACHE ↻141952")) throw new Error("CACHE: " + a);
+if (!a.includes("CTX 187741")) throw new Error("CTX: " + a);
+console.log("DONE-FORMAT-OK");
+""" % rep
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "DONE-FORMAT-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_log_headroom_trim_compact_suffix(patches):
+    """P22: m() token numbers become k/M suffix; n() hides body section when effective<10%, keeps
+    it when >=10%. Parse the two function bodies from replace and eval in node."""
+    rep = _patch_replace(patches, "log-headroom-trim")
+    script = """
+%s
+const cases = [
+  [{tokens_before:160097, tokens_after:124365, tokens_saved:35732}, "160.1k→124.4k"],
+  [{tokens_before:8000, tokens_after:6000, tokens_saved:2000}, "8.0k→6.0k"],
+  [{tokens_before:800, tokens_after:600, tokens_saved:200}, "800→600"],
+];
+for (const [c, want] of cases) {
+  const s = m(c);
+  if (!s.includes(want)) throw new Error("m(" + JSON.stringify(c) + ")=" + s + " want " + want);
+}
+let lo = n({ before: { bodyBytes: 100000, messageBytes: 50000, toolSchemaBytes: 100, toolHistoryBytes: 30000 }, after: { bodyBytes: 95000, messageBytes: 48000, toolSchemaBytes: 100, toolHistoryBytes: 28000 } });
+if (!lo.startsWith("effective=") || lo.includes("body")) throw new Error("low-eff: " + lo);
+let hi = n({ before: { bodyBytes: 1000000, messageBytes: 600000, toolSchemaBytes: 100, toolHistoryBytes: 300000 }, after: { bodyBytes: 700000, messageBytes: 400000, toolSchemaBytes: 100, toolHistoryBytes: 200000 } });
+if (!hi.includes("body") || !hi.includes("MB")) throw new Error("high-eff: " + hi);
+console.log("HEADROOM-TRIM-OK");
+""" % rep
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "HEADROOM-TRIM-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
+    """P23: POST line no longer embeds the `${ao}/${ap}` provider-UUID target, adds a 100-char
+    cap and a 4-char ACC short label; the rebuilt statement must still parse as JS."""
+    rep = _patch_replace(patches, "log-post-trim")
+    assert "→ ${ao}/${ap}" not in rep          # provider-uuid target dropped
+    assert "slice(0,100)" in rep                # length cap present
+    assert "slice(0,4)" in rep                  # ACC short label
+    # wrap the emitted statement so node can syntax-check it in isolation
+    stmt = rep[rep.index("let aO=aN?at:aA;if(d?.line){"):]
+    script = "function st(aN,at,aA,ah,a,d,ao,ap,c,O,g,t,aF,as){" + stmt + "}\n"
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    tmp = tmp_path / "stmt.js"
+    tmp.write_text(script, encoding="utf-8")
+    r = subprocess.run(["node", "--check", str(tmp)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr or r.stdout
+
+
+def test_log_combo_drop_succeeded(patches):
+    """P24: after replace, `Model ${e} succeeded` string no longer emitted on success; replace
+    body is just `return b` so a caller returning the raw b (no log) is the new behavior."""
+    rep = _patch_replace(patches, "log-combo-drop-succeeded")
+    assert "succeeded" not in rep
+    assert rep == "if(b.ok)return b"
+    assert 'g.info("COMBO"' not in rep
+
