@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+tests/__pycache__/
+# Engine output: copies of 9router's copyrighted minified build (never publish) + logs
+# with machine paths, tunnel URLs, error bodies
+backups/
+logs/
+docs/
+# OS / editor
+Thumbs.db
+.DS_Store
+
+# Agents
+.claude/
+.mimosa/
+.playwright-mcp/
+

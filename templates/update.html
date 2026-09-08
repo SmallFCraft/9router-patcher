@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, copy_btn %}
+{% block title %}Update · 9router{% endblock %}
+{% block heading %}{{ icon('refresh') }}Update 9router{% endblock %}
+{% block content %}
+<section class="card panel">
+  <div class="verflow">
+    <div class="verbox">
+      <span class="small muted">Local</span>
+      <span class="ver">{{ local_version if local_version is defined else "—" }}</span>
+    </div>
+    {{ icon('arrow') }}
+    <div class="verbox">
+      <span class="small muted">npm latest</span>
+      <span class="ver">{{ latest_version if latest_version is defined else "—" }}</span>
+    </div>
+    {% set lv = local_version if local_version is defined else "unknown" %}
+    {% set la = latest_version if latest_version is defined else "unknown" %}
+    {% if lv != "unknown" and la != "unknown" and lv == la %}
+      <span class="badge ok">đã mới nhất — update là no-op</span>
+    {% elif lv != "unknown" and la != "unknown" %}
+      <span class="badge info">có bản mới</span>
+    {% else %}
+      <span class="badge warn">chưa kiểm tra được phiên bản</span>
+    {% endif %}
+    <span style="margin-left:auto"></span>
+    <a class="btn btn-ghost btn-sm" href="/">{{ icon('arrow') }}Bảng patch</a>
+  </div>
+</section>
+
+{#- lock_error contract — main.py picks the state by what it puts in the context:
+      absent        -> probe chưa chạy hoặc không chạy được      => cảnh báo + nút dò
+      "" (rỗng)     -> probe đã chạy và không lỗi                => được phép khẳng định dương
+      non-empty str -> probe raise, string là error text         => cảnh báo + in error text
+    Chỉ probe đã thực sự ra kết quả mới được khẳng định dương; [] một mình không đủ. -#}
+{% set probed = locks or (lock_error is defined and not lock_error) %}
+<section class="card panel" id="lock-panel"
+         {% if not probed and lock_error is not defined %}data-probe="pending"{% endif %}>
+  <div class="panel-head">
+    <h2>{{ icon('lock') }}Process đang giữ handle{% if probed %} ({{ locks | length }}){% endif %}</h2>
+    {% if not probed %}<a class="btn btn-ghost btn-sm" href="/update?probe=1">{{ icon('refresh') }}Dò lock</a>{% endif %}
+  </div>
+  {% if locks %}
+  <p class="small muted" style="margin:.1rem 0 .7rem">Tắt các process này trước khi update để tránh lỗi EBUSY (hoặc bật «tự tắt & khởi động lại» bên dưới).</p>
+  <div class="locklist">
+    {% for l in locks %}
+    <div class="lockrow">
+      <span class="mono pid">PID {{ l.pid }}</span>
+      <span class="mono">{{ l.name }}</span>
+      <code class="lockpath">{{ l.path }}</code>
+      {{ copy_btn(l.path, 'Copy path') }}
+    </div>
+    {% endfor %}
+  </div>
+  {% elif probed %}
+  <p>Không có process nào đang giữ thư mục cài đặt — update ghi file được.</p>
+  {% else %}
+  <p class="banner">{{ icon('alert') }}<span>Cảnh báo: chưa dò được lock, nên update vẫn có thể lỗi EBUSY.
+  {%- if lock_error is defined and lock_error %} Lỗi khi dò: <code>{{ lock_error }}</code>{% endif %}</span></p>
+  <p class="small" data-probe-note hidden>
+    <span class="spin inline"></span> Đang dò lock trong nền — handle64 thường mất ~40–70s, trang sẽ tự nạp lại khi xong.
+  </p>
+  {% endif %}
+</section>
+
+<section class="card panel">
+  <div class="panel-head">
+    <h2>{{ icon('terminal') }}Chạy update</h2>
+  </div>
+  <form id="update-form" method="post" action="/update">
+    <label class="switch" style="margin-bottom:.7rem">
+      <input type="checkbox" name="autostop" checked>
+      Tự tắt process đang giữ lock &amp; khởi động lại y nguyên sau khi update (chống EBUSY)
+    </label>
+    <label class="switch" style="margin-bottom:.7rem">
+      <input type="checkbox" name="skip_gate">
+      Bỏ qua dry-run anchor — update dù anchor có thể chết trên bản mới (cần khi đã sửa patches.toml và muốn cài ngay)
+    </label>
+    <div>
+      <button class="btn btn-primary btn-lg" type="submit">
+        <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+        <span class="btn-label">npm i -g 9router@latest rồi apply lại patch</span>
+      </button>
+    </div>
+  </form>
+  <p class="small muted" style="margin:.7rem 0 0">Không tự restart khi tắt chế độ tự động — restart tay sau khi xong. Xem log trực tiếp ở console bên dưới khi chạy.</p>
+</section>
+
+<section class="card panel console-panel" id="console-panel" hidden>
+  <div class="con-head">
+    <span class="dot up" id="con-dot"></span>
+    <strong>Console</strong>
+    <span class="badge info" id="con-status">idle</span>
+    <span class="mono small muted" id="con-elapsed">0s</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="con-copy" hidden>{{ icon('copy') }}Copy log</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="con-reload" hidden
+            onclick="location.reload()">{{ icon('refresh') }}Nạp kết quả</button>
+  </div>
+  <div class="console" id="console" aria-live="polite"></div>
+</section>
+
+{% if steps %}
+<section class="card panel">
+  <div class="panel-head">
+    <h2>{{ icon('activity') }}Kết quả lần chạy gần nhất</h2>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="latest-copy">{{ icon('copy') }}Copy log</button>
+  </div>
+  <ol class="steps" id="latest-steps">
+    {% for s in steps %}
+    <li class="step {{ 'ok' if s.ok else 'fail' }}">
+      <span class="step-num">{{ loop.index }}</span>
+      <div class="step-head">
+        <strong>{{ s.title }}</strong>
+        {% if s.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">FAIL</span>{% endif %}
+      </div>
+      <div class="codewrap">
+        {{ copy_btn(s.log, 'Copy bước này') }}
+        <pre>{{ s.log }}</pre>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+{% if history %}
+<section class="card panel">
+  <div class="panel-head">
+    <h2>{{ icon('clock') }}Lịch sử chạy</h2>
+    {% if history | length > 1 %}
+    <select id="history-select" class="btn btn-ghost btn-sm" aria-label="Chọn lần chạy">
+      {% for h in history %}
+      <option value="{{ loop.index0 }}">{{ h.time_str }} — {{ 'OK' if h.ok else 'FAIL' }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
+  {% for h in history %}
+  <div class="history-run" data-idx="{{ loop.index0 }}" {% if loop.index0 %}hidden{% endif %}>
+    <div class="step-head" style="margin:.1rem 0 .4rem">
+      <strong>{{ h.time_str }}</strong>
+      {% if h.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">FAIL</span>{% endif %}
+      <span class="small muted">autostop: {{ 'bật' if h.autostop else 'tắt' }}</span>
+      <span style="margin-left:auto"></span>
+      <button type="button" class="btn btn-ghost btn-sm hist-copy">{{ icon('copy') }}Copy log</button>
+    </div>
+    <ol class="steps">
+      {% for s in h.steps %}
+      <li class="step {{ 'ok' if s.ok else 'fail' }}">
+        <span class="step-num">{{ loop.index }}</span>
+        <div class="step-head">
+          <strong>{{ s.title }}</strong>
+          {% if s.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">FAIL</span>{% endif %}
+        </div>
+        <div class="codewrap">
+          {{ copy_btn(s.log, 'Copy bước này') }}
+          <pre>{{ s.log }}</pre>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  "use strict";
+  var panel = document.getElementById("lock-panel");
+
+  // Background lock probe: page rendered "chưa dò" — ask the JSON endpoint (takes ~40-70s).
+  // Reload when done, EXCEPT while an update job is running: reloading would kill the console.
+  if (panel && panel.dataset.probe === "pending") {
+    var note = panel.querySelector("[data-probe-note]");
+    if (note) note.hidden = false;
+    fetch("/update/locks", {credentials: "same-origin"})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.job_running) {
+          if (note) note.textContent = "Dò lock xong — job update đang chạy nên trang không tự nạp lại (xem console bên dưới).";
+        } else {
+          location.reload();
+        }
+      })
+      .catch(function(){ if (note) note.textContent = "Dò lock lỗi mạng — bấm «Dò lock» để thử lại."; });
+  }
+
+  // Copy toàn bộ một lần chạy: nút gắn data-copy bằng nội dung text của container lúc tải trang.
+  document.querySelectorAll(".hist-copy").forEach(function(b){
+    var run = b.closest(".history-run");
+    if (run) b.setAttribute("data-copy", run.innerText);
+  });
+  var latest = document.getElementById("latest-steps");
+  var latestBtn = document.getElementById("latest-copy");
+  if (latest && latestBtn) latestBtn.setAttribute("data-copy", latest.innerText);
+
+  // Chọn lần chạy trong lịch sử
+  var sel = document.getElementById("history-select");
+  if (sel) sel.addEventListener("change", function(){
+    document.querySelectorAll(".history-run").forEach(function(el){
+      el.hidden = el.getAttribute("data-idx") !== sel.value;
+    });
+  });
+
+  var form = document.getElementById("update-form");
+  var panelBox = document.getElementById("console-panel");
+  var con = document.getElementById("console");
+  var statusEl = document.getElementById("con-status");
+  var elapsedEl = document.getElementById("con-elapsed");
+  var reloadBtn = document.getElementById("con-reload");
+  var copyBtn = document.getElementById("con-copy");
+  var timer = null, t0 = 0;
+
+  function ts(){
+    var d = new Date();
+    function p(n){ return (n < 10 ? "0" : "") + n }
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+  }
+  function addLine(text, cls){
+    var row = document.createElement("div");
+    row.className = "c-line" + (cls ? " " + cls : "");
+    var t = document.createElement("span");
+    t.className = "c-t"; t.textContent = ts();
+    row.appendChild(t);
+    row.appendChild(document.createTextNode(text));
+    con.appendChild(row);
+    if (copyBtn) copyBtn.setAttribute("data-copy", con.innerText);
+    con.scrollTop = con.scrollHeight;
+  }
+  function startClock(){
+    t0 = Date.now();
+    timer = setInterval(function(){
+      elapsedEl.textContent = Math.round((Date.now() - t0) / 1000) + "s";
+    }, 500);
+  }
+
+  if (!form) return;
+  form.addEventListener("submit", function(e){
+    e.preventDefault();
+    var btn = form.querySelector("button[type='submit']");
+    var autostop = form.querySelector("input[name='autostop']").checked ? "1" : "0";
+    var skipGate = form.querySelector("input[name='skip_gate']");
+    var skip = skipGate && skipGate.checked ? "1" : "0";
+    btn.disabled = true; btn.classList.add("is-loading");
+    var label = btn.querySelector(".btn-label");
+    if (label) label.textContent = "Đang khởi động job…";
+    fetch("/update/start", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: "autostop=" + autostop + "&skip_gate=" + skip
+    }).then(function(r){
+      return r.json().then(function(j){ return {status: r.status, j: j}; });
+    }).then(function(res){
+      if (!res.j || res.j.ok !== true) {
+        window.toast(res.j && res.j.error || "Không start được job", "bad");
+        btn.disabled = false; btn.classList.remove("is-loading");
+        if (label) label.textContent = "npm i -g 9router@latest rồi apply lại patch";
+        return;
+      }
+      panelBox.hidden = false;
+      con.textContent = "";
+      if (copyBtn) copyBtn.hidden = false;
+      statusEl.textContent = "đang chạy"; statusEl.className = "badge warn";
+      startClock();
+      addLine("Job update đã start (autostop=" + autostop + (skip ? ", skip_gate=1" : "") + ").", "c-step");
+      var es = new EventSource("/update/stream");
+      es.onmessage = function(m){
+        var ev;
+        try { ev = JSON.parse(m.data); } catch (x) { return; }
+        if (ev.type === "step-start") {
+          addLine("── " + ev.title, "c-step");
+          if (ev.hint) addLine("   (" + ev.hint + ")", "c-hint");
+        } else if (ev.type === "line") {
+          addLine(ev.text);
+        } else if (ev.type === "step-end") {
+          addLine(ev.ok ? "✔ hoàn thành: " + ev.title : "✘ FAIL: " + ev.title,
+                  ev.ok ? "c-ok" : "c-fail");
+        } else if (ev.type === "done") {
+          es.close();
+          clearInterval(timer);
+          if (ev.ok) {
+            statusEl.textContent = "thành công"; statusEl.className = "badge ok";
+            addLine("✔ HOÀN TẤT sau " + Math.round((Date.now() - t0) / 1000) + "s — nạp lại trang…", "c-ok");
+            setTimeout(function(){ location.reload(); }, 1500);
+          } else {
+            statusEl.textContent = "có bước FAIL"; statusEl.className = "badge bad";
+            addLine("✘ Pipeline kết thúc với bước FAIL — xem log bên trên.", "c-fail");
+            reloadBtn.hidden = false;
+            btn.disabled = false; btn.classList.remove("is-loading");
+            if (label) label.textContent = "npm i -g 9router@latest rồi apply lại patch";
+          }
+        }
+      };
+      es.onerror = function(){
+        if (statusEl.textContent === "đang chạy") {
+          statusEl.textContent = "mất kết nối"; statusEl.className = "badge warn";
+          addLine("Mất kết nối stream — tải lại trang để xem trạng thái.", "c-hint");
+        }
+      };
+    }).catch(function(){
+      window.toast("Lỗi mạng khi start job", "bad");
+      btn.disabled = false; btn.classList.remove("is-loading");
+    });
+  });
+})();
+</script>
+{% endblock %}

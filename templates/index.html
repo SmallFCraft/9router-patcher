@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, copy_btn %}
+{% block title %}Bảng điều khiển · 9router{% endblock %}
+{% block heading %}{{ icon('activity') }}Bảng điều khiển{% endblock %}
+{% block content %}
+{% set pct = ((counts.applied * 100 / patch_count) | round | int) if patch_count else 0 %}
+
+<section class="statgrid">
+  <article class="card stat">
+    <div class="stat-label">{{ icon('tag') }}Phiên bản</div>
+    <div class="stat-value mono">{{ local_version }}</div>
+    <div class="stat-sub">
+      npm latest: <span class="mono">{{ latest_version }}</span>
+      {% if local_version != "unknown" and latest_version != "unknown" and local_version == latest_version %}
+        <span class="badge ok">mới nhất</span>
+      {% elif local_version != "unknown" and latest_version != "unknown" %}
+        <a class="badge info" href="/update">có bản mới →</a>
+      {% else %}
+        <span class="badge warn">unknown</span>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="card stat" data-service="router">
+    <div class="stat-label">{{ icon('server') }}9router</div>
+    <div class="stat-value">
+      <span class="dot {{ 'up' if router.up else 'down' }}"></span>
+      {% if router.up %}<span class="up" data-updown>UP</span>{% else %}<span class="down" data-updown>DOWN</span>{% endif %}
+    </div>
+    <div class="stat-sub">:20128 · hung requests: <strong class="mono" data-hung>{{ router.hung }}</strong></div>
+    <div class="stat-actions">
+      {% if router.up %}
+      <form method="post" action="/router/stop">
+        <button class="btn btn-danger btn-sm" type="submit"
+                data-confirm="Tắt 9router + headroom? Các agent đang qua proxy sẽ mất kết nối tới khi bật lại.">{{ icon('power') }}Tắt tất cả</button>
+      </form>
+      {% else %}
+      <form method="post" action="/router/start">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('play') }}Bật tất cả</button>
+      </form>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="card stat" data-service="headroom">
+    <div class="stat-label">{{ icon('gauge') }}Headroom</div>
+    <div class="stat-value">
+      <span class="dot {{ 'up' if headroom.up else 'down' }}"></span>
+      {% if headroom.up %}<span class="up" data-updown>UP</span>{% else %}<span class="down" data-updown>DOWN</span>{% endif %}
+    </div>
+    <div class="stat-sub">readyz :8787 · <span data-hrdetail>{{ headroom.detail }}</span></div>
+    <div class="stat-actions">
+      {% if headroom.up %}
+      <form method="post" action="/headroom/stop">
+        <button class="btn btn-danger btn-sm" type="submit">{{ icon('power') }}Tắt</button>
+      </form>
+      {% else %}
+      <form method="post" action="/headroom/start">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('play') }}Bật</button>
+      </form>
+      {% endif %}
+    </div>
+  </article>
+
+  <article class="card stat">
+    <div class="stat-label">{{ icon('activity') }}Hung requests</div>
+    <div class="stat-value mono">{{ router.hung }}</div>
+    <div class="stat-sub">active requests từ /api/usage/stats</div>
+  </article>
+</section>
+
+<section class="card panel">
+  <div class="panel-head">
+    <h2>{{ icon('zap') }}Trạng thái patch</h2>
+    <span class="muted small">{{ groups | length }} group · {{ patch_count }} patch</span>
+    <span class="spacer"></span>
+    <span class="badge ok">applied {{ counts.applied }}</span>
+    <span class="badge warn">clean {{ counts.clean }}</span>
+    {% if counts.partial %}<span class="badge warn">partial {{ counts.partial }}</span>{% endif %}
+    <span class="badge {{ 'bad' if counts['dead-anchor'] else 'ok' }}">dead-anchor {{ counts['dead-anchor'] }}</span>
+  </div>
+  <div class="meter" role="img" aria-label="{{ counts.applied }} trên {{ patch_count }} patch đã áp"><i style="width: {{ pct }}%"></i></div>
+  <div class="toolbar">
+    <form method="post" action="/apply">
+      <button class="btn btn-primary" type="submit">{{ icon('play') }}Apply tất cả</button>
+    </form>
+    <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
+    <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
+    <span class="meta">{{ icon('clock') }}quét {{ scan_seconds }}s · <span data-epoch="{{ now_epoch }}">vừa xong</span></span>
+  </div>
+</section>
+
+{% if build_path %}
+<p class="small muted" style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:0 0 14px">
+  {{ icon('save') }}backup gần nhất: {% if backup_epoch %}<strong data-epoch="{{ backup_epoch }}">…</strong>{% else %}chưa có{% endif %}
+  <span class="chip" title="{{ build_path }}">{{ build_path }}</span>
+</p>
+{% endif %}
+
+{% if error %}
+<p class="banner">{{ icon('alert') }}<span>Không quét được build: {{ error }}</span></p>
+{% elif dead %}
+<p class="banner">{{ icon('alert') }}<span>CẢNH BÁO: patch mất anchor (upstream đã đổi build): {{ dead | join(", ") }}</span></p>
+{% endif %}
+
+{% if not groups and not error %}
+<section class="card panel"><p class="muted">Không có patch nào trong patches.toml.</p></section>
+{% endif %}
+
+<section class="ggrid">
+{% for g in groups %}
+  <article class="card gcard">
+    <header>
+      <h3 class="gname">{{ g.name }}</h3>
+      <span class="gcount">{{ g.members | length }} patch</span>
+      {% if g.state == "applied" %}<span class="badge ok">applied</span>
+      {% elif g.state == "clean" %}<span class="badge warn">clean</span>
+      {% elif g.state == "dead-anchor" %}<span class="badge bad">dead-anchor</span>
+      {% else %}<span class="badge warn">{{ g.state }}</span>{% endif %}
+      <div class="gactions">
+        <form method="post" action="/apply">
+          <input type="hidden" name="ids" value="{{ g.name }}">
+          <button class="btn btn-ghost btn-sm" type="submit">{{ icon('play') }}Apply</button>
+        </form>
+        <form method="post" action="/revert">
+          <input type="hidden" name="group" value="{{ g.name }}">
+          <button class="btn btn-danger btn-sm" type="submit"
+                  data-confirm="Revert group «{{ g.name }}»? Sẽ gỡ toàn bộ {{ g.members | length }} patch khỏi build.">{{ icon('undo') }}Revert</button>
+        </form>
+      </div>
+    </header>
+    {% if g.files %}
+    <div class="gfiles">
+      {% for f in g.files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="gbody">
+    {% for s in g.members %}
+      <details class="patch" data-key="{{ s.patch.id }}">
+        <summary>
+          {{ icon('chevron', 'chev') }}
+          <span class="patch-id">{{ s.patch.id }}</span>
+          <span class="patch-summary">{{ s.patch.summary }}</span>
+          <span class="badge {{ {'applied':'ok','clean':'warn','dead-anchor':'bad'}.get(s.state,'warn') }}">{{ s.state }}</span>
+        </summary>
+        <div class="patch-body">
+          <p class="why">{{ s.patch.why }}</p>
+          <div class="flabel">find</div>
+          <div class="codewrap">
+            {{ copy_btn(s.patch.find, 'Copy find') }}
+            <pre>{{ s.patch.find }}</pre>
+          </div>
+          <div class="flabel">replace</div>
+          <div class="codewrap">
+            {{ copy_btn(s.patch.replace, 'Copy replace') }}
+            <pre>{{ s.patch.replace }}</pre>
+          </div>
+          <div class="flabel">file chứa replace ({{ s.applied_files | length }})</div>
+          {% if s.applied_files %}
+          <div class="filelist">{% for f in s.applied_files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}</div>
+          {% else %}<span class="muted small">—</span>{% endif %}
+          <div class="flabel">file còn clean ({{ s.clean_files | length }})</div>
+          {% if s.clean_files %}
+          <div class="filelist">{% for f in s.clean_files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}</div>
+          {% else %}<span class="muted small">—</span>{% endif %}
+        </div>
+      </details>
+    {% endfor %}
+    </div>
+  </article>
+{% endfor %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  "use strict";
+  // Nút Bật/Tắt 9router + headroom: fetch (Accept: application/json) -> server trả 202 và chạy
+  // nền; trang poll /action/status 1.5s/lần để toast + cập nhật chip từng service realtime.
+  // Không có JS: form vẫn POST đồng bộ như cũ (303 redirect, chậm nhưng đúng).
+  var pollTimer = null, lingerUntil = 0, POLL_MS = 1500, LINGER_MS = 20000;
+  var lastState = { router: null, headroom: null };
+
+  function toast(msg, kind){
+    if (window.toast) window.toast(msg, kind);
+  }
+
+  // Cả hai nút Tắt/Bật của 9router + headroom khóa/mở cùng nhau: một action đụng cả stack.
+  function setStackButtonsDisabled(disabled){
+    var btns = document.querySelectorAll('article[data-service] button[type="submit"]');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = disabled;
+  }
+
+  function paintOne(service, st){
+    var card = document.querySelector('article[data-service="' + service + '"]');
+    if (!card || !st) return;
+    var dot = card.querySelector(".stat-value .dot");
+    var lbl = card.querySelector("[data-updown]");
+    if (dot) {
+      dot.classList.toggle("up", !!st.up);
+      dot.classList.toggle("down", !st.up);
+    }
+    if (lbl) {
+      lbl.textContent = st.up ? "UP" : "DOWN";
+      lbl.className = st.up ? "up" : "down";
+    }
+    if (service === "router") {
+      var h = card.querySelector("[data-hung]");
+      if (h && st.hung !== undefined) h.textContent = st.hung;
+    } else {
+      var d = card.querySelector("[data-hrdetail]");
+      if (d && st.detail !== undefined) d.textContent = st.detail;
+    }
+  }
+
+  // So trạng thái mới với lần poll trước: đổi -> toast riêng cho service đó + cần swap nút.
+  function noteTransition(service, up){
+    var prev = lastState[service];
+    lastState[service] = up;
+    if (prev === null || prev === up) return false;
+    toast(service === "router"
+            ? (up ? "9router ĐÃ LÊN (:20128)" : "9router ĐÃ TẮT")
+            : (up ? "Headroom ĐÃ LÊN (:8787)" : "Headroom ĐÃ TẮT"));
+    return true;
+  }
+
+  // Hoán đổi lại khối statgrid từ server: nút Tắt/Bật + badge theo trạng thái thật.
+  function refreshCards(keepDisabled){
+    fetch(location.href, {credentials: "same-origin"}).then(function(r){ return r.text() })
+      .then(function(html){
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var fresh = doc.querySelector(".statgrid"), cur = document.querySelector(".statgrid");
+        if (fresh && cur) {
+          cur.innerHTML = fresh.innerHTML;
+          if (keepDisabled) setStackButtonsDisabled(true);
+        }
+      }).catch(function(){});
+  }
+
+  function finalToast(s){
+    var ru = s.router && s.router.up, hu = s.headroom && s.headroom.up;
+    if (s.name === "router-start") {
+      if (ru && hu) toast("Đã bật 9router + headroom");
+      else if (ru) toast("9router ĐÃ LÊN — đang chờ headroom bind, sẽ có báo khi lên");
+      else toast("9router CHƯA lên — thử lại", "bad");
+      return;
+    }
+    if (s.name === "router-stop") {
+      toast(!ru && !hu ? "Đã tắt 9router + headroom"
+                       : "Vẫn còn service đang nghe — kiểm tra lại",
+            !ru && !hu ? "" : "bad");
+    } else if (s.name === "headroom-stop") {
+      toast(hu ? "Headroom vẫn đang nghe — kiểm tra lại" : "Đã tắt headroom", hu ? "bad" : "");
+    } else if (s.name === "headroom-start") {
+      toast(hu ? "Đã bật headroom" : "Headroom chưa nghe được — sẽ có báo nếu lên", hu ? "bad" : "");
+    }
+  }
+
+  // Mục tiêu của action: stop -> serviceDOWN; start -> UP. Đạt mục tiêu thì dừng poll sớm,
+  // không giữ nút khóa thêm nữa (bẫy đã gặp: Tắt xong mà nút vẫn disabled cả 20s).
+  function goalReached(name, s){
+    var ru = s.router && s.router.up, hu = s.headroom && s.headroom.up;
+    if (name === "router-stop")    return !ru && !hu;
+    if (name === "router-start")   return ru && hu;
+    if (name === "headroom-stop")  return !hu;
+    if (name === "headroom-start") return hu;
+    return true;
+  }
+
+  function finalize(){
+    stopPoll();
+    refreshCards(false);
+    setStackButtonsDisabled(false);           // phòng hờ refresh thất bại
+  }
+
+  function poll(){
+    fetch("/action/status", {credentials: "same-origin"})
+      .then(function(r){ return r.json() })
+      .then(function(s){
+        var changed = noteTransition("router", !!(s.router && s.router.up));
+        if (noteTransition("headroom", !!(s.headroom && s.headroom.up))) changed = true;
+        paintOne("router", s.router);
+        paintOne("headroom", s.headroom);
+        if (changed) refreshCards(!!s.running); // đổi nút theo trạng thái; khóa nếu action còn chạy
+        if (!s.running && s.done) {
+          if (lingerUntil === 0) {
+            lingerUntil = Date.now() + LINGER_MS;  // linger CHỈ để báo service bind chậm
+            finalToast(s);
+            setStackButtonsDisabled(false);        // xong việc -> nút dùng được ngay
+            refreshCards(false);
+            if (goalReached(s.name, s)) finalize();
+            return;
+          }
+          if (Date.now() >= lingerUntil || goalReached(s.name, s)) { finalize(); return; }
+        }
+      }).catch(function(){});
+  }
+
+  function stopPoll(){
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    lingerUntil = 0;
+    lastState = { router: null, headroom: null };   // action sau phải thiết lập baseline lại
+  }
+
+  document.addEventListener("submit", function(e){
+    var a = (e.target.getAttribute("action") || "");
+    if (a.indexOf("/router/") !== 0 && a.indexOf("/headroom/") !== 0) return;
+    var s = e.submitter;
+    e._9rHandled = true;   // đặt TRƯỚC confirm: user Cancel thì base.html cũng không được hỏi lại
+    if (s && s.hasAttribute && s.hasAttribute("data-confirm") &&
+        !window.confirm(s.getAttribute("data-confirm"))) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    var b = s || e.target.querySelector("button");
+    toast(a.indexOf("stop") > 0 ? "Đang tắt… (~2–5s)" : "Đang bật… (10–30s, headroom lên sau)");
+    setStackButtonsDisabled(true);            // một action đụng cả stack: khóa nút 2 card
+    if (b) { b.classList.add("is-loading"); b.setAttribute("aria-busy", "true"); }
+    fetch(a, {method: "POST", credentials: "same-origin",
+              headers: {"Accept": "application/json"}, body: new FormData(e.target)})
+      .then(function(r){
+        return r.json().then(function(j){ return {status: r.status, body: j}; });
+      })
+      .then(function(res){
+        if (res.status === 202) {
+          stopPoll();
+          poll();
+          pollTimer = setInterval(poll, POLL_MS);
+        } else {
+          toast((res.body && res.body.error) || ("Lỗi " + res.status), "bad");
+          setStackButtonsDisabled(false);
+          if (b) { b.classList.remove("is-loading"); b.removeAttribute("aria-busy"); }
+        }
+      })
+      .catch(function(){
+        toast("Không gọi được dashboard — thử lại", "bad");
+        setStackButtonsDisabled(false);
+        if (b) { b.classList.remove("is-loading"); b.removeAttribute("aria-busy"); }
+      });
+  }, true);
+})();
+</script>
+{% endblock %}
