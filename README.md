@@ -71,6 +71,42 @@ engine.revert(engine.build_dir(), patches, group="sse-hang")
 
 `ids` accepts patch ids or group names and always expands to whole groups. Every operation: preflight (no dead/partial anchors, group must live in one file) → snapshot to the backup root → write all files → `node --check` every written file → roll **every** file back on any failure.
 
+### Diagnosing a dead anchor (CLI)
+
+When an upstream build renames things, a patch's `find` stops matching and the update job's
+dry-run gate reports `dead-anchor`. Before editing `patches.toml`, ask the engine where that
+code went in the new build:
+
+```bash
+python -m engine locate connect-timeout-180s --build path/to/app/.next-cli-build
+```
+
+Output is one block per dead patch:
+
+```text
+connect-timeout-180s: rename-likely  server/chunks/8895.js:26589
+  probes khớp: 1/1  (FETCH_CONNECT_TIMEOUT_MS)
+  ---
+  ...i=new AbortController,j=Date.now(),k=!1... FETCH_CONNECT_TIMEOUT_MS",18e4 ...
+  ---
+```
+
+Three verdicts, and only three:
+
+- **`rename-likely`** — most probe tokens (string literals, identifiers ≥8 chars) still sit
+  together in one file. The code is there, the minifier renamed its short identifiers: remap
+  `find` **and** `replace` together, never `find` alone.
+- **`fixed-likely`** — the tokens are gone or scattered. Upstream changed or deleted that code
+  path; the patch is probably obsolete.
+- **`unknown`** — the anchor is too short to yield probe tokens (a ~20-char anchor of
+  single-letter names), so no verdict is possible. The raw `find` is printed instead; read it
+  by eye.
+
+`--latest` downloads and unpacks the newest registry tarball into a temp dir instead of
+`--build`; `--all` diagnoses every dead patch at once. The command is read-only — it prints
+evidence, it never edits `patches.toml`. The update job's dry-run gate runs the same
+diagnosis inline, so the console already shows it when the gate turns red.
+
 ### Managed stack lifecycle
 
 ```python
