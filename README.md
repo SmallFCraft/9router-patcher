@@ -5,9 +5,9 @@ Local-only management dashboard and patch engine for the [9router](https://www.n
 This repo does **not** contain the proxy itself. It manages a locally installed copy of it:
 
 - **`main.py`** — FastAPI dashboard (binds `127.0.0.1:20129`): provider/key/combo overview, live usage stats, patch apply/revert buttons, and an update job with an SSE console.
-- **`updater.py`** — update pipeline: version probe → lock probe → stop stack → `npm install` → re-apply patches → restart. Owns the port-based lifecycle of the managed stack (router `:20128`, headroom `:8787`).
-- **`engine.py`** — the patch engine: loads `patches.toml`, scans the installed build, applies/reverts find-and-replace patches atomically with per-operation backups, `node --check` verification and automatic rollback.
-- **`patches.toml`** — the single source of truth for all patches (currently 19), each measured byte-exact against a specific build of `9router`.
+- **`updater.py`** — update pipeline: version probe → lock probe → dry-run anchor gate → stop stack → `npm install` → re-apply patches → restart. Owns the port-based lifecycle of the managed stack (router `:20128`, headroom `:8787`).
+- **`engine.py`** — the patch engine: loads `patches.toml`, scans the installed build, applies/reverts find-and-replace patches atomically with per-operation backups, `node --check` verification and automatic rollback. Pure data + filesystem — no HTTP.
+- **`patches.toml`** — the single source of truth for all patches (currently 31), each measured byte-exact against a specific build of `9router`.
 
 ```
 ┌──────────────┐   manages    ┌─────────────────────────────┐
@@ -152,7 +152,7 @@ python -m pytest tests/ -q
 main.py         FastAPI dashboard (127.0.0.1:20129)
 updater.py      update pipeline + stack lifecycle (ports 20128 / 8787)
 engine.py       patch engine: scan / apply / revert, backups, node --check
-patches.toml    the 19 patches (single source of truth)
+patches.toml    the 31 patches (single source of truth)
 templates/      dashboard pages (Jinja2)
 tests/          pytest suite
 ```
