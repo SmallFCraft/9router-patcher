@@ -1679,3 +1679,118 @@ def test_stable_tokens_is_deduped_and_ordered():
     b = engine.stable_tokens("alphaOne anotherIdent alphaOne")
     assert a == b == ["alphaOne", "anotherIdent"]
 
+
+def _locate_build(build: Path) -> list[engine.Patch]:
+    """A one-patch patch set whose find lives in the fake build.
+
+    NOTE for anyone editing these fixtures: the find must yield >= VERDICT_MIN_TOKENS (3)
+    probe tokens, or `locate` reports `unknown` and every graded assertion below fails. A
+    string literal containing `:` `/` `.` is NOT a probe token (see `_CODE_SHAPED`), so a
+    fixture built around a URL yields exactly ONE token and silently degrades to `unknown`.
+    The three identifiers below are the tokens this fixture is designed to produce."""
+    return [engine.Patch(
+        id="probe", order=1, group="probe", summary="s", why="w",
+        find='let aY=(0,s.SB)(ao);reasoningInject(providerName,connectionId)',
+        replace="X",
+    )]
+
+
+def test_locate_finds_the_file_with_the_most_surviving_tokens(tmp_path):
+    """The patch's own file is the one holding the tightest cluster of its probe tokens."""
+    build = tmp_path / "build"
+    write(build, "server/chunks/noise.js", "reasoningInject but nothing else here")
+    write(build, "server/chunks/home.js",
+          'x' * 500 + "reasoningInject(providerName,connectionId)" + 'y' * 500)
+    res = engine.locate(build, _locate_build(build))
+    assert len(res) == 1
+    loc = res[0]
+    assert loc.patch_id == "probe"
+    assert loc.file == "server/chunks/home.js"
+    assert loc.matched_tokens == len(loc.tokens) == 3
+    assert "reasoningInject" in loc.snippet
+
+
+def test_locate_prefers_surviving_tokens_over_earlier_partial_hit(tmp_path):
+    """A file matching only one token must lose to a file matching the whole cluster,
+    even when the partial hit comes first in sort order."""
+    build = tmp_path / "build"
+    write(build, "a_partial.js", "reasoningInject")
+    write(build, "z_full.js", "reasoningInject(providerName,connectionId)")
+    loc = engine.locate(build, _locate_build(build))[0]
+    assert loc.file == "z_full.js"
+
+
+def test_locate_verdict_rename_likely_when_tokens_survive(tmp_path):
+    build = tmp_path / "build"
+    write(build, "server/chunks/home.js", "reasoningInject(providerName,connectionId)")
+    loc = engine.locate(build, _locate_build(build))[0]
+    assert loc.verdict == "rename-likely"
+
+
+def test_locate_verdict_fixed_likely_when_tokens_are_gone(tmp_path):
+    """Upstream rewrote the call site: no probe token survives -> the patch is obsolete."""
+    build = tmp_path / "build"
+    write(build, "server/chunks/home.js", "completely different code now")
+    loc = engine.locate(build, _locate_build(build))[0]
+    assert loc.verdict == "fixed-likely"
+    assert loc.file is None and loc.snippet is None
+
+
+def test_locate_verdict_unknown_below_three_probe_tokens(tmp_path):
+    """A 20-char anchor of minified single-letter names yields almost no probe tokens.
+    Guessing there would be worse than saying nothing, so report `unknown` + raw context."""
+    build = tmp_path / "build"
+    write(build, "server/chunks/home.js", "let aY=(0,s.SB)(ao);")
+    ps = [engine.Patch(id="tiny", order=1, group="tiny", summary="s", why="w",
+                       find='let aY=(0,s.SB)(ao);', replace="X")]
+    loc = engine.locate(build, ps)[0]
+    assert loc.tokens == []
+    assert loc.verdict == "unknown"
+    assert loc.snippet is not None          # raw find, so the human still has something
+
+
+def test_locate_never_touches_the_build(tmp_path):
+    build = tmp_path / "build"
+    p = write(build, "server/chunks/home.js", "reasoningInject(providerName,connectionId)")
+    before = p.read_text(encoding="utf-8"), p.stat().st_mtime_ns
+    engine.locate(build, _locate_build(build))
+    assert (p.read_text(encoding="utf-8"), p.stat().st_mtime_ns) == before
+
+
+def test_locate_unknown_patch_id_raises(tmp_path):
+    build = tmp_path / "build"
+    write(build, "a.js", "x")
+    with pytest.raises(PatchError, match="unknown patch id"):
+        engine.locate(build, _locate_build(build), ids=["nope"])
+
+
+def test_locate_ids_expand_to_whole_groups(tmp_path):
+    """`_select` semantics carry over: asking about one sse-hang member reports the group."""
+    build = tmp_path / "build"
+    write(build, "a.js", "reasoningInject(providerName,connectionId)")
+    res = engine.locate(build, engine.load_patches(), ids=["sse-close-translate"])
+    assert {r.patch_id for r in res} == {
+        "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
+    }
+
+
+def test_locate_reports_unknown_for_one_token_patch(tmp_path):
+    """`connect-timeout-180s` has a single probe token (`FETCH_CONNECT_TIMEOUT_MS`), so even
+    when that token is present the verdict stays `unknown` — below VERDICT_MIN_TOKENS."""
+    build = tmp_path / "build"
+    write(build, "a.js", 'FETCH_CONNECT_TIMEOUT_MS",6e4')
+    loc = engine.locate(build, engine.load_patches(), ids=["connect-timeout-180s"])[0]
+    assert loc.tokens == ["FETCH_CONNECT_TIMEOUT_MS"]
+    assert loc.verdict == "unknown"
+
+
+def test_locate_live_anchor_patch_is_reported_as_not_dead(tmp_path, patches):
+    """An applied patch has nothing to diagnose; locate reports it without a verdict so the
+    caller can list every patch state in one pass."""
+    build = tmp_path / "build"
+    p = by_id(patches, "connect-timeout-180s")
+    write(build, "a.js", p.replace)
+    res = engine.locate(build, patches, ids=["connect-timeout-180s"])
+    assert res[-1].verdict == "applied"
+    assert all(r.verdict == "applied" for r in res)   # ids pull the whole group
+

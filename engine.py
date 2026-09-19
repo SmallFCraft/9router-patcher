@@ -143,6 +143,79 @@ def stable_tokens(find: str) -> list[str]:
     return out
 
 
+CLUSTER_WINDOW = 2000      # chars: tokens within this distance count as one code region
+SNIPPET_PAD = 200          # chars of context shown on each side of the cluster
+VERDICT_MIN_TOKENS = 3     # below this, the verdict is `unknown` rather than a guess
+RENAME_RATIO = 0.6         # share of probe tokens that must survive to call it a rename
+
+
+@dataclass(frozen=True)
+class Locate:
+    patch_id: str
+    tokens: list[str]        # probe tokens extracted from `find` ([] for short anchors)
+    matched_tokens: int      # distinct probe tokens found in the best file
+    file: str | None         # relpath in the target build, None when nothing matched
+    offset: int | None       # char offset of the cluster inside that file
+    snippet: str | None      # context around the cluster (raw `find` when no tokens)
+    verdict: str             # applied | rename-likely | fixed-likely | unknown
+
+
+def _best_cluster(text: str, tokens: list[str], window: int) -> tuple[int | None, int]:
+    """Start offset of the earliest window covering the most distinct tokens, and that count."""
+    hits = sorted((m.start(), t) for t in tokens for m in re.finditer(re.escape(t), text))
+    if not hits:
+        return None, 0
+    best_off, best_n, i = hits[0][0], 0, 0
+    for j in range(len(hits)):
+        while hits[j][0] - hits[i][0] > window:
+            i += 1
+        span = text[hits[i][0]:hits[j][0] + len(hits[j][1])]
+        n = sum(1 for t in tokens if t in span)
+        if n > best_n:
+            best_n, best_off = n, hits[i][0]
+    return best_off, best_n
+
+
+def locate(build: str | Path, patches: list[Patch],
+           ids: list[str] | None = None) -> list[Locate]:
+    """For each dead-anchor patch, find where its code went in `build`, and say whether the
+    evidence points at a minifier rename (remap the anchor) or an upstream rewrite of that
+    code (drop the patch). Read-only: never writes into `build`.
+
+    Advisory only. It never edits `patches.toml` — a wrong automatic remap would pass
+    `node --check` (the names are just identifiers) and only fail at runtime.
+    """
+    b = _build(build)
+    selected = _select(patches, ids)
+    texts = {f: _read(f) for f in _js_files(b)}
+    out: list[Locate] = []
+    for p in selected:
+        if any(p.replace in t for t in texts.values()):
+            out.append(Locate(p.id, [], 0, None, None, None, "applied"))
+            continue
+        tokens = stable_tokens(p.find)
+        if len(tokens) < VERDICT_MIN_TOKENS:
+            # No verdict: too few stable probes to tell a rename from a rewrite. Hand the
+            # raw anchor over so the human can look for it by eye.
+            out.append(Locate(p.id, tokens, 0, None, None, p.find[:400], "unknown"))
+            continue
+        best: tuple[int, Path | None, int | None] = (0, None, None)
+        for f, t in texts.items():
+            off, n = _best_cluster(t, tokens, CLUSTER_WINDOW)
+            if off is not None and n > best[0]:
+                best = (n, f, off)
+        matched, f, off = best
+        if f is None:
+            out.append(Locate(p.id, tokens, 0, None, None, None, "fixed-likely"))
+            continue
+        t = texts[f]
+        snippet = t[max(0, off - SNIPPET_PAD):off + CLUSTER_WINDOW + SNIPPET_PAD]
+        verdict = "rename-likely" if matched / len(tokens) >= RENAME_RATIO else "fixed-likely"
+        out.append(Locate(p.id, tokens, matched, f.relative_to(b).as_posix(), off,
+                          snippet, verdict))
+    return out
+
+
 # ---------------------------------------------------------------- internals
 
 def _read(f: Path) -> str:
