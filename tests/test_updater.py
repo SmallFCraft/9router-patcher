@@ -310,6 +310,37 @@ def test_fetch_tarball_streams_body(monkeypatch, tmp_path):
     assert dest.read_bytes() == b"abc123"
 
 
+def test_fetch_tarball_gets_its_own_socket_timeout_budget(monkeypatch, tmp_path):
+    """`timeout` của _registry_conn là SOCKET timeout trên mọi recv, không chỉ lúc connect:
+    luồng tarball 20MB phải có ngân sách riêng, không dùng chung 3s của probe metadata
+    (đo 2026-09-19: tarball 0.5.69 chết giữa chừng với TimeoutError)."""
+    seen = {}
+    real = updater._registry_conn
+    def spy(path, timeout=updater.REGISTRY_TIMEOUT):
+        seen["timeout"] = timeout
+        return real(path, timeout)
+    class FakeConn:
+        def __init__(self, host, port=None, timeout=None):
+            pass
+        def request(self, method, path):
+            pass
+        def getresponse(self):
+            class R:
+                status = 200
+                def read(self, n=-1):
+                    return b""
+            return R()
+        def close(self):
+            pass
+    monkeypatch.setattr(updater, "_registry_conn", spy)
+    monkeypatch.setattr(updater.socket, "getaddrinfo",
+                        lambda h, p, proto=None: [(2, 1, 6, "", ("151.101.1.162", p))])
+    monkeypatch.setattr(http.client, "HTTPSConnection", FakeConn)
+    updater._fetch_tarball("https://registry.npmjs.org/x.tgz", tmp_path)
+    assert seen["timeout"] == updater.TARBALL_TIMEOUT
+    assert updater.TARBALL_TIMEOUT > updater.REGISTRY_TIMEOUT
+
+
 def test_run_update_skips_gate_when_same_version(pipeline):
     """local == latest: không tải tarball 20MB cho update no-op."""
     steps = run_update()

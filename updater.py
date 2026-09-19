@@ -83,16 +83,20 @@ def current_version() -> str:
     return json.loads(pkg.read_text(encoding="utf-8"))["version"]
 
 
-def _registry_conn(path: str) -> http.client.HTTPSConnection:
+TARBALL_TIMEOUT = 120
+
+
+def _registry_conn(path: str, timeout: float = REGISTRY_TIMEOUT) -> http.client.HTTPSConnection:
     """Same outbound policy as latest_version: allowlist host, https only, public IPs only.
-    Returns a NEW connection per call — tarball streams outlive the metadata request."""
+    Returns a NEW connection per call — tarball streams outlive the metadata request.
+    `timeout` là SOCKET timeout trên MỌI recv, không chỉ lúc connect — luồng tarball 20MB
+    cần ngân sách lớn hơn hẳn một lần probe metadata (đo 2026-09-19: tarball 0.5.69 chết
+    giữa chừng với TimeoutError vì dùng chung 3s của metadata)."""
     infos = socket.getaddrinfo(REGISTRY_HOST, 443, proto=socket.IPPROTO_TCP)
     if not infos or not all(ipaddress.ip_address(i[4][0]).is_global for i in infos):
         raise PatchError(f"{REGISTRY_HOST} does not resolve to a public address")
-    return http.client.HTTPSConnection(REGISTRY_HOST, 443, timeout=REGISTRY_TIMEOUT)
+    return http.client.HTTPSConnection(REGISTRY_HOST, 443, timeout=timeout)
 
-
-TARBALL_TIMEOUT = 120
 
 def _registry_meta() -> dict:
     """GET /9router/latest — version + dist.tarball trong cùng một JSON, một lần gọi."""
@@ -120,7 +124,7 @@ def _fetch_tarball(url: str, dest_dir: Path) -> Path:
     parts = urlsplit(url)
     if parts.scheme != "https" or parts.hostname != REGISTRY_HOST:
         raise PatchError(f"tarball URL không phải https://{REGISTRY_HOST}/...: {url}")
-    conn = _registry_conn(parts.path)
+    conn = _registry_conn(parts.path, TARBALL_TIMEOUT)
     dest = dest_dir / "9router-latest.tgz"
     try:
         conn.request("GET", parts.path)
