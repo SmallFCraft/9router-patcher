@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1849,3 +1850,21 @@ def test_main_locate_requires_a_build_source(capsys):
     assert rc == 2
     assert "--build" in capsys.readouterr().err
 
+
+def test_main_locate_latest_fetch_error_exits_2_and_cleans_up(monkeypatch, capsys):
+    """_cmd_locate must guard fetch_latest_build: PatchError -> rc 2 on stderr, temp dir cleaned."""
+    import sys
+    import engine as _engine_mod
+
+    seen = []
+
+    def fake_fetch(dest):
+        seen.append(Path(dest))
+        raise _engine_mod.PatchError("registry down")
+
+    fake_updater = types.SimpleNamespace(fetch_latest_build=fake_fetch)
+    monkeypatch.setitem(sys.modules, "updater", fake_updater)
+    rc = engine.main(["locate", "connect-timeout-180s", "--latest"])
+    assert rc == 2
+    assert "registry down" in capsys.readouterr().err
+    assert seen and not seen[0].exists()

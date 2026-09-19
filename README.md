@@ -78,34 +78,37 @@ dry-run gate reports `dead-anchor`. Before editing `patches.toml`, ask the engin
 code went in the new build:
 
 ```bash
-python -m engine locate connect-timeout-180s --build path/to/app/.next-cli-build
+python -m engine locate attempt-total-deadline --build path/to/app/.next-cli-build
 ```
 
 Output is one block per dead patch:
 
 ```text
-connect-timeout-180s: rename-likely  server/chunks/8895.js:26589
-  probes khớp: 1/1  (FETCH_CONNECT_TIMEOUT_MS)
+attempt-total-deadline: rename-likely  server/chunks/8895.js:26589
+  probes khớp: 5/5  (setTimeout, "stream stall timeout", sinceLast, Date.now, c.handleError)
   ---
-  ...i=new AbortController,j=Date.now(),k=!1... FETCH_CONNECT_TIMEOUT_MS",18e4 ...
+  q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout" ... sinceLast=${Date.now()-z}ms ...
   ---
 ```
 
-Three verdicts, and only three:
+Four output states:
 
+- **`applied`** — the replacement is already present; nothing to diagnose (visible under `--all`).
 - **`rename-likely`** — most probe tokens (string literals, identifiers ≥8 chars) still sit
   together in one file. The code is there, the minifier renamed its short identifiers: remap
   `find` **and** `replace` together, never `find` alone.
 - **`fixed-likely`** — the tokens are gone or scattered. Upstream changed or deleted that code
   path; the patch is probably obsolete.
 - **`unknown`** — the anchor is too short to yield probe tokens (a ~20-char anchor of
-  single-letter names), so no verdict is possible. The raw `find` is printed instead; read it
-  by eye.
+  single-letter names like `connect-timeout-180s`), so no verdict is possible. The raw `find`
+  is printed instead; read it by eye.
 
 `--latest` downloads and unpacks the newest registry tarball into a temp dir instead of
-`--build`; `--all` diagnoses every dead patch at once. The command is read-only — it prints
-evidence, it never edits `patches.toml`. The update job's dry-run gate runs the same
-diagnosis inline, so the console already shows it when the gate turns red.
+`--build`; `--all` prints all results including `applied` rows, not only dead patches.
+Exit codes: 0 = clean or remappable (`applied` / `rename-likely`), 1 = at least one patch needs a
+human decision or is obsolete (`fixed-likely` / `unknown`), 2 = usage or operational error.
+The command is read-only — it prints evidence, it never edits `patches.toml`. The update job's
+dry-run gate runs the same diagnosis inline, so the console already shows it when the gate turns red.
 
 ### Managed stack lifecycle
 

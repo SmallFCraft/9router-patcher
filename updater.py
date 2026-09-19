@@ -160,7 +160,7 @@ def fetch_latest_build(dest_parent: Path) -> tuple[str, Path]:
 DRYRUN_TITLE = "Dò anchor trên bản mới (dry-run)"
 
 def dryrun_anchors(emit=None) -> Step:
-    """Gate TRƯỚC npm: tải tarball bản latest, scan anchor 9 patch trên build trong đó.
+    """Gate TRƯỚC npm: tải tarball bản latest, scan anchor của 31 patch trên build trong đó.
     Anchor chết -> pipeline dừng ở đây; install bản cũ còn nguyên, npm chưa đụng vào gì.
     Caller (run_update) chỉ gọi khi local != latest."""
     try:

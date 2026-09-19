@@ -417,18 +417,18 @@ def revert(build: str | Path, patches: list[Patch], group: str,
 
 def _cmd_locate(args) -> int:
     patches = load_patches(Path(args.patches)) if args.patches else load_patches()
-    if args.build:
-        build = Path(args.build)
-        cleanup = None
-    else:
-        # lazy: engine stays network-free at import, and `--build` never pays for this
-        import tempfile
-        import updater
-        tmp = tempfile.TemporaryDirectory(prefix="9r-locate-")
-        cleanup = tmp
-        version, build = updater.fetch_latest_build(Path(tmp.name))
-        print(f"# nguồn: 9router {version} (tarball registry)")
+    cleanup = None
     try:
+        if args.build:
+            build = Path(args.build)
+        else:
+            # lazy: engine stays network-free at import, and `--build` never pays for this
+            import tempfile
+            import updater
+            tmp = tempfile.TemporaryDirectory(prefix="9r-locate-")
+            cleanup = tmp
+            version, build = updater.fetch_latest_build(Path(tmp.name))
+            print(f"# nguồn: 9router {version} (tarball registry)")
         ids = None if args.all else [args.patch]
         results = locate(build, patches, ids)
     except PatchError as e:
@@ -459,11 +459,24 @@ def _cmd_locate(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows legacy consoles (cp1252): avoid UnicodeEncodeError on accented diagnostic text
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     import argparse
     ap = argparse.ArgumentParser(prog="python -m engine",
                                  description="9router patch engine CLI")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    loc = sub.add_parser("locate", help="chẩn đoán patch có anchor chết trên build đích")
+    loc = sub.add_parser(
+        "locate",
+        help="chẩn đoán patch có anchor chết trên build đích",
+        epilog="exit codes: 0 = clean or remappable, 1 = obsolete or needs decision, 2 = operational error",
+    )
     loc.add_argument("patch", nargs="?", help="patch id (bỏ trống khi dùng --all)")
     loc.add_argument("--all", action="store_true", help="mọi patch, không chỉ một id")
     loc.add_argument("--build", help="thư mục build đã giải nén "
