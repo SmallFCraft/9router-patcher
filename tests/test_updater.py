@@ -905,3 +905,41 @@ def test_start_router_injects_node_path_with_runtime(monkeypatch, tmp_path):
     parts = node_path.split(os.pathsep)
     assert any("runtime" in p and "node_modules" in p for p in parts), f"runtime missing in {node_path}"
     assert any("app" in p and "node_modules" in p for p in parts), f"bundled missing in {node_path}"
+
+
+# ---------- fetch_latest_build ----------
+
+def test_fetch_latest_build_returns_version_and_build_dir(monkeypatch, tmp_path):
+    """Tarball -> (version, <dest>/package/app/.next-cli-build), the one path both the
+    dry-run gate and the locate CLI need."""
+    monkeypatch.setattr(updater, "_registry_meta",
+                        lambda: {"version": "0.5.99",
+                                 "dist": {"tarball": "https://registry.npmjs.org/9router/-/x.tgz"}})
+    monkeypatch.setattr(updater, "_fetch_tarball",
+                        lambda url, d: _make_tgz(d, "server/chunks/a.js", "hello"))
+    ver, build = updater.fetch_latest_build(tmp_path)
+    assert ver == "0.5.99"
+    assert build == tmp_path / "package" / "app" / ".next-cli-build"
+    assert (build / "server" / "chunks" / "a.js").is_file()
+
+
+def test_fetch_latest_build_raises_when_build_dir_missing(monkeypatch, tmp_path):
+    import tarfile
+    other = tmp_path / "pkgroot" / "package" / "somewhere"
+    other.mkdir(parents=True, exist_ok=True)
+    (other / "else.js").write_text("x", encoding="utf-8")
+    tgz = tmp_path / "fake.tgz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(tmp_path / "pkgroot" / "package", arcname="package")
+    monkeypatch.setattr(updater, "_registry_meta",
+                        lambda: {"version": "0.5.99",
+                                 "dist": {"tarball": "https://registry.npmjs.org/9router/-/x.tgz"}})
+    monkeypatch.setattr(updater, "_fetch_tarball", lambda url, d: tgz)
+    with pytest.raises(engine.PatchError, match="next-cli-build"):
+        updater.fetch_latest_build(tmp_path)
+
+
+def test_fetch_latest_build_raises_when_tarball_url_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_registry_meta", lambda: {"version": "0.5.99", "dist": {}})
+    with pytest.raises(engine.PatchError, match="dist.tarball"):
+        updater.fetch_latest_build(tmp_path)
