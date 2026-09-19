@@ -943,3 +943,36 @@ def test_fetch_latest_build_raises_when_tarball_url_missing(monkeypatch, tmp_pat
     monkeypatch.setattr(updater, "_registry_meta", lambda: {"version": "0.5.99", "dist": {}})
     with pytest.raises(engine.PatchError, match="dist.tarball"):
         updater.fetch_latest_build(tmp_path)
+
+
+def test_dryrun_dead_anchor_includes_locate_diagnosis(monkeypatch, tmp_path):
+    """Gate đỏ phải kèm chẩn đoán: file + verdict cho từng anchor chết, để người dùng biết
+    ngay là remap hay xoá patch — không phải tự bung tarball.
+
+    Dùng `attempt-total-deadline` (5 probe tokens: setTimeout, "stream stall timeout", ...)
+    để verdict đạt `rename-likely`. Một patch chỉ có 1 token (như `connect-timeout-180s`) sẽ
+    trả `unknown`, không kiểm thử được phân loại."""
+    def fake_fetch(dest):
+        root = Path(dest) / "package" / "app" / ".next-cli-build" / "server" / "chunks"
+        root.mkdir(parents=True, exist_ok=True)
+        from engine import load_patches as _lp
+        p = next(x for x in _lp() if x.id == "attempt-total-deadline")
+        # Write only the tokens in a slightly perturbed sequence so find does not match,
+        # but the cluster of probe tokens survives -> dead anchor + rename-likely
+        (root / "8895.js").write_text(p.find.replace("Date.now()-l", "Date.now()-z"),
+                                      encoding="utf-8")
+        return "0.5.99", Path(dest) / "package" / "app" / ".next-cli-build"
+    monkeypatch.setattr(updater, "fetch_latest_build", fake_fetch)
+    s = updater.dryrun_anchors()
+    assert s.ok is False
+    assert "attempt-total-deadline" in s.log and "KHÔNG chạy npm" in s.log
+    assert "rename-likely" in s.log
+
+
+def test_dryrun_diagnosis_failure_does_not_break_the_gate(monkeypatch, tmp_path):
+    """locate là phụ trợ: nếu nó nổ thì gate vẫn phải trả Step đỏ với danh sách id."""
+    monkeypatch.setattr(updater, "fetch_latest_build",
+                        lambda dest: ("0.5.99", tmp_path))
+    monkeypatch.setattr(updater.engine, "locate", raiser(RuntimeError("boom")))
+    s = updater.dryrun_anchors()
+    assert s.ok is False and "dead-anchor" in s.log

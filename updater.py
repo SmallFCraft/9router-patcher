@@ -172,9 +172,18 @@ def dryrun_anchors(emit=None) -> Step:
                 if emit:
                     emit({"type": "line", "text": f"  {s.patch.id}: {s.state}"})
             if dead:
-                return Step(DRYRUN_TITLE, False,
-                            "dead-anchor: " + ", ".join(dead)
-                            + " — KHÔNG chạy npm. Sửa anchor trong patches.toml trước, chạy lại update.")
+                lines = ["dead-anchor: " + ", ".join(dead)
+                         + " — KHÔNG chạy npm. Sửa anchor trong patches.toml trước, "
+                           "chạy lại update."]
+                try:                    # phụ trợ: chẩn đoán nổ thì gate vẫn phải đỏ gọn gàng
+                    for loc in engine.locate(build, engine.load_patches(), ids=dead):
+                        where = f"{loc.file}:{loc.offset}" if loc.file else "-"
+                        lines.append(f"  {loc.patch_id}: {loc.verdict}  {where}")
+                        if loc.snippet:
+                            lines.append("    " + loc.snippet[:200].replace("\n", " "))
+                except Exception as e:  # noqa: BLE001
+                    lines.append(f"  (chẩn đoán locate lỗi: {type(e).__name__}: {e})")
+                return Step(DRYRUN_TITLE, False, "\n".join(lines))
             return Step(DRYRUN_TITLE, True,
                         f"{len(states)}/{len(states)} anchor sống trên {latest} — an toàn để update")
     except Exception as e:      # noqa: BLE001 - gate fail phải thành Step, không crash job
