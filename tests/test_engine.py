@@ -1645,3 +1645,37 @@ def test_opencode_freetier_anchor_hits_real_build(patches):
     t = read(build / "server" / "chunks" / "318.js")
     assert t.count(p.find) + t.count(p.replace) == 1
 
+
+# ---------- locate (dead-anchor diagnosis) ----------
+
+def test_stable_tokens_keeps_literals_and_long_idents():
+    """Probe tokens = string literals >= 4 chars + identifiers >= 8 chars, order-preserving,
+    de-duplicated. Short minified identifiers (a, b, i) are dropped: they rename freely."""
+    find = 'function h({provider:a}){let i=d.xq[a]?.reasoningInject,j=e.find(a=>a.match(b));'
+    toks = engine.stable_tokens(find)
+    assert "function" in toks          # 8 chars -> kept
+    assert "provider" in toks
+    assert "reasoningInject" in toks
+    assert "a" not in toks and "i" not in toks and "j" not in toks
+
+
+def test_stable_tokens_keeps_long_string_literals():
+    find = 'FETCH_CONNECT_TIMEOUT_MS",6e4'
+    assert engine.stable_tokens(find) == ["FETCH_CONNECT_TIMEOUT_MS"]
+
+
+def test_stable_tokens_drops_code_shaped_literals():
+    """A 'literal' whose body contains code punctuation is a mis-lexed span, not a probe:
+    it will not survive even a pure rename, so including it only adds noise."""
+    find = '",headers:{"Content-Type":"application/json","x-api-key"'
+    toks = engine.stable_tokens(find)
+    assert '"application/json"' in toks
+    assert '"x-api-key"' in toks
+    assert not any("Content-Type" in t for t in toks)
+
+
+def test_stable_tokens_is_deduped_and_ordered():
+    a = engine.stable_tokens("alphaOne anotherIdent alphaOne")
+    b = engine.stable_tokens("alphaOne anotherIdent alphaOne")
+    assert a == b == ["alphaOne", "anotherIdent"]
+

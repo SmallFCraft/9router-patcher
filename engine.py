@@ -6,8 +6,10 @@ no-op on a file that already contains its replacement (p2's replacement embeds i
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -106,6 +108,39 @@ def node_check(path: str | Path) -> None:
                        capture_output=True, text=True, timeout=NODE_TIMEOUT)
     if r.returncode != 0:
         raise PatchError(f"node --check failed for {path}:\n{(r.stderr or r.stdout).strip()}")
+
+
+# ------------------------------------------------- dead-anchor diagnosis
+# Calibrated 2026-09-19 against the 31-patch set: at MIN_IDENT_LEN=8 only 3 patches yield
+# zero probe tokens; at 10 it degrades to 7. Do not raise it.
+MIN_IDENT_LEN = 8
+MIN_LITERAL_LEN = 4
+
+# A string literal whose body holds code punctuation is a mis-lexed span of source, not a
+# stable probe — a rename would not preserve it, so counting it only adds noise.
+_CODE_SHAPED = set("{}():;=[]\\,")
+
+_TOKEN_RE = re.compile(
+    r'"[^"\n]{%d,}"' % MIN_LITERAL_LEN
+    + r"|'[^'\n]{%d,}'" % MIN_LITERAL_LEN
+    + r"|[A-Za-z_$][\w$.]{%d,}" % (MIN_IDENT_LEN - 1)
+)
+
+
+def stable_tokens(find: str) -> list[str]:
+    """Identifiers and literals from `find` that a minifier rename would preserve.
+
+    Single-letter minified names rename freely and are useless as probes; string literals and
+    long identifiers survive a rename, so their presence in a new build is evidence that the
+    same code region still exists there. Order-preserving, de-duplicated.
+    """
+    out: list[str] = []
+    for t in _TOKEN_RE.findall(find):
+        if t[0] in "\"'" and any(c in _CODE_SHAPED for c in t[1:-1]):
+            continue
+        if t not in out:
+            out.append(t)
+    return out
 
 
 # ---------------------------------------------------------------- internals
