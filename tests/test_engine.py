@@ -1794,3 +1794,58 @@ def test_locate_live_anchor_patch_is_reported_as_not_dead(tmp_path, patches):
     assert res[-1].verdict == "applied"
     assert all(r.verdict == "applied" for r in res)   # ids pull the whole group
 
+
+def _probe_toml(tmp_path, find: str) -> Path:
+    toml = tmp_path / "patches.toml"
+    toml.write_text(
+        '[[patch]]\nid = "probe"\norder = 1\nsummary = "s"\nwhy = "w"\n'
+        f"find = '''{find}'''\n"
+        'replace = "X"\n', encoding="utf-8")
+    return toml
+
+
+def test_main_locate_prints_verdict_and_snippet(tmp_path, capsys):
+    build = tmp_path / "build"
+    write(build, "server/chunks/home.js", "reasoningInject(providerName,connectionId)")
+    toml = _probe_toml(
+        tmp_path,
+        "let aY=(0,s.SB)(ao);reasoningInject(providerName,connectionId)")
+    rc = engine.main(["locate", "probe", "--build", str(build), "--patches", str(toml)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "probe" in out and "rename-likely" in out
+    assert "reasoningInject" in out and "home.js" in out
+
+
+def test_main_locate_exit_1_when_patch_is_obsolete(tmp_path, capsys):
+    build = tmp_path / "build"
+    write(build, "server/chunks/home.js", "no trace of it")
+    toml = _probe_toml(tmp_path, "reasoningInject(providerName,connectionId)")
+    rc = engine.main(["locate", "probe", "--build", str(build), "--patches", str(toml)])
+    assert rc == 1
+    assert "fixed-likely" in capsys.readouterr().out
+
+
+def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
+    """--all on an empty build: every patch is a dead anchor (or `unknown`)."""
+    build = tmp_path / "build"
+    write(build, "a.js", "nothing here")
+    rc = engine.main(["locate", "--all", "--build", str(build)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "connect-timeout-180s" in out and "opencode-freetier-tool-signature" in out
+
+
+def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):
+    build = tmp_path / "build"
+    write(build, "a.js", "x")
+    rc = engine.main(["locate", "does-not-exist", "--build", str(build)])
+    assert rc == 2
+    assert "unknown patch id" in capsys.readouterr().err
+
+
+def test_main_locate_requires_a_build_source(capsys):
+    rc = engine.main(["locate", "connect-timeout-180s"])
+    assert rc == 2
+    assert "--build" in capsys.readouterr().err
+

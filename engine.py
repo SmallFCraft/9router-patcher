@@ -408,3 +408,84 @@ def revert(build: str | Path, patches: list[Patch], group: str,
             if out != t:
                 new[f] = out
         return _commit(b, new, check)
+
+
+# ---------------------------------------------------------------- CLI
+# `python -m engine locate <patch-id> [--all] [--build DIR | --latest]`
+# Built so a dead-anchor report from the dry-run gate can be turned into evidence without
+# hand-unpacking a tarball. Read-only: prints, never edits patches.toml.
+
+def _cmd_locate(args) -> int:
+    patches = load_patches(Path(args.patches)) if args.patches else load_patches()
+    if args.build:
+        build = Path(args.build)
+        cleanup = None
+    else:
+        # lazy: engine stays network-free at import, and `--build` never pays for this
+        import tempfile
+        import updater
+        tmp = tempfile.TemporaryDirectory(prefix="9r-locate-")
+        cleanup = tmp
+        version, build = updater.fetch_latest_build(Path(tmp.name))
+        print(f"# nguồn: 9router {version} (tarball registry)")
+    try:
+        ids = None if args.all else [args.patch]
+        results = locate(build, patches, ids)
+    except PatchError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    finally:
+        if cleanup:
+            cleanup.cleanup()
+
+    dead = 0
+    for loc in results:
+        if loc.verdict != "rename-likely" and loc.verdict != "applied":
+            dead += 1
+        head = f"{loc.patch_id}: {loc.verdict}"
+        if loc.file:
+            head += f"  {loc.file}:{loc.offset}"
+        print(head)
+        if loc.file:
+            print(f"  probes khớp: {loc.matched_tokens}/{len(loc.tokens)}"
+                  f"  ({', '.join(loc.tokens[:6])})")
+        if loc.snippet:
+            print("  ---")
+            for line in loc.snippet.splitlines() or [loc.snippet]:
+                print(f"  {line[:400]}")
+            print("  ---")
+        print()
+    return 1 if dead else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(prog="python -m engine",
+                                 description="9router patch engine CLI")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    loc = sub.add_parser("locate", help="chẩn đoán patch có anchor chết trên build đích")
+    loc.add_argument("patch", nargs="?", help="patch id (bỏ trống khi dùng --all)")
+    loc.add_argument("--all", action="store_true", help="mọi patch, không chỉ một id")
+    loc.add_argument("--build", help="thư mục build đã giải nén "
+                                     "(app/.next-cli-build)")
+    loc.add_argument("--patches", help="patches.toml khác (mặc định: file trong repo)")
+    loc.add_argument("--latest", action="store_true",
+                     help="tải bản latest từ registry rồi chẩn đoán trên đó")
+    args = ap.parse_args(argv)
+
+    if args.cmd == "locate":
+        if not args.all and not args.patch:
+            print("cần một patch id hoặc --all", file=sys.stderr)
+            return 2
+        if not args.build and not args.latest:
+            print("cần --build <dir> hoặc --latest", file=sys.stderr)
+            return 2
+        if args.build and args.latest:
+            print("--build và --latest loại trừ nhau", file=sys.stderr)
+            return 2
+        return _cmd_locate(args)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
