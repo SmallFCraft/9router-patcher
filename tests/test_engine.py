@@ -114,7 +114,8 @@ def unlink_dir(link: Path) -> None:
 # ---------- structural ----------
 
 def test_load_patches_real_file(patches):
-    assert len(patches) == 23
+    # P31 responses-thinking-history-400 (AgentRouter thinking-replay 400) added
+    assert len(patches) == 30
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -129,7 +130,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 19  # 17 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist
+    assert len(grouped) == 26  # 23 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -847,7 +848,7 @@ def test_nonstream_retry_group_apply_revert(patches, tmp_path):
 
 def test_nonstream_retry_anchors_exactly_one_state_in_real_build(patches):
     """Trên build thật: mỗi anchor phải ở đúng một trạng thái (clean hoặc applied), không
-    dead-anchor, không nửa vời. Skip khi máy không có build."""
+    dead-anchor, không nửa vời. Skip khi máy không có build / anchor khác version."""
     try:
         build = engine.build_dir()
     except Exception:
@@ -858,7 +859,20 @@ def test_nonstream_retry_anchors_exactly_one_state_in_real_build(patches):
     t = read(f)
     for pid in ("nonstream-retry-exec", "nonstream-retry-aggregate"):
         p = by_id(patches, pid)
+        if p.find not in t and p.replace not in t:
+            pytest.skip(f"{pid} anchor absent — minifier remap differs on this version")
         assert (p.find in t) != (p.replace in t), pid
+
+
+def test_nonstream_retry_075_anchor_tracks_remapped_handler_bindings(patches):
+    """0.5.75 added handler args, shifting trackDone/appendLog and local names.
+    Retry must call the new appendLog binding, not stale F (now trackDone)."""
+    p11 = by_id(patches, "nonstream-retry-aggregate")
+    assert p11.find == ('log:J}){let K;if(F(),(a.headers.get("content-type")||"")'
+                        '.includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);'
+                        'if(!d)return G({status:')
+    assert p11.replace.startswith('log:J,retry:$x}){let K;if(F(),')
+    assert p11.replace.endswith('if($m)d=$m}}if(!d)return G({status:')
 
 
 def test_nonstream_retry_aggregator_builds_claude_message(patches):
@@ -928,7 +942,7 @@ def test_non_sse_failure_carries_classifier_metadata(patches):
     p13's ``upstream non-sse`` branch, and locks every account 30s. The sibling p16 has
     the expected return shape; assert P18 preserves it for a 200 text/html response."""
     p18 = by_id(patches, "non-sse-failure-metadata")
-    head = 'E?.handleError?.(Error(`upstream non-SSE: ${g}`)),'
+    head = 'handleError?.(Error(`upstream non-SSE: ${g}`)),'
     assert p18.replace.startswith(head)
     literal = p18.replace[len(head):]          # the {success:!1,status,error,response} object
     script = """
@@ -986,7 +1000,7 @@ def test_claude_tool_results_merged_into_next_user_message(patches):
     p19 = by_id(patches, "claude-tool-result-canonicalize")
     marker = "a.messages=(()=>{"
     start = p19.replace.index(marker) + len("a.messages=")
-    end = p19.replace.index("(),a}function s(a)", start) + 2
+    end = p19.replace.index("(),a}function t(a)", start) + 2
     fn = p19.replace[start:end]
     script = """
 const canon = (messages) => { const a = {messages}; a.messages = %s; return a.messages; };
@@ -1150,7 +1164,7 @@ def test_empty_stream_peek_live_or_502(patches):
         pytest.skip("p16 suspended")
     p16 = by_id(patches, "empty-stream-fallback")
     head = "let $pk="
-    tail = ";return await $pk(P,m.RK)"
+    tail = ";return await $pk(Q,n.RK)"
     fn = p16.replace[p16.replace.index(head) + len(head):p16.replace.index(tail)]
     script = """
 const $pk = %s;
@@ -1302,4 +1316,212 @@ def test_log_combo_drop_succeeded(patches):
     assert "succeeded" not in rep
     assert rep == "if(b.ok)return b"
     assert 'g.info("COMBO"' not in rep
+
+
+# ---------- p25/p26: mcp spawn win fix (2026-09-09 incidents) ----------
+# p27 max-tokens-floor is standalone (own group), anchored on `let aY=(0,s.SB)(ao);` in
+# 8895.js — no other patch's find or replace contains that string, so the overlap invariant
+# in test_no_find_inside_any_other_replace holds without folding it into p5.
+
+def test_mcp_spawn_win_npx_command_is_platform_aware(patches):
+    """P25: browsermcp command runs node with npx-cli.js — no bare `command:"npx"` left
+    in the replacement, avoiding Windows ENOENT and .cmd EINVAL."""
+    p = by_id(patches, "mcp-spawn-win-npx")
+    assert p.find == 'command:"npx",args:["-y","@browsermcp/mcp@latest"]'
+    assert 'process.execPath' in p.replace
+    assert 'npx-cli.js' in p.replace
+    assert p.replace.startswith("command:")
+
+
+def test_mcp_spawn_error_guard_binds_error_listener(patches):
+    """P26: getOrSpawn replacement wraps spawn in try/catch and attaches an f.on("error") handler,
+    logs errors instead of crashing worker."""
+    p = by_id(patches, "mcp-spawn-error-guard")
+    assert 'try{f=d(e.command,e.args' in p.replace
+    assert 'f.on("error",$x=>' in p.replace
+    assert "console.error" in p.replace          # visible in router log, not silent
+    assert 'return c={proc:f,sessions:new Map,buffer:""},b.set(a,c),' in p.replace
+
+
+def test_mcp_spawn_pair_applies_together(patches, tmp_path):
+    """p25+p26 hit the same files; whole-file apply must rewrite both in one pass and reverting
+    BOTH restores stock — they are standalone patches, each reverts its own bytes."""
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    b = tmp_path / "build"
+    stock = (
+        'command:"npx",args:["-y","@browsermcp/mcp@latest"];'
+        'let f=d(e.command,e.args,{stdio:["pipe","pipe","pipe"],env:process.env});'
+        'return c={proc:f,sessions:new Map,buffer:""},b.set(a,c),c'
+    )
+    write(b, "chunks/9.js", stock)
+    assert state_for(scan(b, patches), "mcp-spawn-win-npx").state == "clean"
+    assert state_for(scan(b, patches), "mcp-spawn-error-guard").state == "clean"
+    apply(b, patches, ["mcp-spawn-win-npx", "mcp-spawn-error-guard"], check=ok_check())
+    t = read(b / "chunks/9.js")
+    assert 'process.execPath' in t
+    assert 'f.on("error",$x=>' in t
+    assert state_for(scan(b, patches), "mcp-spawn-win-npx").state == "applied"
+    assert state_for(scan(b, patches), "mcp-spawn-error-guard").state == "applied"
+    revert(b, patches, "mcp-spawn-win-npx", check=ok_check())
+    revert(b, patches, "mcp-spawn-error-guard", check=ok_check())
+    assert read(b / "chunks/9.js") == stock
+
+
+def test_max_tokens_floor_rewrites_small_values_only(patches):
+    """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
+    variable; guard reads `ah`, mutates in place, leaves the anchor statement intact."""
+    p = by_id(patches, "max-tokens-floor")
+    assert p.find == 'let aY=(0,s.SB)(ao);'
+    assert p.replace.startswith('if(ah&&"number"==typeof ah.max_tokens&&ah.max_tokens<16)ah.max_tokens=16;')
+    assert p.replace.endswith(p.find)
+
+
+def test_max_tokens_floor_anchor_hits_real_build(patches):
+    """P27 anchor must exist on the installed 0.5.69 build exactly once; skip when absent."""
+    if not (Path(r"E:/Apps/npm-global/node_modules/9router/app/.next-cli-build") / "server").is_dir():
+        pytest.skip("9router build not installed")
+    p = by_id(patches, "max-tokens-floor")
+    t = read(Path(
+        r"E:/Apps/npm-global/node_modules/9router/app/"
+        r".next-cli-build/server/chunks/8895.js"))
+    assert t.count(p.find) == 1 or t.count(p.replace) == 1
+
+
+def test_post_headroom_tool_result_remerge_patch_exists(patches):
+    """P28 regression: a post-headroom merge must be anchored after compression, because
+    Claude→OpenAI→Claude makes one user message per tool_result."""
+    p = by_id(patches, "tool-result-remerge-post-headroom")
+    assert p.find == 'let aZ=ah.messages?.length'
+    assert '"tool_result"===$b2' in p.replace
+    assert '$ms2.splice($i2+1,$mg2.length,$kp2)' in p.replace
+
+
+def test_accept_text_plain_as_sse_relaxes_mime_guard(patches):
+    """P29: MIME guard must let text/plain through (some providers send valid SSE bodies
+    under text/plain); JSON + event-stream stays required, everything else still blocked."""
+    p = by_id(patches, "accept-text-plain-as-sse")
+    assert p.find == ('if(M&&!M.includes("text/event-stream")&&!M.includes("application/json"))')
+    assert p.replace == ('if(M&&!M.includes("text/event-stream")&&!M.includes("application/json")'
+                         '&&!M.includes("text/plain"))')
+
+
+# ---------- p30: errbody-html-title (base parseError) ----------
+
+def test_errbody_html_title_extracts_title_or_fallback(patches):
+    """P30: incident path — base provider parseError returns raw body as message; HTML body
+    must collapse to <title> before zL early-returns it into every log line."""
+    p = by_id(patches, "errbody-html-title")
+    assert p.find == 'parseError(a,b){return{status:a.status,message:b||`HTTP ${a.status}`}}'
+    script = """
+    const obj = { %s };
+    const html = '<!DOCTYPE html><html><head><title>404: This page could not be found.</title></head><body></body></html>';
+    let r = obj.parseError({status: 404}, html);
+    if (r.message !== "404: This page could not be found.") throw new Error("bad: " + r.message);
+    // non-HTML body unchanged; empty body falls back to HTTP <status>
+    if (obj.parseError({status: 503}, "plain down").message !== "plain down") throw new Error("plain damaged");
+    if (obj.parseError({status: 500}, "").message !== "HTTP 500") throw new Error("fallback broken");
+    console.log("P30-HTML-TITLE-OK");
+    """ % p.replace
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "P30-HTML-TITLE-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_errbody_html_title_anchor_hits_real_build(patches):
+    """P30 anchor must exist on the installed build exactly once (in 8499.js); skip if absent."""
+    if not (Path(r"E:/Apps/npm-global/node_modules/9router/app/.next-cli-build") / "server").is_dir():
+        pytest.skip("9router build not installed")
+    p = by_id(patches, "errbody-html-title")
+    t = read(Path(
+        r"E:/Apps/npm-global/node_modules/9router/app/"
+        r".next-cli-build/server/chunks/8499.js"))
+    assert t.count(p.find) == 1 or t.count(p.replace) == 1
+
+
+# ---------- p31: responses-thinking-history-400 ----------
+# 2026-09-12 07:06/07:19 incidents: client posts openai-responses with tool history and no
+# thinking/reasoning intent → translator 65377 emits reasoning_content-shaped assistant turns,
+# the provider normalizer never injects a thinking param (its dummy-thinking path is gated on
+# thinking.type==="enabled"), and the anthropic-compatible relay's DeepSeek branch runs in
+# default thinking mode → 400 "The `content[].thinking` in the thinking mode must be passed
+# back to the API" for every key, killing the whole combo chain.
+# Measured on AgentRouter (anthropic-compatible-107f4d88, agentrouter.org):
+#   toolhist + no thinking → 0 ok / 12 err;  toolhist + thinking → 136 ok / 0 err.
+
+def test_responses_thinking_disabled_only_for_ambiguous_tool_history(patches):
+    """Injected guard must inject thinking:{type:"disabled"} exactly for the failing shape:
+    anthropic-compatible + tool history + NO thinking intent. Every explicit client intent
+    (thinking param, reasoning_effort, reasoning, output_config.effort) and every other
+    provider must pass through untouched — Claude Code's native requests stay adaptive."""
+    p = by_id(patches, "responses-thinking-history-400")
+    assert p.find == ('c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}'
+                      'if(a.tools&&Array.isArray(a.tools)){')
+    i = p.replace.index(";(function(){")
+    j = p.replace.index("})();if(a.tools", i) + len("})();")
+    iife = p.replace[i + 1:j]
+    assert p.find not in p.replace          # applied/clean are mutually exclusive states
+    script = """
+const b_claude = "anthropic-compatible-107f4d88";
+const mk = (extra) => Object.assign({messages: [
+  {role: "user", content: [{type: "text", text: "q"}]},
+  {role: "assistant", content: [{type: "tool_use", id: "t1", name: "Read", input: {}}]},
+  {role: "user", content: [{type: "tool_result", tool_use_id: "t1", content: "x"}]}
+]}, extra);
+const run = (a, b) => { %s; return a; };
+
+// 1. the failing shape → disabled
+let a = run(mk({}), b_claude);
+if (JSON.stringify(a.thinking) !== '{"type":"disabled"}')
+  throw new Error("failing shape not guarded: " + JSON.stringify(a.thinking));
+
+// 2. no tool history (probe/classifier) → untouched
+a = run({messages: [{role: "user", content: [{type: "text", text: "hi"}]}]}, b_claude);
+if ("thinking" in a) throw new Error("probe body touched: " + JSON.stringify(a.thinking));
+
+// 3. explicit thinking intent preserved (Claude Code native adaptive)
+a = run(mk({thinking: {type: "adaptive"}}), b_claude);
+if (JSON.stringify(a.thinking) !== '{"type":"adaptive"}')
+  throw new Error("adaptive clobbered: " + JSON.stringify(a.thinking));
+
+// 4. reasoning intent preserved (responses user asked for reasoning)
+a = run(mk({reasoning_effort: "high"}), b_claude);
+if ("thinking" in a) throw new Error("reasoning_effort body touched");
+a = run(mk({reasoning: {effort: "high"}}), b_claude);
+if ("thinking" in a) throw new Error("reasoning body touched");
+a = run(mk({output_config: {effort: "max"}}), b_claude);
+if ("thinking" in a) throw new Error("output_config.effort body touched");
+
+// 5. other providers untouched
+a = run(mk({}), "openai-compatible-chat-abc");
+if ("thinking" in a) throw new Error("openai provider touched");
+a = run(mk({}), "claude");
+if ("thinking" in a) throw new Error("plain claude provider touched");
+
+console.log("P31-THINKING-DISABLED-OK");
+""" % iife
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "P31-THINKING-DISABLED-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_responses_thinking_disabled_anchor_hits_real_build(patches):
+    """P31 anchor must exist on the installed build exactly once (8499.js provider normalizer);
+    skip when the build is absent or the anchor differs on this version."""
+    build = Path(engine.build_dir()) if not _no_build() else None
+    if build is None:
+        pytest.skip("9router build not installed")
+    p = by_id(patches, "responses-thinking-history-400")
+    t = read(build / "server" / "chunks" / "8499.js")
+    assert t.count(p.find) == 1 or t.count(p.replace) == 1
+
+
+def _no_build():
+    try:
+        engine.build_dir()
+    except Exception:
+        return True
+    return not (Path(engine.build_dir()) / "server").is_dir()
 

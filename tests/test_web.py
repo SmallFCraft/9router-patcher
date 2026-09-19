@@ -107,8 +107,9 @@ def test_sse_group_has_exactly_one_action(web):
     # one apply + one revert control for the whole 4-patch group, never per-patch
     assert html.count('name="ids" value="sse-hang"') == 1
     assert html.count('name="group" value="sse-hang"') == 1
-    # 19 groups total (17 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist)
-    assert html.count('name="group" value=') == 19
+    # 26 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
+    # errbody-html-title, responses-thinking-history-400)
+    assert html.count('name="group" value=') == 26
 
 
 def test_index_has_apply_all_form(web):

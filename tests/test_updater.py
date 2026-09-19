@@ -4,6 +4,7 @@ Every subprocess/urlopen call is monkeypatched; nothing writes into node_modules
 """
 import http.client
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -766,6 +767,45 @@ def test_restart_processes_skips_weird_cmdline(monkeypatch, tmp_path):
     assert any("BỎ QUA" in e["text"] for e in events)
 
 
+def test_restart_processes_injects_node_path(monkeypatch, tmp_path):
+    """A relaunched router must get the same NODE_PATH the dashboard launch injects, else
+    better-sqlite3 falls back to node:sqlite after every update."""
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append((cmd, kw)) or type("P", (), {"pid": 1})())
+    monkeypatch.setattr(updater, "RESTART_LOG_DIR", tmp_path)
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    restart_processes({7: ("node.exe", "node custom-server.js")}, lambda e: None)
+    parts = pops[0][1]["env"]["NODE_PATH"].split(os.pathsep)
+    assert any("runtime" in p and "node_modules" in p for p in parts)
+    assert any("app" in p and "node_modules" in p for p in parts)
+
+
+def test_runtime_node_modules_falls_back_to_home_without_appdata(monkeypatch, tmp_path):
+    """APPDATA absent (POSIX, service account, stripped env): must never join onto "" and hand
+    Node a relative NODE_PATH that resolves against whatever cwd the child happens to have."""
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    p = updater._runtime_node_modules()
+    assert p.is_absolute(), p
+
+
+def test_build_router_env_survives_missing_install_dir(monkeypatch, tmp_path):
+    """npm missing / `npm root -g` failing must not abort the launch: bundled path drops out,
+    PORT and the runtime NODE_PATH still land."""
+    def boom():
+        raise engine.PatchError("npm not found on PATH")
+    monkeypatch.setattr(engine, "install_dir", boom)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    env = updater._build_router_env({})
+    assert env["PORT"] == str(updater.ROUTER_PORT)
+    assert "runtime" in env["NODE_PATH"]
+
+
 def test_npm_stream_pushes_lines_and_reports_failure(monkeypatch):
     monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
     monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: FakeProc())
@@ -846,3 +886,22 @@ def test_start_router_injects_port_env(monkeypatch, tmp_path):
     kw = pops[0][1]
     assert kw["env"]["PORT"] == str(updater.ROUTER_PORT)
     assert Path(kw["cwd"]) == tmp_path / "app"
+
+
+def test_start_router_injects_node_path_with_runtime(monkeypatch, tmp_path):
+    """NODE_PATH must contain runtime/node_modules (better-sqlite3) and bundled app/node_modules
+    so the Next.js server resolves native deps installed in the user-writable runtime dir."""
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append((cmd, kw))
+                        or type("P", (), {"pid": 1})())
+    assert updater.start_router(lambda e: None)
+    node_path = pops[0][1]["env"]["NODE_PATH"]
+    parts = node_path.split(os.pathsep)
+    assert any("runtime" in p and "node_modules" in p for p in parts), f"runtime missing in {node_path}"
+    assert any("app" in p and "node_modules" in p for p in parts), f"bundled missing in {node_path}"

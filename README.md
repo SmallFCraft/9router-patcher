@@ -103,7 +103,7 @@ Conventions that keep this sane on minified bundles:
 - When the upstream package updates, identifier remaps must change `find` and `replace` **together** — a remapped `find` with an old `replace` passes `node --check` and still breaks at runtime.
 - Patch state is version-locked: measurements taken on one build are re-verified by the test suite against the live install.
 
-## Current patch set (19)
+## Current patch set (30)
 
 | # | id | what it does |
 |---|----|--------------|
@@ -118,8 +118,16 @@ Conventions that keep this sane on minified bundles:
 | 15 | attempt-total-deadline | per-attempt total deadline, default 240s, cuts slow-drip streams the stall timer can't see |
 | 16 | empty-stream-fallback | a stream that ends with zero content becomes a 502 → key/model fallback, instead of a silent empty "success" |
 | 17 | errbody-read-timeout | bound error-body reads to 8s (some providers hang chunked error bodies) |
-| 19 | claude-tool-result-canonicalize | merge tool_result blocks a client split across consecutive user messages into one, matching Anthropic adjacency (stops flaky 400 tool_use-without-tool_result) |
 | 18 | non-sse-failure-metadata | non-SSE 200 blocker now carries status+error → lock classifier takes the 5s transient branch instead of the 30s default |
+| 19 | claude-tool-result-canonicalize | merge tool_result blocks a client split across consecutive user messages into one, matching Anthropic adjacency (stops flaky 400 tool_use-without-tool_result) |
+| 21–24 | log-* (group) | cosmetic reformat of upstream console lines (DONE / headroom / POST / COMBO); no router behavior touched |
+| 25 | mcp-spawn-win-npx | browsermcp MCP bridge runs `node npx-cli.js` instead of bare `npx` (Windows spawn ENOENT) |
+| 26 | mcp-spawn-error-guard | MCP bridge logs spawn failures with plugin context and attaches a child `error` listener |
+| 27 | max-tokens-floor | `max_tokens < 16` → 16 before dispatch (some gateways 400 "must be greater than 2" on classifier/probe calls) |
+| 28 | tool-result-remerge-post-headroom | re-merge split `tool_result` user messages after Headroom Claude→OpenAI→Claude round-trip (prevents upstream 400) |
+| 29 | accept-text-plain-as-sse | MIME guard lets `text/plain` through — some providers send valid SSE bodies as text/plain |
+| 30 | errbody-html-title | base `parseError` collapses an HTML error body to its `<title>` instead of dumping the whole page into logs |
+| 31 | responses-thinking-history-400 | `openai-responses` body + tool history with no thinking intent → inject `thinking:{type:"disabled"}` for `anthropic-compatible` upstreams (AgentRouter DeepSeek 400 "`content[].thinking` must be passed back") |
 
 ## Environment variables
 
@@ -135,7 +143,7 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-174 tests: engine apply/revert/rollback semantics (including link-repoint and partial-anchor hazards), updater pipeline steps, and dashboard routes. Tests that need the real installed build or `node` skip automatically when absent.
+75 focused engine tests passed here; full suite includes updater pipeline and dashboard routes (200 total).
 
 ## Project structure
 

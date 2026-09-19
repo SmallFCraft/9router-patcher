@@ -330,6 +330,32 @@ HEADROOM_CWD = Path(os.environ.get("APPDATA", "")) / "9router" / "headroom"
 STACK_PORT_WAIT = 25           # 9router bind ~2s, headroom ~10-15s sau launch
 
 
+def _runtime_node_modules() -> Path:
+    data_dir = os.environ.get("DATA_DIR")
+    if data_dir:
+        return Path(data_dir) / "runtime" / "node_modules"
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA") or Path.home()) / "9router"
+    else:
+        base = Path.home() / ".9router"
+    return base / "runtime" / "node_modules"
+
+
+def _build_router_env(base_env: dict | None = None) -> dict:
+    """Inject PORT and NODE_PATH so better-sqlite3 resolves from user-writable runtime dir
+    (upstream cli.js does this via buildEnvWithRuntime; dashboard launch and restarts must match)."""
+    env = dict(base_env if base_env is not None else os.environ)
+    env["PORT"] = str(ROUTER_PORT)
+    try:
+        bundled_nm = str(engine.install_dir() / "app" / "node_modules")
+    except Exception:
+        bundled_nm = ""
+    runtime_nm = str(_runtime_node_modules())
+    existing = env.get("NODE_PATH", "")
+    env["NODE_PATH"] = os.pathsep.join(filter(None, [runtime_nm, bundled_nm, existing]))
+    return env
+
+
 def _default_router_cmd() -> str | None:
     if not NODE:
         return None
@@ -394,8 +420,9 @@ def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit) -> 
     emit({"type": "line", "text": f"  khởi động {kind}: {cmd}"})
     env = dict(os.environ)
     if kind == "router":
-        env["PORT"] = str(ROUTER_PORT)  # custom-server đọc PORT từ env
+        env = _build_router_env(env)
         emit({"type": "line", "text": f"  env PORT={ROUTER_PORT}"})
+        emit({"type": "line", "text": f"  env NODE_PATH={env['NODE_PATH'][:120]}…"})
     try:
         RESTART_LOG_DIR.mkdir(exist_ok=True)
         logfile = RESTART_LOG_DIR / f"{kind}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
@@ -468,7 +495,9 @@ def restart_processes(stopped: dict[int, tuple[str, str]], emit) -> str:
         if "node" in cmdline.lower():
             # custom-server.js reads PORT from env — the captured command line carries no port,
             # and relaunching without it silently binds 3000 (happened for real 2026-09-06).
-            env["PORT"] = str(ROUTER_PORT)
+            # NODE_PATH too: same runtime dir the dashboard launch injects, else better-sqlite3
+            # resolves to nothing and the router falls back to node:sqlite after every update.
+            env = _build_router_env(env)
             emit({"type": "line", "text": f"  env PORT={ROUTER_PORT}"})
         emit({"type": "line", "text": f"  khởi động lại: {cmdline}"})
         try:

@@ -1,4 +1,8 @@
-# 9router patches — nguồn duy nhất. Chuỗi find/replace HIỆN TẠI đo trên build 0.5.69.
+# 9router patches — nguồn duy nhất. Chuỗi find/replace HIỆN TẠI đo trên build 0.5.75.
+# 0.5.69 -> 0.5.75: module 5016 (w.N) thêm 3 param (`reqLogger:C`, `toolNameMap:D`, `provider/model`
+# đẩy vào đầu) nên minifier dịch tiếp chuỗi định danh 1 chữ: trackDone E->F, appendLog F->G,
+# reqTag H->I, log I->J, cục bộ J->K. p11 remap cả find lẫn replace (CẠM BẪY 0.5.65 lặp lại nếu
+# chỉ remap find). p19: hàm kế `function s(a)` -> `function t(a)`, thân patch không đổi.
 # 0.5.65 -> 0.5.69: closure `function n(a={})` trong 8895.js nhận thêm 2 param (`credentials:y`,
 # `sessionId`) nên minifier dịch CẢ chuỗi định danh 1 chữ lên một nấc: B(ctx)->C, L->M, M->N,
 # N(cờ)->O, O(hàm flush usage)->P. p6/p7/p8 phải remap; p9 giữ nguyên vì anchor của nó chỉ dùng
@@ -24,8 +28,8 @@ id = "ua-messages"
 order = 2
 summary = "Gửi User-Agent claude-cli cho /v1/messages"
 why = "AgentRouter trả 401 unauthorized client detected khi UA là \"node\""
-find = 'delete g["anthropic-dangerous-direct-browser-access"]'
-replace = 'g["User-Agent"]="claude-cli/2.1.92 (external, cli)",delete g["anthropic-dangerous-direct-browser-access"]'
+find = 'delete h["anthropic-dangerous-direct-browser-access"]'
+replace = 'h["User-Agent"]="claude-cli/2.1.92 (external, cli)",delete h["anthropic-dangerous-direct-browser-access"]'
 
 [[patch]]
 id = "ua-models-route"
@@ -113,8 +117,8 @@ order = 11
 group = "nonstream-sse-retry"
 summary = "k.F=null → retry stream:true + tự aggregate anthropic SSE thành JSON thay vì 502"
 why = "upstream trả SSE rác cho request stream:false; aggregate reader tăng dần, thoát sớm ở message_stop, mọi lỗi về 502 cũ"
-find = 'log:I}){let J;if(E(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d)return F({status:'
-replace = 'log:I,retry:$x}){let J;if(E(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d&&typeof $x=="function"){let $r=null;try{$r=await $x()}catch{}if($r&&$r.ok){let $m=null;try{if(($r.headers.get("content-type")||"").includes("text/event-stream"))$m=await (async($rp,$mo)=>{let $agg=$t=>{try{let $f=[];for(let $ln of String($t||"").split("\n")){let $s3=$ln.trim();if(!$s3.startsWith("data:"))continue;let $e=$s3.slice(5).trim();if(!$e||$e==="[DONE]")continue;try{$f.push(JSON.parse($e))}catch{}}if(!$f.length)return null;let $b={},$u=null,$st=null,$id="",$saw=!1;for(let $fr of $f){if(!$fr||typeof $fr.type!=="string")return null;if($fr.type==="message_start"){$id=$fr.message&&$fr.message.id||"";$mo=$fr.message&&$fr.message.model||$mo;$u=$fr.message&&$fr.message.usage||$u}else if($fr.type==="content_block_start"){$b[$fr.index??0]={type:$fr.content_block&&$fr.content_block.type||"text",text:"",name:$fr.content_block&&$fr.content_block.name||"",id:$fr.content_block&&$fr.content_block.id||"",json:""}}else if($fr.type==="content_block_delta"){let $b2=$b[$fr.index??0]||{type:"text",text:"",json:""};let $dl=$fr.delta||{};if($dl.type==="text_delta")$b2.text+=$dl.text||"";else if($dl.type==="input_json_delta")$b2.json+=$dl.partial_json||"";else if($dl.type==="thinking_delta")$b2.text+=$dl.thinking||"";$b[$fr.index??0]=$b2}else if($fr.type==="message_delta"){$st=$fr.delta&&$fr.delta.stop_reason||$st;$fr.usage&&($u={...$u,...$fr.usage})}else if($fr.type==="message_stop"){$saw=!0}else if($fr.type==="error"){return null}}if(!$saw)return null;let $ks=Object.keys($b).sort(($a,$z)=>$a-$z);if(!$ks.length)return null;let $ct=$ks.map($k=>{let $b2=$b[$k];if($b2.type==="tool_use"){let $inp={};try{$inp=JSON.parse($b2.json||"{}")}catch{}return{type:"tool_use",id:$b2.id||"toolu_"+$k,name:$b2.name||"",input:$inp}}if($b2.type==="thinking")return{type:"thinking",thinking:$b2.text,signature:""};return{type:"text",text:$b2.text}});return{id:$id||"msg_retry",type:"message",role:"assistant",model:$mo,content:$ct,stop_reason:$st||"end_turn",stop_sequence:null,usage:{input_tokens:$u&&$u.input_tokens||0,output_tokens:$u&&$u.output_tokens||0}}}catch{return null}};let $rd=$rp.body&&typeof $rp.body.getReader=="function"?$rp.body.getReader():null;if(!$rd){let $t2="";try{$t2=await $rp.text()}catch{return null}return $agg($t2)}let $dec=new TextDecoder(),$buf="",$dl=Date.now()+30000;for(;;){if(Date.now()>$dl){try{$rd.cancel()}catch{}break}let $r2;try{$r2=await $rd.read()}catch{break}if($r2.done)break;$buf+=$dec.decode($r2.value,{stream:!0});if($buf.indexOf("\"type\":\"message_stop\"")>=0){try{$rd.cancel()}catch{}break}}return $agg($buf)})($r,c);else{let $j=await $r.json();if($j&&typeof $j=="object")$m=$j}}catch{}if($m)d=$m}}if(!d)return F({status:'
+find = 'log:J}){let K;if(F(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d)return G({status:'
+replace = 'log:J,retry:$x}){let K;if(F(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d&&typeof $x=="function"){let $r=null;try{$r=await $x()}catch{}if($r&&$r.ok){let $m=null;try{if(($r.headers.get("content-type")||"").includes("text/event-stream"))$m=await (async($rp,$mo)=>{let $agg=$t=>{try{let $f=[];for(let $ln of String($t||"").split("\n")){let $s3=$ln.trim();if(!$s3.startsWith("data:"))continue;let $e=$s3.slice(5).trim();if(!$e||$e==="[DONE]")continue;try{$f.push(JSON.parse($e))}catch{}}if(!$f.length)return null;let $b={},$u=null,$st=null,$id="",$saw=!1;for(let $fr of $f){if(!$fr||typeof $fr.type!=="string")return null;if($fr.type==="message_start"){$id=$fr.message&&$fr.message.id||"";$mo=$fr.message&&$fr.message.model||$mo;$u=$fr.message&&$fr.message.usage||$u}else if($fr.type==="content_block_start"){$b[$fr.index??0]={type:$fr.content_block&&$fr.content_block.type||"text",text:"",name:$fr.content_block&&$fr.content_block.name||"",id:$fr.content_block&&$fr.content_block.id||"",json:""}}else if($fr.type==="content_block_delta"){let $b2=$b[$fr.index??0]||{type:"text",text:"",json:""};let $dl=$fr.delta||{};if($dl.type==="text_delta")$b2.text+=$dl.text||"";else if($dl.type==="input_json_delta")$b2.json+=$dl.partial_json||"";else if($dl.type==="thinking_delta")$b2.text+=$dl.thinking||"";$b[$fr.index??0]=$b2}else if($fr.type==="message_delta"){$st=$fr.delta&&$fr.delta.stop_reason||$st;$fr.usage&&($u={...$u,...$fr.usage})}else if($fr.type==="message_stop"){$saw=!0}else if($fr.type==="error"){return null}}if(!$saw)return null;let $ks=Object.keys($b).sort(($a,$z)=>$a-$z);if(!$ks.length)return null;let $ct=$ks.map($k=>{let $b2=$b[$k];if($b2.type==="tool_use"){let $inp={};try{$inp=JSON.parse($b2.json||"{}")}catch{}return{type:"tool_use",id:$b2.id||"toolu_"+$k,name:$b2.name||"",input:$inp}}if($b2.type==="thinking")return{type:"thinking",thinking:$b2.text,signature:""};return{type:"text",text:$b2.text}});return{id:$id||"msg_retry",type:"message",role:"assistant",model:$mo,content:$ct,stop_reason:$st||"end_turn",stop_sequence:null,usage:{input_tokens:$u&&$u.input_tokens||0,output_tokens:$u&&$u.output_tokens||0}}}catch{return null}};let $rd=$rp.body&&typeof $rp.body.getReader=="function"?$rp.body.getReader():null;if(!$rd){let $t2="";try{$t2=await $rp.text()}catch{return null}return $agg($t2)}let $dec=new TextDecoder(),$buf="",$dl=Date.now()+30000;for(;;){if(Date.now()>$dl){try{$rd.cancel()}catch{}break}let $r2;try{$r2=await $rd.read()}catch{break}if($r2.done)break;$buf+=$dec.decode($r2.value,{stream:!0});if($buf.indexOf("\"type\":\"message_stop\"")>=0){try{$rd.cancel()}catch{}break}}return $agg($buf)})($r,c);else{let $j=await $r.json();if($j&&typeof $j=="object")$m=$j}}catch{}if($m)d=$m}}if(!d)return G({status:'
 
 # 0.5.69: payload claude (từ Claude Code/headroom) chứa message role:"system" NGAY TRONG
 # messages[] — ngoài chuẩn Anthropic API. AgentRouter backend gắt validate lệch index →
@@ -163,8 +167,8 @@ id = "attempt-total-deadline"
 order = 15
 summary = "Deadline tổng 240s (env 9R_ATTEMPT_DEADLINE_MS) cho 1 attempt upstream — cắt stream kẹt"
 why = "STALL/FIRST_CHUNK chỉ đo giữa-chunk; stream nhỏ giọt 7 phút không ai cắt, client tự hủy rồi router vẫn chạy tiếp phí"
-find = 'p=()=>{o(),i=setTimeout(()=>{i=null,(0,e.s)(n,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},'
-replace = 'p=()=>{o(),i=setTimeout(()=>{i=null,(0,e.s)(n,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},$tot=(+process.env["9R_ATTEMPT_DEADLINE_MS"]||240000),$td=$tot>0?setTimeout(()=>{(0,e.s)(n,`ATTEMPT DEADLINE total=${Date.now()-m}ms (9R_ATTEMPT_DEADLINE_MS=${$tot})`),c.handleError?.(Error(`attempt deadline exceeded ${Date.now()-m}ms`)),c.abort?.()},$tot):null,'
+find = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(o,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},'
+replace = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(o,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},$tot=(+process.env["9R_ATTEMPT_DEADLINE_MS"]||240000),$td=$tot>0?setTimeout(()=>{(0,e.s)(o,`ATTEMPT DEADLINE total=${Date.now()-x}ms (9R_ATTEMPT_DEADLINE_MS=${$tot})`),c.handleError?.(Error(`attempt deadline exceeded ${Date.now()-x}ms`)),c.abort?.()},$tot):null,'
 
 # P16 — empty-stream→fallback: module 20623 hàm o/M trả {success:!0,response} NGAY LÚC HEADER
 # về → combo quyết định trước khi biết stream rỗng (am/mt trả OUT 0 59-100%). Peek pipe đã-
@@ -183,8 +187,8 @@ id = "empty-stream-fallback"
 order = 16
 summary = "Stream kết thúc không có content → 502 fallback thay vì 'succeeded' rỗng"
 why = "am/mt trả stream rỗng (OUT 0) nhưng vẫn success → combo dừng, client nhận rỗng; peek nội dung trước khi trả để stream rỗng đi đường lỗi"
-find = ';return(0,l.ox)((0,k.$R)({provider:b,model:c,connectionId:x,latency:{ttft:0,total:Date.now()-w},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,k.Fo)(s,t),providerRequest:v||u||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:H,status:"success"},{id:G})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)}),{success:!0,response:new Response(P,{headers:m.RK})}'
-replace = ';(0,l.ox)((0,k.$R)({provider:b,model:c,connectionId:x,latency:{ttft:0,total:Date.now()-w},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,k.Fo)(s,t),providerRequest:v||u||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:H,status:"success"},{id:G})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)});let $pk=async($ps,$hd)=>{let $rd=$ps.getReader(),$dc=new TextDecoder(),$bf="",$ev=/text_delta|input_json_delta|"delta":\s*\{"content":\s*"[^"]|"text":\s*"[^"]|tool_calls|"type":"function_call|output_text\.delta/;for(;;){let $r2=await $rd.read();if($r2.done)break;$bf+=$dc.decode($r2.value,{stream:!0});if($ev.test($bf)){let $en=new TextEncoder();return{success:!0,response:new Response(new ReadableStream({start($c){$c.enqueue($en.encode($bf));(async()=>{for(;;){let $r3;try{$r3=await $rd.read()}catch{break}if($r3.done)break;$c.enqueue($r3.value)}try{$c.close()}catch{}})()},cancel(){try{$rd.cancel()}catch{}}}),{headers:$hd})}}}try{$rd.cancel()}catch{}return{success:!1,status:502,error:"upstream empty stream (no content)",response:new Response(JSON.stringify({error:{message:"[502]: upstream returned an empty stream (no content)"}}),{status:502,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}};return await $pk(P,m.RK)'
+find = ';return(0,m.ox)((0,l.$R)({provider:b,model:c,connectionId:y,latency:{ttft:0,total:Date.now()-x},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,l.Fo)(t,u),providerRequest:w||v||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:I,status:"success"},{id:H})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)}),{success:!0,response:new Response(Q,{headers:n.RK})}'
+replace = ';(0,m.ox)((0,l.$R)({provider:b,model:c,connectionId:y,latency:{ttft:0,total:Date.now()-x},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,l.Fo)(t,u),providerRequest:w||v||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:I,status:"success"},{id:H})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)});let $pk=async($ps,$hd)=>{let $rd=$ps.getReader(),$dc=new TextDecoder(),$bf="",$ev=/text_delta|input_json_delta|"delta":\s*\{"content":\s*"[^"]|"text":\s*"[^"]|tool_calls|"type":"function_call|output_text\.delta/;for(;;){let $r2=await $rd.read();if($r2.done)break;$bf+=$dc.decode($r2.value,{stream:!0});if($ev.test($bf)){let $en=new TextEncoder();return{success:!0,response:new Response(new ReadableStream({start($c){$c.enqueue($en.encode($bf));(async()=>{for(;;){let $r3;try{$r3=await $rd.read()}catch{break}if($r3.done)break;$c.enqueue($r3.value)}try{$c.close()}catch{}})()},cancel(){try{$rd.cancel()}catch{}}}),{headers:$hd})}}}try{$rd.cancel()}catch{}return{success:!1,status:502,error:"upstream empty stream (no content)",response:new Response(JSON.stringify({error:{message:"[502]: upstream returned an empty stream (no content)"}}),{status:502,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}};return await $pk(Q,n.RK)'
 
 # P17 — đọc error-body có timeout: 503 của motomoto thi thoảng giữ body chunked không đóng
 # (~75s/probe). Race a.text() với 9R_ERRBODY_TIMEOUT_MS (default 8s) + cancel body; cả hai
@@ -195,15 +199,15 @@ id = "non-sse-failure-metadata"
 order = 18
 summary = "Non-SSE 200 (text/html) trả về kèm status+error để classifier chọn 5s thay vì 30s"
 why = "20623 non-SSE blocker ghi {success:!1,response} không status/error → 8635 gọi vk(q.status=undefined,q.error=undefined) → hk miss nhánh upstream non-sse, khóa toàn bộ account 30s (đúng 25 lần liên tiếp trong log 22:07–22:32). Cùng shape với sibling p16 (empty-stream) vốn có status+error."
-find = 'E?.handleError?.(Error(`upstream non-SSE: ${g}`)),{success:!1,response:new Response(JSON.stringify({error:{message:`[${g}]: ${f}`}}),{status:g,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}'
-replace = 'E?.handleError?.(Error(`upstream non-SSE: ${g}`)),{success:!1,status:g,error:`upstream non-SSE: ${g}`,response:new Response(JSON.stringify({error:{message:`[${g}]: ${f}`}}),{status:g,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}'
+find = 'handleError?.(Error(`upstream non-SSE: ${g}`)),{success:!1,response:new Response(JSON.stringify({error:{message:`[${g}]: ${f}`}}),{status:g,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}'
+replace = 'handleError?.(Error(`upstream non-SSE: ${g}`)),{success:!1,status:g,error:`upstream non-SSE: ${g}`,response:new Response(JSON.stringify({error:{message:`[${g}]: ${f}`}}),{status:g,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}'
 [[patch]]
 id = "errbody-read-timeout"
 order = 17
 summary = "Đọc error-body có timeout 8s (env 9R_ERRBODY_TIMEOUT_MS) — 503 treo body không kẹt vòng fallback"
 why = "provider trả 503 với body chunked treo → a.text() chờ vô hạn; race + cancel để lỗi chết trong 8s và fallback sớm"
-find = 'async function f(a,b=null){let c="";try{c=await a.text()}catch{c=""}if(b&&"function"==typeof b.parseError)'
-replace = 'async function f(a,b=null){let c="";try{let $to=new Promise(($x,$y)=>setTimeout(()=>{try{let $cb=a.body&&"function"==typeof a.body.cancel&&a.body.cancel();$cb&&"function"==typeof $cb.catch&&$cb.catch(()=>{})}catch{}$y(new Error("err-body-timeout"))},+process.env["9R_ERRBODY_TIMEOUT_MS"]||8e3));$to.catch(()=>{});c=await Promise.race([a.text().catch(()=>"")||"",$to])}catch{c=""}if(b&&"function"==typeof b.parseError)'
+find = 'let c="";try{c=await a.text()}catch{c=""}if(b&&"function"==typeof b.parseError)'
+replace = 'let c="";try{let $to=new Promise(($x,$y)=>setTimeout(()=>{try{let $cb=a.body&&"function"==typeof a.body.cancel&&a.body.cancel();$cb&&"function"==typeof $cb.catch&&$cb.catch(()=>{})}catch{}$y(new Error("err-body-timeout"))},+process.env["9R_ERRBODY_TIMEOUT_MS"]||8e3));$to.catch(()=>{});c=await Promise.race([a.text().catch(()=>"")||"",$to])}catch{c=""}if(b&&"function"==typeof b.parseError)'
 
 # P19 — chuẩn hoá tool history claude: gộp các user message liên tiếp chỉ chứa tool_result
 # (shape chia nhiều message từ client) về MỘT user message ngay sau assistant — đúng chuẩn
@@ -217,8 +221,8 @@ order = 19
 group = "claude-tool-result"
 summary = "Gộp user message tool_result bị tách nhiều message về 1 message chuẩn Anthropic"
 why = "agentrouter.org thi thoảng 400 tool_use-without-tool_result trên history tool nhiều vòng; chuẩn hoá shape để qua mọi backend, không mất dữ liệu"
-find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a}function s(a)'
-replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a}function s(a)'
+find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a}function t(a)'
+replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a}function t(a)'
 # P21-24: log-render-improve group — cosmetic reformat upstream console logs. Does not change
 # any router behavior (classifier, fallback, retry, lock, routing). Idempotent on already-patched
 # build (each find is contained inside its own replace when already-patched, engine sees `clean`).
@@ -264,3 +268,99 @@ summary = "Drop COMBO succeeded lines (keep Trying / failed / all failed)"
 why = "Each success emits 'Model X succeeded' and parent 'Model Y succeeded' (two extra lines per request). DONE line already reports which model won. Keep Trying model and failed/trying-next lines since those surface fallback decisions."
 find = 'if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b'
 replace = 'if(b.ok)return b'
+
+# P25/P26 — MCP bridge spawn trên Windows. `spawn("npx")` không tìm được extension `.cmd`
+# (ENOENT); đổi sang `npx.cmd` lại làm Node ném đồng bộ EINVAL vì .cmd không executable trực tiếp.
+# Spawn node.exe với npx-cli.js bỏ hẳn shell: an toàn với args và chạy trên cả Windows/POSIX.
+# P26 vẫn giữ listener: executable/path hỏng phải log thay vì văng khỏi SSE request.
+
+[[patch]]
+id = "mcp-spawn-win-npx"
+order = 25
+summary = "browsermcp chạy Node kèm npx-cli.js, tương thích Windows không cần shell"
+why = "Node 24 Windows: spawn('npx') → ENOENT, spawn('npx.cmd') → synchronous EINVAL; process.execPath + node_modules/npm/bin/npx-cli.js chạy native và giữ args tách biệt"
+find = 'command:"npx",args:["-y","@browsermcp/mcp@latest"]'
+replace = 'command:process.execPath,args:[require("path").join(require("path").dirname(process.execPath),"node_modules","npm","bin","npx-cli.js"),"-y","@browsermcp/mcp@latest"]'
+
+[[patch]]
+id = "mcp-spawn-error-guard"
+order = 26
+summary = "getOrSpawn: log spawn fail (sync throw giữ nguyên), gắn listener cho child error"
+why = "child_process.spawn ném đồng bộ khi executable/path hỏng (Windows EINVAL với .cmd); lỗi đó được log kèm ngữ cảnh rồi ném tiếp như upstream — KHÔNG nuốt, vì getOrSpawn trả bridge rỗng thì registerSession sẽ nổ ở c.sessions.set. Listener f.on('error') lo nhánh async (ENOENT trên POSIX) vốn trước đây giết worker."
+find = 'let f=d(e.command,e.args,{stdio:["pipe","pipe","pipe"],env:process.env});return c={proc:f,sessions:new Map,buffer:""},b.set(a,c),'
+replace = 'let f;try{f=d(e.command,e.args,{stdio:["pipe","pipe","pipe"],env:process.env})}catch($x){console.error(`[mcp:${a}] spawn error: `+($x&&$x.message||$x));throw $x}f.on("error",$x=>{try{console.error(`[mcp:${a}] spawn error: `+($x&&$x.message||$x))}catch{}});return c={proc:f,sessions:new Map,buffer:""},b.set(a,c),'
+
+# P27 — sàn max_tokens: gateway.agents.ai.vn 400 "max_tokens must be greater than 2" với request
+# classifier/probe max_tokens<=2 → 9router bọc 503 + khoá model 30s oan (log 13:20 2026-09-09).
+# Anchor = lời gọi transform claude trong provider-registry h() — mỗi request claude→openai
+# đi qua đây một lần; floor chạy trước dịch body, không đụng provider nào khác.
+
+[[patch]]
+id = "max-tokens-floor"
+order = 27
+summary = "max_tokens < 16 → 16 trước khi gửi upstream (chống 400 gateway kén chọn)"
+why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2' → router 503 + khoá 30s; floor 16 vô hại với call thật (đều > 1k)"
+find = 'let aY=(0,s.SB)(ao);'
+replace = 'if(ah&&"number"==typeof ah.max_tokens&&ah.max_tokens<16)ah.max_tokens=16;let aY=(0,s.SB)(ao);'
+
+# P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
+# Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
+# (OpenAI format: 1 role:tool per call_id), splitting the merged user message p19 built.
+# P19 merge runs BEFORE headroom so it cannot catch post-headroom splits — merge again right
+# before dispatch. Anchor = `let aZ=ah.messages?.length` in 8895.js (1 occurrence, after
+# headroom + system-hoist + max-tokens-floor).
+
+[[patch]]
+id = "tool-result-remerge-post-headroom"
+order = 28
+summary = "Re-merge split tool_result user messages after headroom round-trip"
+why = "headroom Claude→OpenAI→Claude back-translate splits one user(2 tool_result) into N user msgs → agentrouter 400 tool_use-without-tool_result (log 18:50 2026-09-09); merge again post-headroom"
+find = 'let aZ=ah.messages?.length'
+replace = 'if(ah&&Array.isArray(ah.messages)){let $ms2=ah.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let aZ=ah.messages?.length'
+
+# P29 — accept text/plain as SSE: some providers (agentrouter.org/glm-5.3) return valid SSE
+# body under content-type text/plain. The MIME guard blocks ANY non-SSE non-JSON response,
+# throwing `upstream non-SSE: 200` and locking every key 5s. Fix: also accept text/plain in
+# the guard — if the body is actually not SSE, downstream $pk peek catches it as
+# empty-stream-fallback (P16). Anchor = MIME guard in 8895.js (1 occurrence).
+
+[[patch]]
+id = "accept-text-plain-as-sse"
+order = 29
+summary = "Allow text/plain through MIME guard (some providers send SSE as text/plain)"
+why = "agentrouter.org/glm-5.3 returns valid SSE events under content-type: text/plain; charset=utf-8 -> MIME guard blocks + locks all keys 5s; downstream peek already catches empty streams"
+find = 'if(M&&!M.includes("text/event-stream")&&!M.includes("application/json"))'
+replace = 'if(M&&!M.includes("text/event-stream")&&!M.includes("application/json")&&!M.includes("text/plain"))'
+
+# P30 — error-body HTML trong BaseProvider.parseError: khi upstream (như chat.b.ai /v1/messages)
+# chết trả trang Next.js HTML 404/50x, base class nhả `message: b` (toàn bộ HTML vài KB) → zL
+# early-return nguyên trang vào log ✗ ERROR, AUTH lastError, CHAT warn, COMBO. Body bắt đầu bằng "<"
+# thì rút <title> (fallback strip-tag 120 ký tự). JSON/plain giữ nguyên. Anchor 1 bản trong 8499.js.
+
+[[patch]]
+id = "errbody-html-title"
+order = 30
+summary = "Base parseError: body HTML → rút <title>/strip-tag thay vì nhả nguyên trang vào log"
+why = "chat.b.ai /v1/messages 404 trả trang Next.js HTML; base parseError gán message=raw body HTML làm ngập log; rút <title>/strip-tag tại nguồn, JSON/plain giữ nguyên"
+find = 'parseError(a,b){return{status:a.status,message:b||`HTTP ${a.status}`}}'
+replace = 'parseError(a,b){return{status:a.status,message:"string"==typeof b&&"<"===b.trim().charAt(0)?(b.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]||b.replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,120)||`HTML error ${a.status}`).trim():b||`HTTP ${a.status}`}}'
+
+# P31 — 400 "The `content[].thinking` in the thinking mode must be passed back to the API"
+# (agentrouter.org, model deepseek-v4-flash, log 07:06 + 07:19 2026-09-12). Root cause: client
+# gửi body openai-responses (input[] + store, KHÔNG có thinking/reasoning_effort/reasoning/
+# output_config.effort) nhưng history có tool_use; translator 65377 (OPENAI_RESPONSES→OPENAI)
+# dựng lại assistant turn dạng reasoning_content, còn nhánh dummy-thinking của normalizer v()
+# trong 8499.js bị gate `a.thinking?.type==="enabled"` → KHÔNG thinking param nào được gửi.
+# AgentRouter relay chạy chế độ thinking mặc định và 400 mọi key → cả chain combo chết.
+# Đo trên AgentRouter: toolhist+không thinking = 0 ok/12 err; toolhist+có thinking = 136 ok/0 err;
+# không toolhist+không thinking = 13 ok/0 err. Nên chỉ tắt thinking đúng ô đang lỗi.
+# Guard chèn cuối khối messages (sau mọi transform, trước khối tools), chỉ đụng
+# anthropic-compatible + có tool history + client KHÔNG thể hiện ý định thinking nào.
+
+[[patch]]
+id = "responses-thinking-history-400"
+order = 31
+summary = "openai-responses + tool history → thinking:{type:disabled} (AgentRouter 400 thinking-replay)"
+why = "responses→claude translator không sinh thinking block, normalizer lại gate dummy-thinking sau thinking.type===\"enabled\" nên body không có thinking param; relay DeepSeek của agentrouter.org chạy thinking mặc định và 400 'content[].thinking must be passed back' cho mọi key"
+find = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}if(a.tools&&Array.isArray(a.tools)){'
+replace = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
