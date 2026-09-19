@@ -135,6 +135,24 @@ def _fetch_tarball(url: str, dest_dir: Path) -> Path:
     return dest
 
 
+def fetch_latest_build(dest_parent: Path) -> tuple[str, Path]:
+    """Tải tarball bản latest vào dest_parent, giải nén, trả (version, build dir).
+
+    Một chỗ duy nhất biết layout tarball (`package/app/.next-cli-build`) — cả gate dry-run
+    lẫn `python -m engine locate --latest` đều đi qua đây."""
+    meta = _registry_meta()
+    tarball = meta.get("dist", {}).get("tarball", "")
+    if not tarball:
+        raise PatchError("registry metadata không có dist.tarball")
+    tgz = _fetch_tarball(tarball, dest_parent)
+    with tarfile.open(tgz) as tf:
+        tf.extractall(dest_parent, filter="data")
+    build = dest_parent / "package" / "app" / ".next-cli-build"
+    if not build.is_dir():
+        raise PatchError(f"tarball {meta['version']} không chứa app/.next-cli-build")
+    return meta["version"], build
+
+
 DRYRUN_TITLE = "Dò anchor trên bản mới (dry-run)"
 
 def dryrun_anchors(emit=None) -> Step:
@@ -142,22 +160,12 @@ def dryrun_anchors(emit=None) -> Step:
     Anchor chết -> pipeline dừng ở đây; install bản cũ còn nguyên, npm chưa đụng vào gì.
     Caller (run_update) chỉ gọi khi local != latest."""
     try:
-        meta = _registry_meta()
-        latest = meta["version"]
-        tarball = meta.get("dist", {}).get("tarball", "")
-        if not tarball:
-            raise PatchError("registry metadata không có dist.tarball")
-        if emit:
-            emit({"type": "line", "text": f"Tải tarball {latest}…"})
         with tempfile.TemporaryDirectory(prefix="9r-dryrun-") as td:
-            tgz = _fetch_tarball(tarball, Path(td))
+            if emit:
+                emit({"type": "line", "text": "Tải tarball bản latest…"})
+            latest, build = fetch_latest_build(Path(td))
             if emit:
                 emit({"type": "line", "text": "Giải nén + scan anchor…"})
-            with tarfile.open(tgz) as tf:
-                tf.extractall(td, filter="data")     # -> package/app/.next-cli-build/**
-            build = Path(td) / "package" / "app" / ".next-cli-build"
-            if not build.is_dir():
-                raise PatchError(f"tarball {latest} không chứa app/.next-cli-build")
             states = engine.scan(build, engine.load_patches())
             dead = [s.patch.id for s in states if s.state == "dead-anchor"]
             for s in states:
