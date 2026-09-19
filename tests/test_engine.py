@@ -115,7 +115,7 @@ def unlink_dir(link: Path) -> None:
 
 def test_load_patches_real_file(patches):
     # P31 responses-thinking-history-400 (AgentRouter thinking-replay 400) added
-    assert len(patches) == 30
+    assert len(patches) == 31
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -130,7 +130,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 26  # 23 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400
+    assert len(grouped) == 27  # 23 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-freetier-tool-signature
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -1229,6 +1229,75 @@ const f = new Function("a", 'return (async()=>{let c="";try{' + inner + '}catch{
     assert r.returncode == 0 and "RACE-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
 
 
+# ---------- p15: attempt-total-deadline ----------
+# LỊCH SỬ 2026-09-19: replace chèn `Date.now()-x` nhưng closure g() khai báo `i,j,k,l,m,n,o,p`
+# — không có `x`. 0.5.81 re-minify đổi tên biến (find đã theo, replace thì không), nên
+# `node --check` vẫn pass (chỉ là identifier) còn timer nổ runtime ReferenceError. Không có
+# `uncaughtException` handler nào trong build → process chết, đúng log
+# `⨯ uncaughtException: ReferenceError: x is not defined at Timeout._onTimeout`.
+
+def test_attempt_deadline_fires_and_reports_elapsed(patches):
+    """Timer $td chạy được trong closure g() (không ReferenceError) và báo đúng số ms.
+    `node --check` không bắt được lớp lỗi này: identifier sai vẫn hợp lệ cú pháp."""
+    p15 = by_id(patches, "attempt-total-deadline")
+    injected = p15.replace
+    script = """
+process.env["9R_ATTEMPT_DEADLINE_MS"] = "20";
+let fired = 0, seen = "";
+function g(){
+  const h=5000;
+  let i=null,j=0,k=0,l=Date.now(),m="upstream connection lost",n=Date.now(),o="STREAM",p=()=>{i&&(clearTimeout(i),i=null)};
+  const c={handleError:()=>{},abort:()=>{}};
+  const e={s:(tag,msg)=>{ fired++; seen = msg; }};
+  let %s r=0;
+  q();  // upstream gọi q() ngay sau khi dựng r, đây là lúc arm stall timer -> i != null
+  return { $tot, $td };
+}
+const r = g();
+setTimeout(() => {
+  if (fired !== 1) { console.error("timer chay " + fired + " lan"); process.exit(1); }
+  if (!/total=\\d+ms/.test(seen)) { console.error("msg thieu so ms: " + seen); process.exit(1); }
+  console.log("DEADLINE-OK");
+}, 90);
+""" % injected
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "DEADLINE-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
+
+
+def test_attempt_deadline_is_inert_after_stream_ends(patches):
+    """$td không được clearTimeout ở đâu cả, nên timer của request đã xong vẫn nổ sau đó 240s.
+    Guard `!i` phải làm nó thành no-op: nếu không, handleError()/abort() bắn lên attempt đã
+    đóng → combo fallback + log lỗi ma cho một request thành công."""
+    p15 = by_id(patches, "attempt-total-deadline")
+    injected = p15.replace
+    script = """
+process.env["9R_ATTEMPT_DEADLINE_MS"] = "20";
+let fired = 0, killed = 0;
+function g(){
+  const h=5000;
+  let i=null,j=0,k=0,l=Date.now(),m="upstream connection lost",n=Date.now(),o="STREAM",p=()=>{i&&(clearTimeout(i),i=null)};
+  const c={handleError:()=>{killed++},abort:()=>{killed++}};
+  const e={s:(tag,msg)=>{ fired++; }};
+  let %s r=0;
+  q();  // stream bắt đầu -> i != null
+  p();  // terminal (complete/error/disconnect/abort) -> i = null
+  return { $tot, $td };
+}
+const r = g();
+setTimeout(() => {
+  if (fired !== 0) { console.error("timer van bao " + fired + " lan sau terminal"); process.exit(1); }
+  if (killed !== 0) { console.error("da goi handleError/abort " + killed + " lan len attempt da dong"); process.exit(1); }
+  console.log("INERT-OK");
+}, 90);
+""" % injected
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "INERT-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
+
+
 # ---------- log-render-improve group (p21-p24, cosmetic console format) ----------
 
 def _patch_replace(patches, pid):
@@ -1524,4 +1593,55 @@ def _no_build():
     except Exception:
         return True
     return not (Path(engine.build_dir()) / "server").is_dir()
+
+
+# ---------- p32: opencode free-tier tool signature ----------
+
+def test_opencode_freetier_bumps_tool_signature_when_client_sends_tools(patches):
+    """P32: `w(b,!0)` phải chạy cả khi client ĐÃ gửi tools. Upstream gate opencode.ai đòi
+    tools array chứa cả `bash` và `read` chữ thường; guard cũ
+    `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)` bỏ qua nhánh bơm khi tools khác rỗng
+    → Claude Code (77 tools, `Bash`/`Read` viết hoa) luôn 403 FreeTierError.
+    Node unit mô phỏng nguyên văn hàm w() của upstream + body Claude Code."""
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    p32 = by_id(patches, "opencode-freetier-tool-signature")
+    script = """
+const u=[{type:"function",name:"bash",description:"This tool is currently unavailable and must not be used.",parameters:{type:"object",properties:{}}},{type:"function",name:"read",description:"This tool is currently unavailable and must not be used.",parameters:{type:"object",properties:{}}}];
+const v=u;
+function w(a,b){if(a&&"object"==typeof a)if(b){Array.isArray(a.tools)||(a.tools=[]);let b=new Set(a.tools.map(a=>a.name||a.function?.name));for(let c of v)b.has(c.name)||a.tools.push({...c});a.tool_choice||(a.tool_choice="auto")}else if(Array.isArray(a.tools)&&a.tools.length>0){let b=new Set(a.tools.map(a=>a.function?.name||a.name));for(let c of u)b.has(c.function.name)||a.tools.push({...c,function:{...c.function}})}else a.tools=u.map(a=>({...a,function:{...a.function}})),a.tool_choice||(a.tool_choice="none")}
+
+// Claude Code payload: real tools, capitalised names, tool_choice already set
+const real=[{type:"function",function:{name:"Agent"}},{type:"function",function:{name:"Bash"}},{type:"function",function:{name:"Read"}}];
+const body={tools:JSON.parse(JSON.stringify(real)),tool_choice:"auto"};
+
+// OLD guard: skipped w() entirely -> signature tools missing -> opencode.ai 403
+const oldBody=JSON.parse(JSON.stringify(body));
+Array.isArray(oldBody.tools)&&0!==oldBody.tools.length||w(oldBody,!0);
+const oldNames=oldBody.tools.map(t=>t.name||t.function?.name);
+
+// NEW guard (p32): always runs w() -> bash+read appended, real tools kept
+const newBody=JSON.parse(JSON.stringify(body));
+{ let b=newBody; %s
+const newNames=newBody.tools.map(t=>t.name||t.function?.name);
+
+if(oldNames.includes("bash")||oldNames.includes("read")) throw new Error("old guard unexpectedly bumped: "+oldNames);
+if(!newNames.includes("bash")||!newNames.includes("read")) throw new Error("p32 did not bump signature: "+newNames);
+for(const n of ["Agent","Bash","Read"]) if(!newNames.includes(n)) throw new Error("client tool dropped: "+n);
+if(newNames.length!==5) throw new Error("unexpected tool count: "+newNames.length+" "+newNames);
+if(newBody.tool_choice!=="auto") throw new Error("tool_choice clobbered: "+newBody.tool_choice);
+console.log("P32-OK");
+""" % p32.replace
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "P32-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
+
+
+def test_opencode_freetier_anchor_hits_real_build(patches):
+    """P32 anchor must exist on the installed build exactly once (chunks/318.js opencode provider)."""
+    build = Path(engine.build_dir()) if not _no_build() else None
+    if build is None:
+        pytest.skip("9router build not installed")
+    p = by_id(patches, "opencode-freetier-tool-signature")
+    t = read(build / "server" / "chunks" / "318.js")
+    assert t.count(p.find) + t.count(p.replace) == 1
 

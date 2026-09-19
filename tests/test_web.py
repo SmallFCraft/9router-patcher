@@ -109,7 +109,7 @@ def test_sse_group_has_exactly_one_action(web):
     assert html.count('name="group" value="sse-hang"') == 1
     # 26 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
     # errbody-html-title, responses-thinking-history-400)
-    assert html.count('name="group" value=') == 26
+    assert html.count('name="group" value=') == 27
 
 
 def test_index_has_apply_all_form(web):

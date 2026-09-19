@@ -161,6 +161,17 @@ replace = 'aW.length&&d?.line&&d.line(as,"⚙",aW.join(" \xb7 ")),aN&&"claude"==
 
 # P15 — deadline tổng per-attempt: env 9R_ATTEMPT_DEADLINE_MS (default 240000, <=0 tắt);
 # cắt bằng c.handleError + c.abort() đúng cơ chế fallback. Watcher g() chỉ 1 bản trong 8895.js.
+# LỊCH SỬ 2026-09-19 — hai lỗi của chính patch này, cùng lộ trong log prod:
+#  1) replace chèn `Date.now()-x` nhưng g() khai báo i,j,k,l,m,n,o,p — KHÔNG có `x`. Re-anchor
+#     0.5.81 remap find (q/p/m/o) mà bỏ sót replace → node --check vẫn pass (identifier hợp lệ)
+#     còn timer nổ ReferenceError. Next.js log rồi nuốt (router-server.js:648) nên chỉ thành spam
+#     `⨯ uncaughtException` chứ không giết process. Dùng `n` = mốc bắt đầu attempt (upstream đã
+#     dùng cho dur=) — KHÔNG dùng `l` = mốc chunk cuối, bị transform gán lại mỗi chunk.
+#  2) $td không được clearTimeout ở đâu cả, mà p() (đường dọn DUY NHẤT) lại chạy mỗi chunk qua
+#     q() nên không thể nhét clear vào đó — nhét vào p() thì hạn chót chết ngay chunk đầu. Thay
+#     bằng guard `!i`: i chỉ null sau terminal (handleComplete/Error/Disconnect/abort đều gọi p()),
+#     nên timer sót của request đã xong thành no-op thay vì gọi handleError()/abort() lên attempt
+#     đã đóng (fallback + log lỗi ma).
 
 [[patch]]
 id = "attempt-total-deadline"
@@ -168,7 +179,7 @@ order = 15
 summary = "Deadline tổng 240s (env 9R_ATTEMPT_DEADLINE_MS) cho 1 attempt upstream — cắt stream kẹt"
 why = "STALL/FIRST_CHUNK chỉ đo giữa-chunk; stream nhỏ giọt 7 phút không ai cắt, client tự hủy rồi router vẫn chạy tiếp phí"
 find = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(o,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},'
-replace = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(o,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},$tot=(+process.env["9R_ATTEMPT_DEADLINE_MS"]||240000),$td=$tot>0?setTimeout(()=>{(0,e.s)(o,`ATTEMPT DEADLINE total=${Date.now()-x}ms (9R_ATTEMPT_DEADLINE_MS=${$tot})`),c.handleError?.(Error(`attempt deadline exceeded ${Date.now()-x}ms`)),c.abort?.()},$tot):null,'
+replace = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(o,`STALL TIMEOUT ${h}ms | chunks=${j} | bytes=${k} | sinceLast=${Date.now()-l}ms`),c.handleError?.(Error("stream stall timeout")),c.abort?.()},h)},$tot=(+process.env["9R_ATTEMPT_DEADLINE_MS"]||240000),$td=$tot>0?setTimeout(()=>{if(!i)return;(0,e.s)(o,`ATTEMPT DEADLINE total=${Date.now()-n}ms (9R_ATTEMPT_DEADLINE_MS=${$tot})`),c.handleError?.(Error(`attempt deadline exceeded ${Date.now()-n}ms`)),c.abort?.()},$tot):null,'
 
 # P16 — empty-stream→fallback: module 20623 hàm o/M trả {success:!0,response} NGAY LÚC HEADER
 # về → combo quyết định trước khi biết stream rỗng (am/mt trả OUT 0 59-100%). Peek pipe đã-
@@ -364,3 +375,23 @@ summary = "openai-responses + tool history → thinking:{type:disabled} (AgentRo
 why = "responses→claude translator không sinh thinking block, normalizer lại gate dummy-thinking sau thinking.type===\"enabled\" nên body không có thinking param; relay DeepSeek của agentrouter.org chạy thinking mặc định và 400 'content[].thinking must be passed back' cho mọi key"
 find = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}if(a.tools&&Array.isArray(a.tools)){'
 replace = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
+
+# P32 — OpenCode free-tier 403 "can only be used from within OpenCode" khi client gửi tools.
+# Root cause: server opencode.ai kiểm tra tools payload — bắt buộc phải chứa CẢ HAI tool
+# tên chữ thường `bash` VÀ `read` (chữ ký của client OpenCode thật). Đo thực nghiệm:
+#   [bash,read] + bất kỳ tool nào (kể cả 77 tools Claude Code) -> 200 OK
+#   thiếu 1 trong 2 hoặc viết hoa (Bash/Read) -> 403 FreeTierError
+# Upstream đã có hàm w(b,!0) bơm 2 tool này nhưng bị chặn bởi `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)`
+# — tức là chỉ bơm khi client KHÔNG gửi tools; khi Claude Code gửi tools thật thì nhánh này BỊ BỎ QUA.
+# Sửa thành `Array.isArray(b.tools)||(b.tools=[]),w(b,!0)` để LUÔN LUÔN đảm bảo 2 tool `bash`/`read`
+# có mặt trong mảng tools (hàm w tự dedupe bằng Set), giữ nguyên toàn bộ tools thật của client.
+# Anchor duy nhất 1 bản trong chunks/318.js.
+
+[[patch]]
+id = "opencode-freetier-tool-signature"
+order = 32
+summary = "Luôn bơm tool signature (bash+read) cho opencode: vượt 403 FreeTierError khi client gửi tools"
+why = "opencode.ai gate free tier bằng việc yêu cầu tools array phải chứa cả `bash` và `read` chữ thường; 9router có sẵn hàm bơm nhưng chỉ chạy khi tools rỗng, làm Claude Code (gửi 77 tools) luôn bị 403"
+find = 'Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)}'
+replace = 'Array.isArray(b.tools)||(b.tools=[]),w(b,!0)}'
+

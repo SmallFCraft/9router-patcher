@@ -103,7 +103,7 @@ Conventions that keep this sane on minified bundles:
 - When the upstream package updates, identifier remaps must change `find` and `replace` **together** — a remapped `find` with an old `replace` passes `node --check` and still breaks at runtime.
 - Patch state is version-locked: measurements taken on one build are re-verified by the test suite against the live install.
 
-## Current patch set (30)
+## Current patch set (31)
 
 | # | id | what it does |
 |---|----|--------------|
@@ -128,6 +128,7 @@ Conventions that keep this sane on minified bundles:
 | 29 | accept-text-plain-as-sse | MIME guard lets `text/plain` through — some providers send valid SSE bodies as text/plain |
 | 30 | errbody-html-title | base `parseError` collapses an HTML error body to its `<title>` instead of dumping the whole page into logs |
 | 31 | responses-thinking-history-400 | `openai-responses` body + tool history with no thinking intent → inject `thinking:{type:"disabled"}` for `anthropic-compatible` upstreams (AgentRouter DeepSeek 400 "`content[].thinking` must be passed back") |
+| 32 | opencode-freetier-tool-signature | always append the `bash`+`read` tool signature to outgoing opencode requests — opencode.ai's free tier rejects any request whose `tools` array lacks both lowercase names with 403 `FreeTierError` (Claude Code sends capitalised `Bash`/`Read`, so its 77-tool payload always failed) |
 
 ## Environment variables
 
@@ -143,7 +144,7 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-75 focused engine tests passed here; full suite includes updater pipeline and dashboard routes (200 total).
+78 focused engine tests passed here; full suite includes updater pipeline and dashboard routes (204 total).
 
 ## Project structure
 
