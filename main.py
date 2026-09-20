@@ -300,15 +300,37 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None,
               lifespan=_lifespan, dependencies=[Depends(check_host)])
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
-_FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-                '<rect width="32" height="32" rx="8" fill="#16a34a"/>'
-                '<path d="M17.5 5 8.5 18H14l-1.5 9L22 13.5h-5.5L17.5 5z" fill="#fff"/></svg>')
+# 8-bit cartridge-style favicon: chunky green body, hard black border, square pixels.
+# viewBox 32x32 so it reads crisp at favicon sizes; no anti-aliased curves.
+_FAVICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">'
+                '<rect width="32" height="32" fill="#0a0e27"/>'
+                '<rect x="4" y="2" width="24" height="2" fill="#22c55e"/>'
+                '<rect x="2" y="4" width="2" height="6" fill="#22c55e"/>'
+                '<rect x="28" y="4" width="2" height="6" fill="#22c55e"/>'
+                '<rect x="2" y="10" width="28" height="18" fill="#22c55e"/>'
+                '<rect x="2" y="10" width="3" height="18" fill="#16a34a"/>'
+                '<rect x="27" y="10" width="3" height="18" fill="#16a34a"/>'
+                '<rect x="8" y="14" width="4" height="4" fill="#0a0e27"/>'
+                '<rect x="20" y="14" width="4" height="4" fill="#0a0e27"/>'
+                '<rect x="9" y="20" width="14" height="3" fill="#0a0e27"/>'
+                '</svg>')
 
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(_FAVICON_SVG, media_type="image/svg+xml",
                     headers={"Cache-Control": "max-age=86400"})
+
+
+@app.get("/font.css", include_in_schema=False)
+def font_css():
+    """VT323 pixel font (latin + vietnamese subsets) as one cached stylesheet.
+
+    Inlined into every page it would add ~35 KB of base64 to each response; served once
+    and cached forever instead. The template render is the only thing that reads it."""
+    css = templates.env.get_template("_fonts.html").render()
+    return Response(css, media_type="text/css",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 def _error(request: Request, msg: str):
