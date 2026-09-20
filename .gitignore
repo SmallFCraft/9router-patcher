@@ -19,3 +19,8 @@ Thumbs.db
 .mimosa/
 .playwright-mcp/
 .gitnexus/
+# Build artifacts (Nuitka onefile app)
+assets/patches.enc
+build/
+dist/
+*.exe

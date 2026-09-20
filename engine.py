@@ -17,8 +17,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tomllib import loads as toml_loads
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 HERE = Path(__file__).resolve().parent
 PATCHES_FILE = HERE / "patches.toml"
+PATCHES_ENC_FILE = HERE / "patches.enc"
+# TNT API AES-256 giải mã patches.enc trong RAM. Đủ chống đọc/sửa bằng Notepad;
+# không chống được dump RAM — đó là giới hạn đã chấp nhận của bản phát hành exe.
+_BLOB_KEY = bytes.fromhex("9bb6864c583dda3b09ae2001e9eb955a69c37698bb3028e562ff64e8638cdef6")
 # ngoài project: security scanner quét repo flag backup là SSRF (false positive trên code upstream);
 # snapshots chỉ phục vụ rollback, không bao giờ được execute
 BACKUP_ROOT = HERE.parent / "9router-backups"
@@ -58,8 +64,23 @@ class PatchState:
     clean_files: list[str]        # relpaths containing `find` but not `replace`
 
 
-def load_patches(path: str | Path = PATCHES_FILE) -> list[Patch]:
-    raw = toml_loads(Path(path).read_text(encoding="utf-8"))
+def load_patches(path: str | Path | None = None) -> list[Patch]:
+    """Tải danh sách patches.
+
+    Thứ tự ưu tiên:
+    1. Nếu truyền `path` cụ thể -> đọc plaintext TOML từ file đó.
+    2. Nếu không truyền và có PATCHES_ENC_FILE -> giải mã AES-GCM trong RAM.
+    3. Ngược lại -> đọc PATCHES_FILE như cũ.
+    """
+    if path is not None:
+        raw_text = Path(path).read_text(encoding="utf-8")
+    elif PATCHES_ENC_FILE.is_file():
+        blob = PATCHES_ENC_FILE.read_bytes()
+        nonce, ciphertext = blob[:12], blob[12:]
+        raw_text = AESGCM(_BLOB_KEY).decrypt(nonce, ciphertext, None).decode("utf-8")
+    else:
+        raw_text = PATCHES_FILE.read_text(encoding="utf-8")
+    raw = toml_loads(raw_text)
     patches = [
         Patch(
             id=d["id"],
