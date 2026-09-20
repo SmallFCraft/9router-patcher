@@ -1,5 +1,6 @@
 """Web UI tests: TestClient with engine + probes + updater faked — no build, network, npm."""
 import re
+import shutil
 import sys
 import threading
 import time
@@ -726,4 +727,39 @@ def test_shutdown_refused_from_evil_origin(web):
     """CSRF guard rejects cross-site shutdown attempts with 403."""
     r = web["client"].post("/shutdown", headers={"Origin": EVIL})
     assert r.status_code == 403
+
+
+def test_inline_scripts_in_all_templates_parse(web):
+    """Every <script> block in every template must pass `node --check`.
+
+    Regression: a mixed-quote SyntaxError in base.html killed the whole IIFE,
+    silently disabling the exit button, theme toggle, copy buttons, and
+    auto-refresh on every page. Templates are HTML, so extract blocks with
+    regex — Jinja tags never appear inside our JS.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not on PATH")
+    import re
+    import subprocess
+    import tempfile
+    tpl_dir = Path(__file__).resolve().parent.parent / "templates"
+    inlined = 0
+    for tpl in sorted(tpl_dir.glob("*.html")):
+        blocks = re.findall(r"<script>(.*?)</script>", tpl.read_text(encoding="utf-8"), re.S)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                             encoding="utf-8") as fh:
+                fh.write(block)
+            try:
+                r = subprocess.run([node, "--check", fh.name],
+                                   capture_output=True, text=True, timeout=10)
+            finally:
+                Path(fh.name).unlink(missing_ok=True)
+            assert r.returncode == 0, f"{tpl.name}: {r.stderr.strip()}"
+            inlined += 1
+    assert inlined >= 2, f"expected at least 2 script blocks, found {inlined}"
 

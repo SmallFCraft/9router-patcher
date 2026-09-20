@@ -388,11 +388,12 @@ document.documentElement.dataset.theme=t;})();
   var ex=$("#app-exit");
   if(ex) ex.addEventListener("click",function(){
     if(!confirm("Thoát ứng dụng? Dashboard sẽ tắt và cổng 20129 được giải phóng.")) return;
-    fetch("/shutdown",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    fetch("/shutdown",{method:"POST",credentials:"same-origin",
+                       headers:{"Content-Type":"application/x-www-form-urlencoded"},
                        body:"same-origin=1"})
       .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status);
         document.body.innerHTML='<main style="padding:3rem;text-align:center">'+
-          "<h1>Đã thoát</h1><p class=\"muted\">Server đã dừng. Đóng tab này là được.</p></main>'; })
+          '<h1>Đã thoát</h1><p class="muted">Server đã dừng. Đóng tab này là được.</p></main>'; })
       .catch(function(e){ toast("Không thoát được: "+e.message,"bad"); });
   });
 
