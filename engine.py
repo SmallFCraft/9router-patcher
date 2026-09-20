@@ -19,6 +19,8 @@ from tomllib import loads as toml_loads
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+import app_paths
+
 HERE = Path(__file__).resolve().parent
 PATCHES_FILE = HERE / "patches.toml"
 PATCHES_ENC_FILE = HERE / "patches.enc"
@@ -27,7 +29,7 @@ PATCHES_ENC_FILE = HERE / "patches.enc"
 _BLOB_KEY = bytes.fromhex("9bb6864c583dda3b09ae2001e9eb955a69c37698bb3028e562ff64e8638cdef6")
 # ngoài project: security scanner quét repo flag backup là SSRF (false positive trên code upstream);
 # snapshots chỉ phục vụ rollback, không bao giờ được execute
-BACKUP_ROOT = HERE.parent / "9router-backups"
+BACKUP_ROOT = app_paths.get_backup_root()
 BUILD_RELPATH = "app/.next-cli-build"
 BACKUP_KEEP = 5
 BACKUP_STAMP = "%Y%m%dT%H%M%S.%fZ"    # also the prune filter: only our own dirs match it

@@ -24,6 +24,7 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+import app_paths
 import engine
 
 try:
@@ -52,7 +53,7 @@ OWN_ORIGINS = frozenset({f"http://{h}" for h in OWN_HOSTS})
 LOCK_CACHE: dict = {"locks": [], "error": None, "probed_at": 0.0}
 LAST_UPDATE_STEPS: list = []            # kết quả job gần nhất để GET /update render lại
 
-HISTORY_FILE = HERE / "logs" / "update-history.jsonl"   # 1 job = 1 dòng JSON, chọn theo thời gian
+HISTORY_FILE = app_paths.get_history_file()   # 1 job = 1 dòng JSON, chọn theo thời gian
 HISTORY_KEEP = 50
 
 

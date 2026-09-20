@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import app_paths
 import engine
 from engine import PatchError
 
@@ -44,7 +45,7 @@ ROUTER_PORT = 20128
 HEADROOM_PORT = 8787
 # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: relaunched processes outlive this server, no console
 DETACHED_FLAGS = 0x00000008 | 0x00000200
-RESTART_LOG_DIR = Path(__file__).resolve().parent / "logs"
+RESTART_LOG_DIR = app_paths.get_log_dir()
 TASKKILL_TIMEOUT = 20
 CMDLINE_TIMEOUT = 15
 RESTART_PORT_WAIT = 20          # seconds max waiting for a restarted service to listen again
@@ -386,10 +387,18 @@ def _default_router_cmd() -> str | None:
 
 
 def _default_headroom_cmd() -> str | None:
+    """Command line for the headroom proxy.
+
+    Under Nuitka onefile sys.executable is the temp-dir python, so resolving the shim
+    relative to it points nowhere: try PATH first (works frozen and in a venv), and only
+    fall back to the interpreter-relative location the source build used."""
+    which_hr = shutil.which("headroom.exe") or shutil.which("headroom")
+    if which_hr:
+        return f'"{which_hr}" proxy --port {HEADROOM_PORT} --code-aware'
     exe = Path(sys.executable).parent / "Scripts" / "headroom.exe"
     if not exe.is_file():
         return None
-    return f"{sys.executable} {exe} proxy --port {HEADROOM_PORT} --code-aware"
+    return f'"{sys.executable}" "{exe}" proxy --port {HEADROOM_PORT} --code-aware'
 
 
 def _stack_cmdlines() -> dict:
