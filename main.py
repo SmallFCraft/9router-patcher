@@ -748,41 +748,42 @@ def revert(request: Request, group: Annotated[str, Form()]):
     return RedirectResponse("/", status_code=303)
 
 
+def get_log_config() -> dict:
+    """Access/default logs with timestamps — the console shows WHEN each request ran.
+    asctime already carries ',<ms>'; appending %(msecs)03d printed the same ms twice."""
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "()": "uvicorn.logging.DefaultFormatter",
+                "fmt": "%(asctime)s %(levelprefix)s %(message)s",
+                "datefmt": "%d-%m-%Y %H:%M:%S",
+            },
+            "access": {
+                "()": "uvicorn.logging.AccessFormatter",
+                "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+                "datefmt": "%d-%m-%Y %H:%M:%S",
+            },
+        },
+        "handlers": {
+            # CÙNG MỘT STREAM cho cả hai: stderr+stdout lẫn lộn trên Windows console làm
+            # dòng ghi đè nhau (mất ký tự giữa timestamp). Access log cũng hữu ích khi
+            # redirect stdout, nên chọn stdout.
+            "default": {"class": "logging.StreamHandler", "formatter": "default",
+                        "stream": "ext://sys.stdout"},
+            "access": {"class": "logging.StreamHandler", "formatter": "access",
+                       "stream": "ext://sys.stdout"},
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"level": "INFO"},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    def _log_config() -> dict:
-        """Access/default logs with timestamps — the console shows WHEN each request ran.
-        asctime already carries ',<ms>'; appending %(msecs)03d printed the same ms twice."""
-        return {
-            "version": 1,
-            "disable_existing_loggers": False,
-            "formatters": {
-                "default": {
-                    "()": "uvicorn.logging.DefaultFormatter",
-                    "fmt": "%(asctime)s %(levelprefix)s %(message)s",
-                    "datefmt": "%d-%m-%Y %H:%M:%S",
-                },
-                "access": {
-                    "()": "uvicorn.logging.AccessFormatter",
-                    "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
-                    "datefmt": "%d-%m-%Y %H:%M:%S",
-                },
-            },
-            "handlers": {
-                # CÙNG MỘT STREAM cho cả hai: stderr+stdout lẫn lộn trên Windows console làm
-                # dòng ghi đè nhau (mất ký tự giữa timestamp). Access log cũng hữu ích khi
-                # redirect stdout, nên chọn stdout.
-                "default": {"class": "logging.StreamHandler", "formatter": "default",
-                            "stream": "ext://sys.stdout"},
-                "access": {"class": "logging.StreamHandler", "formatter": "access",
-                           "stream": "ext://sys.stdout"},
-            },
-            "loggers": {
-                "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
-                "uvicorn.error": {"level": "INFO"},
-                "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
-            },
-        }
-
-    uvicorn.run(app, host=HOST, port=PORT, log_config=_log_config())
+    uvicorn.run(app, host=HOST, port=PORT, log_config=get_log_config())
