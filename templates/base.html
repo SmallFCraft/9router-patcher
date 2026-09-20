@@ -343,6 +343,9 @@ document.documentElement.dataset.theme=t;})();
     <button type="button" class="iconbtn" id="theme-toggle" aria-label="Đổi giao diện sáng/tối">
       {{ icon('sun', 'ic-sun') }}{{ icon('moon', 'ic-moon') }}
     </button>
+    <button type="button" class="iconbtn" id="app-exit" aria-label="Thoát ứng dụng" title="Thoát ứng dụng">
+      {{ icon('power') }}
+    </button>
   </div>
 </header>
 
@@ -380,6 +383,17 @@ document.documentElement.dataset.theme=t;})();
     var next=document.documentElement.dataset.theme==="dark"?"light":"dark";
     document.documentElement.dataset.theme=next;
     try{localStorage.setItem("9r.theme",next)}catch(e){}
+  });
+
+  var ex=$("#app-exit");
+  if(ex) ex.addEventListener("click",function(){
+    if(!confirm("Thoát ứng dụng? Dashboard sẽ tắt và cổng 20129 được giải phóng.")) return;
+    fetch("/shutdown",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+                       body:"same-origin=1"})
+      .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status);
+        document.body.innerHTML='<main style="padding:3rem;text-align:center">'+
+          "<h1>Đã thoát</h1><p class=\"muted\">Server đã dừng. Đóng tab này là được.</p></main>'; })
+      .catch(function(e){ toast("Không thoát được: "+e.message,"bad"); });
   });
 
   var path=location.pathname;

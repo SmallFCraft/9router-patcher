@@ -17,7 +17,7 @@ def test_build_app_command_assembly():
     cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"))
     cmd_str = " ".join(cmd)
     assert "--onefile" in cmd
-    assert "--windows-console-mode=attach" in cmd
+    assert "--windows-console-mode=force" in cmd
     assert "--assume-yes-for-downloads" in cmd
     assert any("templates=templates" in arg for arg in cmd)
     assert any("patches.enc" in arg for arg in cmd)

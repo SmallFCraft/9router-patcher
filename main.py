@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import socket
 import threading
 import time
@@ -746,6 +747,24 @@ def revert(request: Request, group: Annotated[str, Form()]):
         return _error(request, str(e))
     _snap_refresh(scan=True)            # build vừa đổi — dashboard không được render state cũ
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/shutdown", dependencies=CSRF)
+def shutdown(request: Request):
+    """Stop the dashboard server itself.
+
+    Closing the tab leaves the process running (and holding :20129), so the UI needs an
+    explicit exit. SIGINT is what uvicorn treats as a graceful shutdown; the signal is
+    raised after the response is flushed, otherwise the client sees a dropped connection."""
+    if not OP_SLOT.acquire("shutdown"):
+        return JSONResponse({"ok": False, "error": "thao tác khác đang chạy"}, status_code=409)
+
+    def stop():
+        time.sleep(0.5)                 # let the 202 reach the browser first
+        os.kill(os.getpid(), signal.SIGINT)
+
+    threading.Thread(target=stop, name="shutdown", daemon=True).start()
+    return JSONResponse({"ok": True, "action": "shutdown"}, status_code=202)
 
 
 def get_log_config() -> dict:

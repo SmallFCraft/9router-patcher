@@ -25,7 +25,7 @@ def get_nuitka_cmd(output_dir: Path) -> list[str]:
         "nuitka",
         "--onefile",
         "--assume-yes-for-downloads",
-        "--windows-console-mode=attach",
+        "--windows-console-mode=force",
         f"--include-data-dir={tpl_source}=templates",
         f"--include-data-files={enc_source}=patches.enc",
         f"--output-dir={output_dir}",

@@ -711,3 +711,19 @@ def test_no_dead_anchors_on_any_page(web, monkeypatch):
     assert hrefs
     for h in hrefs:
         assert web["client"].get(h).status_code != 404, h
+
+
+def test_shutdown_accepted_with_same_origin(web, monkeypatch):
+    """POST /shutdown returns 202 and triggers SIGINT in a background thread."""
+    import unittest.mock
+    with unittest.mock.patch("os.kill") as mock_kill:
+        r = web["client"].post("/shutdown", headers={"Origin": OWN})
+        assert r.status_code == 202
+        assert r.json() == {"ok": True, "action": "shutdown"}
+
+
+def test_shutdown_refused_from_evil_origin(web):
+    """CSRF guard rejects cross-site shutdown attempts with 403."""
+    r = web["client"].post("/shutdown", headers={"Origin": EVIL})
+    assert r.status_code == 403
+
