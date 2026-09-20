@@ -2,53 +2,35 @@
 
 See [CLAUDE.md](CLAUDE.md) for full architecture, verified test baselines, and operating rules.
 
-## GitNexus Critical Traps
-- **Tool names**: Use `impact`, `context`, `detect_changes`, `query` (or `mcp__plugin_gitnexus_gitnexus__*`). Do NOT use `gitnexus_*` prefixed names.
-- **CLI requires `--repo`**: Always pass `--repo 9router-patcher`. 16 repos indexed globally; omitting `--repo` throws `Multiple repositories indexed`.
-- **CLI path**: Use `node E:\Apps\npm-global\node_modules\gitnexus\dist\cli\index.js` or `npx gitnexus`. `%APPDATA%\npm\gitnexus` on PATH is stale (1.6.4-rc.48).
+## Quick Reference
+
+- **Test Suite**: `python -m pytest tests/ -q` (245 passed, 1 skipped)
+- **Engine Tests**: `python -m pytest tests/test_engine.py -q` (98 passed, 1 skipped)
+- **Build Executable**: `python build_app.py` -> `dist\9router-patch.exe`
+- **Dashboard Port**: `127.0.0.1:20129` (local-only, CSRF-guarded)
+- **GitNexus Repo**: `--repo 9router-patcher` (CLI: use `npx gitnexus`, not `.gitnexus/run.cjs`)
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **9router-patcher** (736 symbols, 2839 relationships, 66 execution flows).
 
-> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
+> Index stale? Run `npx gitnexus analyze` from the project root. (Note: `.gitnexus/run.cjs` has storage-version drift; always use `npx gitnexus`).
 
 ## Always Do
 
-- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream"})` (MCP) or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .` (CLI fallback); report callers, processes, and risk. Never substitute grep for graph analysis.
-- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- **MUST run impact analysis before editing.** Use `impact({target: "symbolName", direction: "upstream", repo: "9router-patcher"})` (MCP) or `npx gitnexus impact "symbolName" --direction upstream --repo 9router-patcher` (CLI fallback); report callers, processes, and risk.
+- **MUST analyze graph changes before committing.** Use `detect_changes({repo: "9router-patcher"})` (MCP) or `npx gitnexus detect-changes --repo 9router-patcher` (CLI fallback).
 - **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** Confirm with text search before treating symbol as safe.
+- When exploring unfamiliar code, use `query({search_query: "concept", repo: "9router-patcher"})`.
+- When you need full context on a symbol, use `context({name: "symbolName", repo: "9router-patcher"})`.
+- For security review, `explain({target: "fileOrSymbol", repo: "9router-patcher"})` lists taint findings.
 
 ## Never Do
 
 - NEVER edit a function, class, or method before MCP/CLI impact analysis.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
 - NEVER commit before MCP/CLI graph change analysis.
-
-## Resources
-
-| Resource | Use for |
-| --- | --- |
-| `gitnexus://repo/9router-patcher/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/9router-patcher/clusters` | All functional areas |
-| `gitnexus://repo/9router-patcher/processes` | All execution flows |
-| `gitnexus://repo/9router-patcher/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-| --- | --- |
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
-
 <!-- gitnexus:end -->
