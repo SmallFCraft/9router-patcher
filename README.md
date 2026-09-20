@@ -183,17 +183,38 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-78 focused engine tests passed here; full suite includes updater pipeline and dashboard routes (204 total).
+241 tests; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction.
+
+## Distribution (Standalone Executable)
+
+You can build a single `.exe` to share with others so they do not need Python, pip, or git:
+
+```bat
+pip install -r requirements.txt
+python build_app.py
+```
+
+The output is written to `dist/9router-patch.exe` (~15–25 MB):
+
+- **Zero install for recipients**: double-click the `.exe` → boots FastAPI on `127.0.0.1:20129` and opens the default browser automatically.
+- **Requirements on target machine**: Node.js + `npm i -g 9router` + `headroom` must already be installed. The `.exe` manages the stack; it does not bundle Node or 9router itself.
+- **Source protection**: all 31 patches from `patches.toml` are AES-256-GCM encrypted into the binary at build time and decrypted in RAM only. Plaintext `patches.toml` is never unpacked to `%TEMP%`.
+- **Runtime storage**: logs and stack state resolve to `%APPDATA%\9router-patch\logs\` when running from the binary; backups sit in `9router-backups\` alongside the folder containing the `.exe`.
+- **SmartScreen**: because the binary is not code-signed, Windows SmartScreen may show an unknown publisher warning on first launch (click *More info* → *Run anyway*).
 
 ## Project structure
 
 ```
+app.py          desktop launcher (opens browser + uvicorn)
+build_app.py    automated build script (encrypt -> Nuitka compile)
+app_paths.py    path abstraction (repo dev vs %APPDATA% frozen)
 main.py         FastAPI dashboard (127.0.0.1:20129)
 updater.py      update pipeline + stack lifecycle (ports 20128 / 8787)
 engine.py       patch engine: scan / apply / revert, backups, node --check
 patches.toml    the 31 patches (single source of truth)
-templates/      dashboard pages (Jinja2)
+templates/      dashboard pages (Jinja2, 8-bit cartoon theme)
 tests/          pytest suite
+tools/          make_patches_blob.py (AES-256-GCM encrypter)
 ```
 
 Backups live **outside** the repository (default `<repo-parent>/9router-backups/`): they are byte-exact snapshots used for rollback, never executed, and kept out of the tree so repo-wide security scanners don't flag them.
