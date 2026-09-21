@@ -34,7 +34,10 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         "watchfiles",     # chỉ cho --reload
         "httptools",      # http protocol tuỳ chọn (default h11)
         "websockets",     # ws protocol tuỳ chọn, app không có websocket
+        "wsproto",        # websocket protocol phụ, app không có websocket
         "yaml",           # chỉ cho starlette OpenAPI response
+        "rich",           # pydantic lazy import in đẹp schema debug, app không dùng
+        "pygments",       # rich kéo theo: 321 C source files (47% tổng khối lượng biên dịch!)
     ])
     # Máy 16 cores => cấp N-2 jobs để compile/check C files song song
     jobs = max(1, (os.cpu_count() or 4) - 2)

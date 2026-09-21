@@ -24,6 +24,17 @@ def test_build_app_command_assembly():
     assert cmd[-1] == "app.py"
 
 
+def test_build_app_skips_heavy_unused_deps():
+    """pygments (321 C files, 47% compile) + rich phải bị loại khỏi build."""
+    cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"))
+    skip = next(a for a in cmd if a.startswith("--nofollow-import-to="))
+    mods = skip.split("=", 1)[1].split(",")
+    for heavy in ("pygments", "rich"):
+        assert heavy in mods, f"{heavy} phải nằm trong nofollow để build không biên dịch nó"
+    for must_stay in ("click",):
+        assert must_stay not in mods, f"{must_stay} uvicorn import eager — loại là exe chết"
+
+
 def test_build_app_fast_flag_disables_compression():
     """Dev loop flag: --fast passes --onefile-no-compression to skip ~50s zstd."""
     cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"), fast=True)

@@ -18,10 +18,10 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-09-20)
 
-- Full test suite: `python -m pytest tests/ -q` → **278 passed, 4 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **280 passed, 3 skipped**.
   The skips: engine measurements version-locked to 0.5.65 (do not debug), test_e2e_binary (when port in use), tray non-Windows fallback tests.
 - Engine tests: `python -m pytest tests/test_engine.py -q` → **98 passed, 1 skipped**.
-- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **43 passed, 2 skipped**.
+- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **44 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 
 ## Standalone Distribution (Executable)
@@ -29,15 +29,15 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 ```bat
 pip install -r requirements.txt
 python build_app.py          # publish build, ~23 MB, zstd-compressed
-python build_app.py --fast   # dev loop, ~93 MB, skips zstd (~30s faster, measured 196s vs 225s)
+python build_app.py --fast   # dev loop, ~93 MB, skips zstd (~50s faster)
 ```
 Output: `dist\9router-patch.exe` (Nuitka onefile executable).
 - AES-256-GCM encrypted patches decrypted in RAM only — plaintext `patches.toml` is never unpacked to disk.
 - Runs with dedicated console window (`--windows-console-mode=force` in `build_app.py`; interactive prompt + boot doctor). Console hides to system tray on `[H]`.
 - Auto-opens `http://127.0.0.1:20129` on launch.
 - Web UI provides shutdown button (power icon) to terminate process and release port `:20129`.
-- Build time ~3.75 min (225s baseline, 2026-09-21; `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,yaml`). Phase breakdown: 41% Scons C-link, 22% zstd onefile-compress.
-- Use `--fast` for anything that is not a release build — do not burn 4 minutes re-verifying UI changes.
+- `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,wsproto,yaml,rich,pygments`. `rich` & `pygments` (321 C source files, 47% tổng số C files) bị loại — pydantic lazy import in debug schema, app không dùng.
+- Use `--fast` for anything that is not a release build — do not burn minutes re-verifying UI changes.
 - **Cạm bẫy Nuitka**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
 
 ## GitNexus — Code Intelligence
