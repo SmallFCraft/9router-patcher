@@ -1,4 +1,5 @@
 """GET /logs + GET /api/logs: system logs page renders, API returns JSON, no leaks."""
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -101,6 +102,18 @@ def test_gather_logs_splits_router_and_headroom(monkeypatch, tmp_path):
     assert "A1" in "".join(ctx["app"])
     blob = "".join(ctx["app"])
     assert "R1" not in blob and "H1" not in blob
+
+
+def test_log_files_caps_files_per_kind(tmp_path):
+    """Hàng trăm log restart cũ: _log_files chỉ giữ N file mới nhất mỗi loại."""
+    for i in range(12):
+        p = tmp_path / f"router-{i:02d}.log"
+        p.write_text("x", encoding="utf-8")
+        os.utime(p, (i, i))
+    kinds = [kind for kind, _ in main._log_files(tmp_path)]
+    assert len(kinds) == 5
+    names = [f.name for _, f in main._log_files(tmp_path)]
+    assert "router-11.log" in names and "router-00.log" not in names
 
 
 def test_logs_page_has_five_tabs_search_and_scroll(web, tmp_path):

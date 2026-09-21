@@ -842,17 +842,20 @@ def _patch_search_terms() -> list[str]:
     return terms
 
 
-def _log_files(log_dir: Path) -> list[tuple[str, Path]]:
+def _log_files(log_dir: Path, per_kind_limit: int = 5) -> list[tuple[str, Path]]:
     """Service log files (router-*/headroom-*) newest-first.
 
     boot.log is deliberately excluded: its content is already the boot section
-    (ring buffer), showing it twice would just double the payload."""
+    (ring buffer), showing it twice would just double the payload.
+    per_kind_limit: chỉ lấy N file mới nhất mỗi loại — tránh đọc hàng trăm file
+    restart cũ khiến trang /logs phình to megabyte (ponytail: 5 file gần nhất)."""
     files = []
     try:
         candidates = sorted(log_dir.glob("*.log"),
                             key=lambda p: p.stat().st_mtime, reverse=True)
     except OSError:
         return files
+    counts: dict[str, int] = {}
     for f in candidates:
         if f.name == "boot.log":
             continue
@@ -862,6 +865,9 @@ def _log_files(log_dir: Path) -> list[tuple[str, Path]]:
             kind = "headroom"
         else:
             kind = "other"
+        if counts.get(kind, 0) >= per_kind_limit:
+            continue
+        counts[kind] = counts.get(kind, 0) + 1
         files.append((kind, f))
     return files
 
