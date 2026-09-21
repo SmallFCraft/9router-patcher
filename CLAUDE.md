@@ -18,10 +18,10 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-09-20)
 
-- Full test suite: `python -m pytest tests/ -q` → **245 passed, 1 skipped**.
-  The 1 skip (`test_scan_real_build_matches_measurements`) is expected: measurements are version-locked to 0.5.65 while the installed copy is 0.5.81. Do not debug this skip.
+- Full test suite: `python -m pytest tests/ -q` → **273 passed, 4 skipped**.
+  The skips: engine measurements version-locked to 0.5.65 (do not debug), test_e2e_binary (when port in use), tray non-Windows fallback tests.
 - Engine tests: `python -m pytest tests/test_engine.py -q` → **98 passed, 1 skipped**.
-- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py -q` → **12 passed**.
+- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **38 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 
 ## Standalone Distribution (Executable)
@@ -33,7 +33,7 @@ python build_app.py --fast   # dev loop, ~93 MB, skips zstd (~30s faster, measur
 ```
 Output: `dist\9router-patch.exe` (Nuitka onefile executable).
 - AES-256-GCM encrypted patches decrypted in RAM only — plaintext `patches.toml` is never unpacked to disk.
-- Runs without console window (`--windows-console-mode=attach`).
+- Runs with dedicated console window (`--windows-console-mode=force` in `build_app.py`; interactive prompt + boot doctor). Console hides to system tray on `[H]`.
 - Auto-opens `http://127.0.0.1:20129` on launch.
 - Web UI provides shutdown button (power icon) to terminate process and release port `:20129`.
 - Build time ~3.75 min (225s baseline, 2026-09-21; `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,yaml`). Phase breakdown: 41% Scons C-link, 22% zstd onefile-compress.
