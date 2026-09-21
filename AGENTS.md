@@ -6,7 +6,7 @@ See [CLAUDE.md](CLAUDE.md) for full architecture, verified test baselines, and o
 
 - **Test Suite**: `python -m pytest tests/ -q` (245 passed, 1 skipped)
 - **Engine Tests**: `python -m pytest tests/test_engine.py -q` (98 passed, 1 skipped)
-- **Build Executable**: `python build_app.py` -> `dist\9router-patch.exe`
+- **Build Executable**: `python build_app.py` -> `dist\9router-patch.exe` (~3.75 min; dev loop: add `--onefile-no-compression`)
 - **Dashboard Port**: `127.0.0.1:20129` (local-only, CSRF-guarded)
 - **GitNexus Repo**: `--repo 9router-patcher` (CLI: use `npx gitnexus`, not `.gitnexus/run.cjs`)
 

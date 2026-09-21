@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, copy_btn %}
+{% from "_macros.html" import icon %}
 {% block title %}Bảng điều khiển · 9router{% endblock %}
 {% block heading %}{{ icon('activity') }}Bảng điều khiển{% endblock %}
 {% block content %}
@@ -90,12 +90,9 @@
   </div>
 </section>
 
-{% if build_path %}
 <p class="small muted" style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:0 0 14px">
   {{ icon('save') }}backup gần nhất: {% if backup_epoch %}<strong data-epoch="{{ backup_epoch }}">…</strong>{% else %}chưa có{% endif %}
-  <span class="chip" title="{{ build_path }}">{{ build_path }}</span>
 </p>
-{% endif %}
 
 {% if error %}
 <p class="banner">{{ icon('alert') }}<span>Không quét được build: {{ error }}</span></p>
@@ -129,44 +126,14 @@
         </form>
       </div>
     </header>
-    {% if g.files %}
-    <div class="gfiles">
-      {% for f in g.files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}
-    </div>
-    {% endif %}
     <div class="gbody">
     {% for s in g.members %}
-      <details class="patch" data-key="{{ s.patch.id }}">
-        <summary>
-          {{ icon('chevron', 'chev') }}
-          <span class="patch-id">{{ s.patch.id }}</span>
-          <span class="patch-summary">{{ s.patch.summary }}</span>
-          <span class="badge {{ {'applied':'ok','clean':'warn','dead-anchor':'bad'}.get(s.state,'warn') }}">{{ s.state }}</span>
-        </summary>
-        <div class="patch-body">
-          <p class="why">{{ s.patch.why }}</p>
-          <div class="flabel">find</div>
-          <div class="codewrap">
-            {{ copy_btn(s.patch.find, 'Copy find') }}
-            <pre>{{ s.patch.find }}</pre>
-          </div>
-          <div class="flabel">replace</div>
-          <div class="codewrap">
-            {{ copy_btn(s.patch.replace, 'Copy replace') }}
-            <pre>{{ s.patch.replace }}</pre>
-          </div>
-          <div class="flabel">file chứa replace ({{ s.applied_files | length }})</div>
-          {% if s.applied_files %}
-          <div class="filelist">{% for f in s.applied_files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}</div>
-          {% else %}<span class="muted small">—</span>{% endif %}
-          <div class="flabel">file còn clean ({{ s.clean_files | length }})</div>
-          {% if s.clean_files %}
-          <div class="filelist">{% for f in s.clean_files %}<span class="chip" title="{{ f }}">{{ f }}</span>{% endfor %}</div>
-          {% else %}<span class="muted small">—</span>{% endif %}
-        </div>
-      </details>
-    {% endfor %}
-    </div>
+      <div class="patch-row" data-key="{{ s.patch.id }}">
+        <span class="patch-id">{{ s.patch.id }}</span>
+        <span class="patch-summary">{{ s.patch.summary }}</span>
+        <span class="badge {{ {'applied':'ok','clean':'warn','dead-anchor':'bad'}.get(s.state,'warn') }}">{{ s.state }}</span>
+      </div>
+    {% endfor %}</div>
   </article>
 {% endfor %}
 </section>

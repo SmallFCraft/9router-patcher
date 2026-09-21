@@ -11,7 +11,7 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `engine.py` — Atomic find/replace engine, snapshots, `node --check`, rollback.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (31 patches, 2 multi-patch groups: `sse-hang` & `nonstream-sse-retry`).
+- `patches.toml` — Single source of truth (33 patches, 2 multi-patch groups: `sse-hang` & `nonstream-sse-retry`).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
@@ -28,13 +28,17 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ```bat
 pip install -r requirements.txt
-python build_app.py
+python build_app.py          # publish build, ~23 MB, zstd-compressed
+python build_app.py --fast   # dev loop, ~93 MB, skips zstd (~30s faster, measured 196s vs 225s)
 ```
-Output: `dist\9router-patch.exe` (~25 MB Nuitka onefile executable).
+Output: `dist\9router-patch.exe` (Nuitka onefile executable).
 - AES-256-GCM encrypted patches decrypted in RAM only — plaintext `patches.toml` is never unpacked to disk.
 - Runs without console window (`--windows-console-mode=attach`).
 - Auto-opens `http://127.0.0.1:20129` on launch.
 - Web UI provides shutdown button (power icon) to terminate process and release port `:20129`.
+- Build time ~3.75 min (225s baseline, 2026-09-21; `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,yaml`). Phase breakdown: 41% Scons C-link, 22% zstd onefile-compress.
+- Use `--fast` for anything that is not a release build — do not burn 4 minutes re-verifying UI changes.
+- **Cạm bẫy Nuitka**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
 
 ## GitNexus — Code Intelligence
 
@@ -84,6 +88,7 @@ Indexed as **9router-patcher** (736 symbols, 2839 relationships, 66 execution fl
 - Never expose, log, or commit `.env` contents, API keys, or provider secrets.
 - Never read or modify the proxy's `data.sqlite` directly from the dashboard.
 - Backups are stored outside the repo tree (`<repo-parent>/9router-backups/`). Never commit backup files.
+- UI privacy: dashboard never renders patch `find`/`replace`/`why`, internal file paths (`server/*`, build tree), or lock file paths — enforced by regression tests (`test_index_never_leaks_patch_payload`, `test_index_hides_internal_paths_for_public_users`, `test_update_page_hides_lock_file_paths`).
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

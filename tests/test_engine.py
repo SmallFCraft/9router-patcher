@@ -115,8 +115,8 @@ def unlink_dir(link: Path) -> None:
 # ---------- structural ----------
 
 def test_load_patches_real_file(patches):
-    # P31 responses-thinking-history-400 (AgentRouter thinking-replay 400) added
-    assert len(patches) == 31
+    # P33/P34 opencode-responses-* (opencode.ai /zen/v1/responses 400) added
+    assert len(patches) == 33
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -131,7 +131,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 27  # 23 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-freetier-tool-signature
+    assert len(grouped) == 29  # 25 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-freetier-tool-signature + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"

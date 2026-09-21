@@ -45,6 +45,8 @@ ROUTER_PORT = 20128
 HEADROOM_PORT = 8787
 # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: relaunched processes outlive this server, no console
 DETACHED_FLAGS = 0x00000008 | 0x00000200
+# CREATE_NO_WINDOW: subprocess đồng bộ không bao giờ cấp console window mới (tránh chớp tắt)
+SILENT_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 RESTART_LOG_DIR = app_paths.get_log_dir()
 TASKKILL_TIMEOUT = 20
 CMDLINE_TIMEOUT = 15
@@ -204,7 +206,8 @@ def find_locks() -> list[Lock]:
     import re
     argv = [HANDLE64, "-nobanner", os.fspath(engine.install_dir())]
     try:
-        r = subprocess.run(argv, shell=False,
+        r = subprocess.run(argv, shell=False, stdin=subprocess.DEVNULL,
+                           creationflags=SILENT_FLAGS,
                            capture_output=True, text=True, timeout=HANDLE_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         raise PatchError(f"handle64 probe failed ({HANDLE64}): {type(e).__name__}: {e}") from e
@@ -234,7 +237,9 @@ def npm_update() -> Step:
         return Step(title, False, "npm-cli.js không tìm thấy (cần node + npm-global trên PATH)")
     cmd = base + ["i", "-g", "9router@latest", "--prefer-online"]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=NPM_TIMEOUT)
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
+                           timeout=NPM_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         return Step(title, False, f"{' '.join(cmd)}\n{type(e).__name__}: {e}")
     log = "\n".join(x.strip() for x in (r.stdout, r.stderr) if x and x.strip())
@@ -261,7 +266,8 @@ def _process_cmdline(pid: int) -> str | None:
     r = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
          "(Get-CimInstance Win32_Process -Filter '%s').CommandLine" % fltr],
-        shell=False, capture_output=True, text=True, timeout=CMDLINE_TIMEOUT)
+        shell=False, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        creationflags=SILENT_FLAGS, timeout=CMDLINE_TIMEOUT)
     return r.stdout.strip() or None
 
 
@@ -297,6 +303,7 @@ def stop_locks(locks: list[Lock], emit) -> dict[int, tuple[str, str]]:
         emit({"type": "line", "text": f"  taskkill /PID {pid} /T /F  ({name})"})
         try:
             r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], shell=False,
+                               stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
                                capture_output=True, text=True, timeout=TASKKILL_TIMEOUT)
             msg = (r.stdout or r.stderr or "").strip().replace("\n", " | ")
             emit({"type": "line",
@@ -334,6 +341,7 @@ def _wait_port_closed(port: int, timeout: float = 10.0) -> bool:
 def pid_on_port(port: int) -> int | None:
     """PID đang LISTEN trên port (netstat -ano); None nếu không có ai nghe."""
     r = subprocess.run(["netstat", "-ano"], shell=False,
+                       stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
                        capture_output=True, text=True, timeout=15)
     for line in (r.stdout or "").splitlines():
         parts = line.split()
@@ -389,16 +397,24 @@ def _default_router_cmd() -> str | None:
 def _default_headroom_cmd() -> str | None:
     """Command line for the headroom proxy.
 
-    Under Nuitka onefile sys.executable is the temp-dir python, so resolving the shim
-    relative to it points nowhere: try PATH first (works frozen and in a venv), and only
-    fall back to the interpreter-relative location the source build used."""
-    which_hr = shutil.which("headroom.exe") or shutil.which("headroom")
-    if which_hr:
-        return f'"{which_hr}" proxy --port {HEADROOM_PORT} --code-aware'
-    exe = Path(sys.executable).parent / "Scripts" / "headroom.exe"
-    if not exe.is_file():
-        return None
-    return f'"{sys.executable}" "{exe}" proxy --port {HEADROOM_PORT} --code-aware'
+    MUST run via pythonw.exe (GUI subsystem), never via the headroom.exe pip shim.
+    The shim is a CONSOLE-subsystem launcher: spawning it detached leaves it without
+    a console, so its inner python.exe child AllocConsoles a NEW Windows Terminal
+    window — closing that window kills headroom with it (repro 2026-09-21:
+    CASCADIA_HOSTING_WINDOW_CLASS visible). pythonw spawns zero windows and the
+    detached process survives on its own; stdout still goes to logs/ as before.
+
+    Under Nuitka onefile sys.executable is the temp-dir python, so resolving the
+    interpreter relative to it points nowhere: prefer the real installed pythonw
+    on PATH (works frozen and in a venv), and only fall back to the
+    interpreter-relative location the source build used."""
+    for cand in (
+        shutil.which("pythonw.exe"),
+        str(Path(sys.executable).parent / "pythonw.exe"),
+    ):
+        if cand and Path(cand).is_file():
+            return f'"{cand}" -m headroom.cli proxy --port {HEADROOM_PORT} --code-aware'
+    return None
 
 
 def _stack_cmdlines() -> dict:
@@ -431,6 +447,7 @@ def _kill_port(port: int, name: str, emit) -> bool:
     emit({"type": "line", "text": f"  taskkill /PID {pid} /T /F  ({name})"})
     try:
         r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], shell=False,
+                           stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
                            capture_output=True, text=True, timeout=TASKKILL_TIMEOUT)
         emit({"type": "line",
               "text": f"  → exit {r.returncode}{': ' + (r.stdout or r.stderr or '').strip() if (r.stdout or r.stderr) else ''}"})
@@ -447,12 +464,11 @@ def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit) -> 
     if pid_on_port(port) is not None:
         emit({"type": "line", "text": f"  {kind} đang chạy sẵn ở cổng {port} — bỏ qua"})
         return True
-    emit({"type": "line", "text": f"  khởi động {kind}: {cmd}"})
+    emit({"type": "line", "text": f"  khởi động {kind} ở cổng {port}"})
     env = dict(os.environ)
     if kind == "router":
         env = _build_router_env(env)
         emit({"type": "line", "text": f"  env PORT={ROUTER_PORT}"})
-        emit({"type": "line", "text": f"  env NODE_PATH={env['NODE_PATH'][:120]}…"})
     try:
         RESTART_LOG_DIR.mkdir(exist_ok=True)
         logfile = RESTART_LOG_DIR / f"{kind}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
@@ -529,7 +545,7 @@ def restart_processes(stopped: dict[int, tuple[str, str]], emit) -> str:
             # resolves to nothing and the router falls back to node:sqlite after every update.
             env = _build_router_env(env)
             emit({"type": "line", "text": f"  env PORT={ROUTER_PORT}"})
-        emit({"type": "line", "text": f"  khởi động lại: {cmdline}"})
+        emit({"type": "line", "text": f"  khởi động lại: {Path(name).stem}"})
         try:
             with open(logfile, "ab") as fh:
                 p = subprocess.Popen(cmdline, shell=False, cwd=engine.install_dir(),
@@ -565,7 +581,9 @@ def _npm_stream(emit) -> Step:
         return Step(title, False, "npm-cli.js không tìm thấy (cần node + npm-global trên PATH)")
     cmd = base + ["i", "-g", "9router@latest", "--prefer-online"]
     try:
-        p = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        p = subprocess.Popen(cmd, shell=False, stdin=subprocess.DEVNULL,
+                             creationflags=SILENT_FLAGS,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, errors="replace", bufsize=1)
     except (OSError, subprocess.SubprocessError) as e:
         return Step(title, False, f"{' '.join(cmd)}\n{type(e).__name__}: {e}")
@@ -610,6 +628,7 @@ def restore_sqlite(emit) -> str:
     cmd = base + ["i", "better-sqlite3@^12.6.2", "--no-save", "--no-audit", "--no-fund"]
     try:
         r = subprocess.run(cmd, shell=False, cwd=os.fspath(app),
+                           stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
                            capture_output=True, text=True, timeout=NPM_TIMEOUT)
     except (OSError, subprocess.SubprocessError) as e:
         return Step("deps", False, f"{' '.join(cmd)}\n{type(e).__name__}: {e}")
@@ -629,8 +648,7 @@ def _reapply(restarting: bool) -> str:
     build = engine.build_dir()
     patches = engine.load_patches()
     changed = engine.apply(build, patches)
-    lines = [f"Build: {build}",
-             "File đã ghi: " + (", ".join(changed) if changed else "không (đã patch sẵn)")]
+    lines = [f"Áp patch: {len(changed)} file được cập nhật" if changed else "Áp patch: không đổi (đã patch sẵn)"]
     lines += [f"  {s.patch.id}: {s.state} ({len(s.applied_files)} file)"
               for s in engine.scan(build, patches)]
     lines.append("Process sẽ được khởi động lại ở bước kế tiếp."

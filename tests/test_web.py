@@ -84,6 +84,47 @@ def test_index_lists_all_9_patches(web):
     assert "applied" in r.text
 
 
+def test_index_never_leaks_patch_payload(web):
+    """Regression: even though patches.toml is encrypted in the exe, the dashboard must not
+    render the find/replace body or per-patch why/file lists — that would defeat the encryption."""
+    r = web["client"].get("/")
+    text = r.text
+    for p in REAL_PATCHES:
+        assert p.find not in text, f"patch find leaked for {p.id}"
+        assert p.replace not in text, f"patch replace leaked for {p.id}"
+        assert p.why not in text, f"patch why leaked for {p.id}"
+    assert "<details class=\"patch\"" not in text
+    assert "Copy find" not in text and "Copy replace" not in text
+    # state badges still render so users see what is applied
+    assert 'class="patch-row"' in text
+
+
+def test_index_hides_internal_paths_for_public_users(web):
+    """The dashboard is published to end users: internal filesystem paths of the
+    installed package or the build tree must never appear in the served HTML."""
+    r = web["client"].get("/")
+    text = r.text
+    assert "server/app/api" not in text, "internal route path leaked"
+    assert "server/chunks" not in text, "internal chunk path leaked"
+    assert "node_modules" not in text, "install path leaked"
+    assert "<div class=\"gfiles\">" not in text, "per-patch file list still rendered"
+    assert "build_path" not in text, "build tree variable leaked"
+
+
+def test_update_page_hides_lock_file_paths(web):
+    """Lock rows must show PID + process name only; the path of the file lock is internal."""
+    import main
+    # force a lock record into the cached list
+    main.LOCK_CACHE["locks"] = [
+        type("L", (), {"pid": 1234, "name": "worker.exe", "path": r"C:\x\node_modules\9router\app"})()
+    ]
+    r = web["client"].get("/update")
+    assert r.status_code == 200
+    assert "PID 1234" in r.text and "worker.exe" in r.text
+    assert r"C:\x\node_modules" not in r.text
+    assert "Copy path" not in r.text
+
+
 def test_index_probes_fail_degrades_gracefully(web):
     """Fixture makes every probe's socket/urllib call raise — page still renders."""
     r = web["client"].get("/")
@@ -108,9 +149,9 @@ def test_sse_group_has_exactly_one_action(web):
     # one apply + one revert control for the whole 4-patch group, never per-patch
     assert html.count('name="ids" value="sse-hang"') == 1
     assert html.count('name="group" value="sse-hang"') == 1
-    # 26 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
-    # errbody-html-title, responses-thinking-history-400)
-    assert html.count('name="group" value=') == 27
+    # 29 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
+    # errbody-html-title, responses-thinking-history-400, opencode-responses-*)
+    assert html.count('name="group" value=') == 29
 
 
 def test_index_has_apply_all_form(web):

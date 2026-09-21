@@ -7,7 +7,7 @@ This repo does **not** contain the proxy itself. It manages a locally installed 
 - **`main.py`** — FastAPI dashboard (binds `127.0.0.1:20129`): provider/key/combo overview, live usage stats, patch apply/revert buttons, and an update job with an SSE console.
 - **`updater.py`** — update pipeline: version probe → lock probe → dry-run anchor gate → stop stack → `npm install` → re-apply patches → restart. Owns the port-based lifecycle of the managed stack (router `:20128`, headroom `:8787`).
 - **`engine.py`** — the patch engine: loads `patches.toml`, scans the installed build, applies/reverts find-and-replace patches atomically with per-operation backups, `node --check` verification and automatic rollback. Pure data + filesystem — no HTTP.
-- **`patches.toml`** — the single source of truth for all patches (currently 31), each measured byte-exact against a specific build of `9router`.
+- **`patches.toml`** — the single source of truth for all patches (currently 33), each measured byte-exact against a specific build of `9router`.
 
 ```
 ┌──────────────┐   manages    ┌─────────────────────────────┐

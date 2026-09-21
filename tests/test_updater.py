@@ -766,7 +766,8 @@ def test_restart_processes_launches_detached(monkeypatch, tmp_path):
     events = []
     out = restart_processes({7: ("node.exe", "node custom-server.js")}, events.append)
     assert "node.exe" in out and "4242" in out
-    assert any("node custom-server.js" in e["text"] for e in events)   # cmdline in the log
+    assert any("khởi động lại" in e["text"] for e in events)   # relaxed: full cmdline no longer
+                                                               # logs (privacy); name+pid still do
     cmd, kw = pops[0]
     assert kw["cwd"] == tmp_path and kw["creationflags"] == updater.DETACHED_FLAGS
     assert kw["env"]["PORT"] == str(updater.ROUTER_PORT)   # custom-server reads PORT from env

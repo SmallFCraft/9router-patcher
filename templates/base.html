@@ -223,20 +223,15 @@ document.documentElement.dataset.theme=t;})();
   .gfiles{display:flex; flex-wrap:wrap; gap:6px; padding:10px 16px 0}
   .gbody{padding:10px 16px 14px}
 
-  details.patch{border:2px solid var(--ink); background:var(--surface-2); margin-top:8px; box-shadow:2px 2px 0 var(--ink)}
-  details.patch summary{
-    list-style:none; display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; cursor:pointer;
+  .patch-row{
+    border:2px solid var(--ink); background:var(--surface-2); margin-top:8px;
+    box-shadow:2px 2px 0 var(--ink);
+    display:flex; align-items:center; gap:.55rem; flex-wrap:wrap;
     padding:.55rem .8rem; min-height:40px;
   }
-  details.patch summary::-webkit-details-marker{display:none}
-  details.patch summary:hover{background:var(--surface)}
-  details.patch[open] summary{border-bottom:2px dashed var(--ink)}
-  .chev{width:15px; height:15px; flex:none; color:var(--muted)}
-  details.patch[open] .chev{transform:rotate(180deg)}
   .patch-id{font-family:var(--font-mono); font-size:16px; color:var(--info); flex:none}
   .patch-summary{font-size:16px; color:var(--text-2); flex:1; min-width:140px}
-  .patch-body{padding:.75rem .9rem .9rem; background:var(--surface)}
-  .patch-body .why{margin:.1rem 0 .6rem; font-size:15px; color:var(--muted)}
+
   .flabel{font-size:14px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:.7rem 0 .3rem}
 
   .codewrap{position:relative; margin-top:.35rem}
@@ -260,7 +255,6 @@ document.documentElement.dataset.theme=t;})();
     background:var(--surface-2); border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink); padding:.55rem .8rem;
   }
   .lockrow .pid{color:var(--bad)}
-  .lockrow .lockpath{font-size:14px; color:var(--text-2); word-break:break-all}
   .steps{list-style:none; margin:.4rem 0 0; padding:0}
   .step{position:relative; padding:0 0 20px 44px}
   .step::before{content:""; position:absolute; left:14px; top:32px; bottom:2px; width:2px; background:var(--ink)}
@@ -315,8 +309,7 @@ document.documentElement.dataset.theme=t;})();
     .panel{padding:13px 14px}
     .gactions{margin-left:0; width:100%}
     .gactions .btn{flex:1}
-    .lockrow{grid-template-columns:86px 1fr auto}
-    .lockrow .lockpath{grid-column:1 / -1}
+    .lockrow{grid-template-columns:86px 1fr}
     .toolbar .meta{margin-left:0; width:100%}
   }
   @media (max-width:400px){ .statgrid{grid-template-columns:1fr} }

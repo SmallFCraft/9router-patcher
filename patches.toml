@@ -395,3 +395,31 @@ why = "opencode.ai gate free tier bằng việc yêu cầu tools array phải ch
 find = 'Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)}'
 replace = 'Array.isArray(b.tools)||(b.tools=[]),w(b,!0)}'
 
+# P33/P34 — openai-responses param 400 trên opencode.ai/zen/v1/responses (muse-spark-*).
+# Cả hai lỗi phát sinh trong CÙNG transformRequest của class K (chunks/318.js) — bước cuối
+# trước khi gửi upstream, sau P27 (8895.js) và sau mọi normalizer khác:
+#  (a) `max_output_tokens` < 16 → 400 "The number must be `>= 16`". P27 chỉ floor `max_tokens`;
+#      tới lượt class K thì giá trị đã đổi tên thành `max_output_tokens` → P27 không thấy gì.
+#      Floor ngay tại đây, cùng ngưỡng 16 với P27.
+#  (b) `reasoning.effort` = "none"/"off" (THINK:off) → 400 "not supported ... Supported values:
+#      [minimal, low, medium, high, xhigh, max]". Upstream chỉ down-clamp max/ultra theo capability
+#      list, KHÔNG clamp none → nâng lên "minimal" (thấp nhất được chấp nhận).
+# Anchor: mỗi find đúng 1 bản trong chunks/318.js (opencode-go có bản `delete e.*` riêng — cố
+# ý KHÔNG đụng, URL /zen/go/v1/responses chưa đo lỗi).
+
+[[patch]]
+id = "opencode-responses-maxtokens-floor"
+order = 33
+summary = "Floor max_output_tokens >= 16 trong opencode responses transform (chống 400)"
+why = "opencode.ai 400 '`max_output_tokens` The number must be `>= 16`'; P27 chỉ đụng max_tokens còn class K đã đổi tên field trước khi gửi"
+find = 'delete b.max_tokens,delete b.max_completion_tokens,function(a,b){let c=b.reasoning,'
+replace = 'void 0!==b.max_output_tokens&&"number"==typeof b.max_output_tokens&&b.max_output_tokens<16&&(b.max_output_tokens=16),delete b.max_tokens,delete b.max_completion_tokens,function(a,b){let c=b.reasoning,'
+
+[[patch]]
+id = "opencode-responses-noeffort-minimal"
+order = 34
+summary = "reasoning effort none/off → minimal cho openai responses (chống 400 THINK:off)"
+why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream chỉ down-clamp max/ultra nên 'none' lọt nguyên → 400 invalid_request_error param reasoning.effort"
+find = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
+replace = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
+

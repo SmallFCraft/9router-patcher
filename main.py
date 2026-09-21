@@ -525,7 +525,8 @@ def update_page(request: Request, probe: str = ""):
 def update_locks():
     """JSON lock probe for the page's background refresh — same ~37.6s cost, off the render path."""
     _probe_locks()
-    locks = [{"pid": l.pid, "name": l.name, "path": l.path} for l in LOCK_CACHE["locks"]]
+    # Chỉ trả pid và process name cho client; filesystem path của lock là nội bộ máy
+    locks = [{"pid": l.pid, "name": l.name} for l in LOCK_CACHE["locks"]]
     return JSONResponse({"locks": locks, "error": LOCK_CACHE["error"],
                          "probed_at": LOCK_CACHE["probed_at"],
                          "job_running": JOB.running})
@@ -778,11 +779,13 @@ def get_log_config() -> dict:
                 "()": "uvicorn.logging.DefaultFormatter",
                 "fmt": "%(asctime)s %(levelprefix)s %(message)s",
                 "datefmt": "%d-%m-%Y %H:%M:%S",
+                "use_colors": False,    # Windows attach mode: sys.stdout is None -> isatty() crash
             },
             "access": {
                 "()": "uvicorn.logging.AccessFormatter",
                 "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
                 "datefmt": "%d-%m-%Y %H:%M:%S",
+                "use_colors": False,
             },
         },
         "handlers": {

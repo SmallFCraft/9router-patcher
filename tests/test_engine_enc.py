@@ -58,7 +58,7 @@ def test_load_patches_falls_back_to_toml_when_no_enc(tmp_path, monkeypatch):
     missing = tmp_path / "nonexistent.enc"
     monkeypatch.setattr(engine, "PATCHES_ENC_FILE", missing)
     patches = engine.load_patches()
-    assert len(patches) == 31
+    assert len(patches) == 33
     assert patches[0].id == "connect-timeout-180s"
 
 

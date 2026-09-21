@@ -107,12 +107,21 @@ def groups(patches: list[Patch]) -> dict[str, list[Patch]]:
     return out
 
 
+MIN_LITERAL_LEN = 4
+
+# Windows: tránh chớp tắt cửa sổ console đen khi chạy subprocess từ app GUI
+SILENT_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
 def install_dir() -> Path:
     """Global 9router install, derived at runtime from `npm root -g` (never hardcoded)."""
     npm = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm:
         raise PatchError("npm not found on PATH")
-    r = subprocess.run([npm, "root", "-g"], capture_output=True, text=True, timeout=30)
+    # stdin=DEVNULL bắt buộc: exe chạy attach-mode không có console -> stdin là NULL handle;
+    # nếu không truyền, Windows CreateProcess fail với [WinError 6] The handle is invalid.
+    r = subprocess.run([npm, "root", "-g"], capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS, timeout=30)
     if r.returncode != 0 or not r.stdout.strip():
         raise PatchError(f"`npm root -g` failed: {(r.stderr or r.stdout).strip()}")
     return Path(r.stdout.strip()) / "9router"
@@ -127,8 +136,8 @@ def node_check(path: str | Path) -> None:
     node = shutil.which("node")
     if not node:
         raise PatchError("node not found on PATH")
-    r = subprocess.run([node, "--check", str(path)],
-                       capture_output=True, text=True, timeout=NODE_TIMEOUT)
+    r = subprocess.run([node, "--check", str(path)], capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS, timeout=NODE_TIMEOUT)
     if r.returncode != 0:
         raise PatchError(f"node --check failed for {path}:\n{(r.stderr or r.stdout).strip()}")
 
@@ -137,7 +146,6 @@ def node_check(path: str | Path) -> None:
 # Calibrated 2026-09-19 against the 31-patch set: at MIN_IDENT_LEN=8 only 3 patches yield
 # zero probe tokens; at 10 it degrades to 7. Do not raise it.
 MIN_IDENT_LEN = 8
-MIN_LITERAL_LEN = 4
 
 # A string literal whose body holds code punctuation is a mis-lexed span of source, not a
 # stable probe — a rename would not preserve it, so counting it only adds noise.

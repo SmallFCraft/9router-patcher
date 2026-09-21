@@ -46,11 +46,36 @@ def test_frozen_paths_resolve_to_appdata_and_exe_dir(tmp_path, monkeypatch):
     assert app_paths.get_backup_root() == tmp_path / "9router-backups"
 
 
-def test_headroom_cmd_locates_shim_on_path(monkeypatch):
-    """_default_headroom_cmd finds headroom shim from PATH when sys.executable is temp python."""
+def test_headroom_cmd_uses_pythonw_not_console_shim(monkeypatch):
+    """Regression 2026-09-21: the headroom.exe pip shim is CONSOLE-subsystem, so spawning it
+    detached makes its inner python.exe allocate a Windows Terminal window; closing that window
+    kills headroom. The command must go through pythonw.exe -m headroom.cli instead."""
     import updater
     monkeypatch.setattr(updater.shutil, "which",
-                        lambda cmd: r"C:\Scripts\headroom.exe" if "headroom" in cmd else None)
+                        lambda cmd: r"C:\Py\pythonw.exe" if cmd == "pythonw.exe" else None)
     cmd = updater._default_headroom_cmd()
     assert cmd is not None
-    assert "headroom.exe" in cmd
+    assert "pythonw.exe" in cmd
+    assert "-m headroom.cli" in cmd
+    assert "headroom.exe" not in cmd, "console shim re-introduces the terminal window bug"
+    assert f"--port {updater.HEADROOM_PORT}" in cmd
+
+
+def test_headroom_cmd_falls_back_to_interpreter_dir(monkeypatch, tmp_path):
+    """Frozen onefile: sys.executable is the temp python, PATH lookup can miss; the
+    interpreter-sibling pythonw.exe must still be found."""
+    import updater
+    fake_pyw = tmp_path / "pythonw.exe"
+    fake_pyw.write_text("", encoding="utf-8")
+    monkeypatch.setattr(updater.shutil, "which", lambda cmd: None)
+    monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    cmd = updater._default_headroom_cmd()
+    assert cmd is not None and str(fake_pyw) in cmd
+
+
+def test_headroom_cmd_returns_none_without_pythonw(monkeypatch, tmp_path):
+    """No pythonw anywhere: report failure rather than falling back to the window-spawning shim."""
+    import updater
+    monkeypatch.setattr(updater.shutil, "which", lambda cmd: None)
+    monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    assert updater._default_headroom_cmd() is None
