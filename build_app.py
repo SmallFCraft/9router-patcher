@@ -44,7 +44,7 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         "nuitka",
         "--onefile",
         "--assume-yes-for-downloads",
-        "--windows-console-mode=attach",
+        "--windows-console-mode=force",
         f"--jobs={jobs}",
         "--nofollow-import-to=" + skip,
         f"--include-data-dir={tpl_source}=templates",

@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, copy_btn %}
+{% block title %}Logs · 9router{% endblock %}
+{% block heading %}{{ icon('terminal') }}Nhật ký hệ thống{% endblock %}
+{% block content %}
+<style>
+  .tabs{display:flex; gap:.35rem; flex-wrap:wrap; margin-top:.7rem; border-bottom:var(--px) solid var(--ink); padding-bottom:.5rem}
+  .tab{font:inherit; background:var(--surface-2); color:var(--text-2); border:var(--px) solid var(--ink);
+       padding:.35rem .75rem; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; box-shadow:2px 2px 0 var(--ink)}
+  .tab:hover{background:var(--surface); color:var(--text)}
+  .tab.active{background:var(--accent); color:var(--on-accent); border-color:var(--ink); font-weight:bold}
+  .logsearch{flex:1; min-width:14rem; max-width:28rem; font:inherit; font-size:16px; padding:.4rem .6rem;
+             background:var(--surface-2); color:var(--text); border:var(--px) solid var(--ink); box-shadow:2px 2px 0 var(--ink)}
+  .logsearch:focus{outline:3px solid var(--ring)}
+  .logscroll{max-height:min(54vh, 520px); overflow-y:auto; overflow-x:auto}
+  .logline{display:block; white-space:pre-wrap; word-break:break-all}
+  .logline.log-err{color:var(--bad); font-weight:bold; background:var(--bad-bg)}
+  .logline.log-warn{color:var(--warn); font-weight:bold; background:var(--warn-bg)}
+</style>
+<section class="card panel">
+  <div class="panel-head">
+    <div>
+      <span class="small muted">Trích xuất nhật ký &amp; chẩn đoán gửi hỗ trợ kỹ thuật</span>
+    </div>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-primary btn-lg" id="btn-copy-all">
+      {{ icon('copy') }}Sao chép toàn bộ log gửi Dev
+    </button>
+  </div>
+  <div class="toolbar" style="margin-top:.4rem">
+    <span class="badge info">OS: {{ context.os }}</span>
+    <span class="badge info">Python: {{ context.python }}</span>
+    {% if context.versions %}<span class="badge info">9router {{ context.versions }}</span>{% endif %}
+  </div>
+  <div class="tabs" role="tablist" aria-label="Nhóm nhật ký">
+    <button type="button" class="tab active" data-tab="doctor" role="tab" aria-selected="true">{{ icon('activity') }}Doctor <span class="badge info">{{ boot | length }}</span></button>
+    <button type="button" class="tab" data-tab="update" role="tab" aria-selected="false">{{ icon('clock') }}Update <span class="badge info">{{ history | length }}</span></button>
+    <button type="button" class="tab" data-tab="app" role="tab" aria-selected="false">{{ icon('terminal') }}App <span class="badge info">{{ app | length }}</span></button>
+    <button type="button" class="tab" data-tab="router" role="tab" aria-selected="false">{{ icon('server') }}Router <span class="badge info">{{ router | length }}</span></button>
+    <button type="button" class="tab" data-tab="headroom" role="tab" aria-selected="false">{{ icon('gauge') }}Headroom <span class="badge info">{{ headroom | length }}</span></button>
+  </div>
+  <div class="toolbar" style="margin-top:.6rem">
+    <input id="log-search" class="logsearch" type="search" placeholder="🔍 Tìm trong tab đang mở…" aria-label="Tìm trong nhật ký">
+    <span class="meta small muted" id="log-search-count"></span>
+  </div>
+</section>
+
+{% macro logpre(lines, pre_id) -%}
+<div class="codewrap logscroll">
+  <pre id="{{ pre_id }}">{% for l in lines %}<span class="logline{{ (' log-' + log_line_kind(l)) if log_line_kind(l) else '' }}" data-text="{{ l }}">{{ l }}</span>{{ "\n" if not loop.last else "" }}{% endfor %}</pre>
+</div>
+{%- endmacro %}
+
+<section class="card panel tabpane active" id="pane-doctor" role="tabpanel">
+  <div class="panel-head">
+    <h2>{{ icon('activity') }}Startup Doctor Logs</h2>
+    <span class="badge info">{{ boot | length }} dòng</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-boot">
+      {{ icon('copy') }}Copy
+    </button>
+  </div>
+  {% if boot %}
+  {{ logpre(boot, "boot-log-pre") }}
+  {% else %}
+  <p class="small muted">(Chưa có nhật ký Startup Doctor)</p>
+  {% endif %}
+</section>
+
+<section class="card panel tabpane" id="pane-update" role="tabpanel" hidden>
+  <div class="panel-head">
+    <h2>{{ icon('clock') }}Update History Runs</h2>
+    <span class="badge info">{{ history | length }} lần chạy</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-history">
+      {{ icon('copy') }}Copy
+    </button>
+  </div>
+  {% if history %}
+  <div id="history-container" class="logscroll">
+    {% for h in history %}
+    <div class="history-run" style="margin-bottom:1rem">
+      <div class="step-head" style="margin:.1rem 0 .4rem">
+        <strong>{{ h.time_str }}</strong>
+        {% if h.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">FAIL</span>{% endif %}
+        <span class="small muted">autostop: {{ 'bật' if h.autostop else 'tắt' }}</span>
+      </div>
+      <ol class="steps">
+        {% for s in h.steps %}
+        <li class="step {{ 'ok' if s.ok else 'fail' }}">
+          <span class="step-num">{{ loop.index }}</span>
+          <div class="step-head">
+            <strong>{{ s.title }}</strong>
+            {% if s.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">FAIL</span>{% endif %}
+          </div>
+          {% if s.log %}
+          <div class="codewrap">
+            {{ copy_btn(s.log, 'Copy bước này') }}
+            <pre>{{ s.log }}</pre>
+          </div>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="small muted">(Chưa có lịch sử chạy update)</p>
+  {% endif %}
+</section>
+
+<section class="card panel tabpane" id="pane-app" role="tabpanel" hidden>
+  <div class="panel-head">
+    <h2>{{ icon('terminal') }}App Logs</h2>
+    <span class="badge info">{{ app | length }} dòng</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-app">
+      {{ icon('copy') }}Copy
+    </button>
+  </div>
+  {% if app %}
+  {{ logpre(app, "app-log-pre") }}
+  {% else %}
+  <p class="small muted">(Chưa có nhật ký runtime của app)</p>
+  {% endif %}
+</section>
+
+<section class="card panel tabpane" id="pane-router" role="tabpanel" hidden>
+  <div class="panel-head">
+    <h2>{{ icon('server') }}Router Logs</h2>
+    <span class="badge info">{{ router | length }} dòng</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-router">
+      {{ icon('copy') }}Copy
+    </button>
+  </div>
+  {% if router %}
+  {{ logpre(router, "router-log-pre") }}
+  {% else %}
+  <p class="small muted">(Chưa có nhật ký router)</p>
+  {% endif %}
+</section>
+
+<section class="card panel tabpane" id="pane-headroom" role="tabpanel" hidden>
+  <div class="panel-head">
+    <h2>{{ icon('gauge') }}Headroom Logs</h2>
+    <span class="badge info">{{ headroom | length }} dòng</span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-headroom">
+      {{ icon('copy') }}Copy
+    </button>
+  </div>
+  {% if headroom %}
+  {{ logpre(headroom, "headroom-log-pre") }}
+  {% else %}
+  <p class="small muted">(Chưa có nhật ký headroom)</p>
+  {% endif %}
+</section>
+
+<div id="all-logs-export" hidden>
+=== 9router System Diagnostics (Sanitized) ===
+OS: {{ context.os }}
+Python: {{ context.python }}
+{% if context.versions %}9router: {{ context.versions }}
+{% endif %}
+--- [1/5] Startup Doctor Logs ---
+{% for l in boot %}{{ l }}
+{% else %}(no boot logs recorded)
+{% endfor %}
+--- [2/5] Update History Runs ---
+{% for h in history %}Run: {{ h.time_str }} ({{ 'OK' if h.ok else 'FAIL' }})
+{% for s in h.steps %}  [{{ 'OK' if s.ok else 'FAIL' }}] {{ s.title }}
+{% if s.log %}    {{ s.log }}
+{% endif %}{% endfor %}{% else %}(no update history recorded)
+{% endfor %}
+--- [3/5] App Logs ---
+{% for l in app %}{{ l }}
+{% else %}(no app logs recorded)
+{% endfor %}
+--- [4/5] Router Logs ---
+{% for l in router %}{{ l }}
+{% else %}(no router logs recorded)
+{% endfor %}
+--- [5/5] Headroom Logs ---
+{% for l in headroom %}{{ l }}
+{% else %}(no headroom logs recorded)
+{% endfor %}=== End of Diagnostics ===
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  "use strict";
+  function wire(btnId, srcId){
+    var btn = document.getElementById(btnId);
+    var src = document.getElementById(srcId);
+    if (btn && src) {
+      btn.setAttribute("data-copy", src.innerText || src.textContent || "");
+    }
+  }
+  wire("btn-copy-boot", "boot-log-pre");
+  wire("btn-copy-app", "app-log-pre");
+  wire("btn-copy-router", "router-log-pre");
+  wire("btn-copy-headroom", "headroom-log-pre");
+  wire("btn-copy-history", "history-container");
+  wire("btn-copy-all", "all-logs-export");
+
+  // tabs
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  var panes = {
+    doctor: document.getElementById("pane-doctor"),
+    update: document.getElementById("pane-update"),
+    app: document.getElementById("pane-app"),
+    router: document.getElementById("pane-router"),
+    headroom: document.getElementById("pane-headroom")
+  };
+  var current = "doctor";
+  function show(name){
+    current = name;
+    for (var k in panes) {
+      var on = (k === name);
+      panes[k].hidden = !on;
+      panes[k].classList.toggle("active", on);
+    }
+    tabs.forEach(function(t){
+      var on = (t.getAttribute("data-tab") === name);
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    applyFilter();
+  }
+  tabs.forEach(function(t){
+    t.addEventListener("click", function(){ show(t.getAttribute("data-tab")); });
+  });
+
+  // search filter on active tab
+  var search = document.getElementById("log-search");
+  var count = document.getElementById("log-search-count");
+  function applyFilter(){
+    var q = (search.value || "").toLowerCase();
+    var pane = panes[current];
+    var lines = pane.querySelectorAll(".logline");
+    var shown = 0, total = lines.length;
+    lines.forEach(function(el){
+      var hit = !q || (el.getAttribute("data-text") || "").toLowerCase().indexOf(q) !== -1;
+      el.style.display = hit ? "" : "none";
+      if (hit) shown++;
+    });
+    // history tab has no .logline: count runs instead
+    if (current === "update") {
+      var runs = pane.querySelectorAll(".history-run");
+      total = runs.length; shown = 0;
+      runs.forEach(function(el){
+        var hit = !q || (el.textContent || "").toLowerCase().indexOf(q) !== -1;
+        el.style.display = hit ? "" : "none";
+        if (hit) shown++;
+      });
+    }
+    count.textContent = q ? (shown + "/" + total) : "";
+  }
+  search.addEventListener("input", applyFilter);
+  show("doctor");
+})();
+</script>
+{% endblock %}

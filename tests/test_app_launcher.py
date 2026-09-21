@@ -12,7 +12,7 @@ def test_get_log_config_returns_valid_uvicorn_dict():
     assert "uvicorn" in cfg["loggers"]
     assert "formatters" in cfg
     assert "handlers" in cfg
-    assert cfg["handlers"]["default"]["class"] == "logging.StreamHandler"
+    assert cfg["handlers"]["default"]["class"] == "logging.FileHandler"
 
 
 def test_log_config_survives_consoleless_attach_mode(monkeypatch):
@@ -48,7 +48,7 @@ def test_port_busy_detects_bound_port():
     probe.listen(1)
     try:
         free_port = probe.getsockname()[1]
-        assert app._port_busy(free_port) is True
+        assert app._port_busy("127.0.0.1", free_port) is True
     finally:
         probe.close()
-    assert app._port_busy(free_port) is False
+    assert app._port_busy("127.0.0.1", free_port) is False

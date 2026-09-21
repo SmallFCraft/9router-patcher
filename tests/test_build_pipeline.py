@@ -16,7 +16,7 @@ def test_build_app_command_assembly():
     """build_app generates correct Nuitka arguments without syntax errors."""
     cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"))
     assert "--onefile" in cmd
-    assert "--windows-console-mode=attach" in cmd
+    assert "--windows-console-mode=force" in cmd
     assert "--assume-yes-for-downloads" in cmd
     assert "--onefile-no-compression" not in cmd, "production build must compress payload"
     assert any("templates=templates" in arg for arg in cmd)

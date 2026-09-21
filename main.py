@@ -9,11 +9,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import re
 import signal
 import socket
+import sys
 import threading
 import time
 import urllib.request
+from collections import deque
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -26,6 +30,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 from fastapi.templating import Jinja2Templates
 
 import app_paths
+import boot_doctor
 import engine
 
 try:
@@ -339,6 +344,18 @@ def _error(request: Request, msg: str):
     """Patch refused: render the shell with a banner instead of a 500 traceback."""
     return templates.TemplateResponse(request, "base.html",
                                       {"banner": msg}, status_code=409)
+
+
+@app.get("/logs", include_in_schema=False)
+def logs_page(request: Request):
+    ctx = _gather_logs()
+    ctx["log_line_kind"] = log_line_kind
+    return templates.TemplateResponse(request, "logs.html", ctx)
+
+
+@app.get("/api/logs", include_in_schema=False)
+def logs_api():
+    return JSONResponse(_gather_logs())
 
 
 def _latest_backup() -> datetime | None:
@@ -768,9 +785,141 @@ def shutdown(request: Request):
     return JSONResponse({"ok": True, "action": "shutdown"}, status_code=202)
 
 
+# secret-looking tokens. Everything that reaches the page goes through sanitize_log_line.
+
+_PATH_RE = re.compile(
+    r'[a-zA-Z]:\\[^\s"\'<>]+'                          # C:\...\... (drive path)
+    r'|\\(?:[^\s"\'<>\\]+\\)+[^\s"\'<>]*'              # \Users\me\x (relative/UNC)
+    r'|/(?:[^\s"\'<>]+/)*(?:node_modules|server|\.next)[^\s"\'<>]*'
+    r'|(?:node_modules|server|\.next-cli-build|\.env)[^\s"\'<>]*'   # bare segment
+)
+_SECRET_RE = re.compile(
+    r"(?i)(?:api[_-]?key|secret|token|password|bearer|auth)"
+    r"\s*[:=]\s*[\"']?[^\s\"'&]+[\"']?"
+    r"|bearer\s+[^\s\"'&]+"
+)
+_HEX_RE = re.compile(r"\b(?:sha256:[0-9a-f]{16,}|[0-9a-f]{32,}"
+                     r"|(?:sk|pk|ghp|gho|xox[bp])[-_][A-Za-z0-9_-]{8,})\b")
+
+
+def sanitize_log_line(line: str, search_terms=()) -> str:
+    """One-line redaction for log output.
+
+    `search_terms` are patch payload lines: any occurrence is a privacy leak, so the
+    whole line is dropped rather than scrubbed in place.
+    """
+    if search_terms and any(t and len(t) >= 5 and t in line for t in search_terms):
+        return "[redacted: patch payload]"
+    s = _SECRET_RE.sub("[redacted]", line)
+    s = _HEX_RE.sub("[redacted]", s)
+    return _PATH_RE.sub("[redacted]", s)
+
+
+# Dòng nào đáng tô đậm: lỗi đỏ / cảnh báo vàng. Chỉ báo loại — renderer (logs.html)
+# chuyển thành class; không sửa nội dung nên sanitize vẫn là bất biến của dòng.
+_LOG_BAD_RE = re.compile(r"\b(?:ERROR|FATAL|Traceback|Exception|FAIL|EBUSY|WinError)\b", re.I)
+_LOG_WARN_RE = re.compile(r"\b(?:WARN|WARNING|CẢNH BÁO|Warn)\b", re.I)
+
+
+def log_line_kind(line: str) -> str:
+    """'err' | 'warn' | '' — cung cấp cho logs.html để tô đậm dòng sự cố."""
+    if _LOG_BAD_RE.search(line):
+        return "err"
+    if _LOG_WARN_RE.search(line):
+        return "warn"
+    return ""
+
+
+def _patch_search_terms() -> list[str]:
+    """Every distinct payload substring the logger should treat as secret."""
+    terms = []
+    seen = set()
+    for p in engine.load_patches():
+        for piece in (p.find.splitlines() or [p.find]) + (p.replace.splitlines() or [p.replace]):
+            if len(piece) >= 5 and piece not in seen:
+                seen.add(piece)
+                terms.append(piece)
+    return terms
+
+
+def _log_files(log_dir: Path) -> list[tuple[str, Path]]:
+    """Service log files (router-*/headroom-*) newest-first.
+
+    boot.log is deliberately excluded: its content is already the boot section
+    (ring buffer), showing it twice would just double the payload."""
+    files = []
+    try:
+        candidates = sorted(log_dir.glob("*.log"),
+                            key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return files
+    for f in candidates:
+        if f.name == "boot.log":
+            continue
+        if f.name.startswith("router-"):
+            kind = "router"
+        elif f.name.startswith("headroom-"):
+            kind = "headroom"
+        else:
+            kind = "other"
+        files.append((kind, f))
+    return files
+
+
+def _gather_logs() -> dict:
+    """Aggregate boot + app/service log lines, history runs, and system context.
+
+    app/router/headroom tách riêng vì log proxy có thể rất dài — trang /logs render
+    mỗi nhóm vào một tab tự cuộn thay vì một khối khổng lồ.
+    """
+    terms = _patch_search_terms()
+    boot_logs = [sanitize_log_line(line, terms)
+                 for line in boot_doctor.get_boot_logs()]
+    buckets: dict[str, list[str]] = {"app": [], "router": [], "headroom": []}
+    for kind, f in _log_files(app_paths.get_log_dir()):
+        try:
+            with open(f, "r", encoding="utf-8", errors="replace") as fh:
+                # ponytail: tail-only, a runaway router log must not be slurped on render;
+                # add real paging if a single restart log's tail ever stops being enough
+                body = list(deque(fh, maxlen=200))
+        except OSError:
+            continue
+        # 'other' covers the pre-split naming and the app's own app.log -> App tab
+        target = buckets.get(kind, buckets["app"])
+        for ln in body:
+            target.append(sanitize_log_line(ln.rstrip("\r\n"), terms))
+    history = []
+    for h in _load_history():
+        history.append({
+            "time_str": h.get("time_str", ""),
+            "ok": bool(h.get("ok")),
+            "autostop": bool(h.get("autostop")),
+            "steps": [{"title": sanitize_log_line(str(s.get("title", "")), terms),
+                       "log": sanitize_log_line(str(s.get("log", "")), terms),
+                       "ok": bool(s.get("ok"))} for s in h.get("steps", [])],
+        })
+    local, latest = _fresh_versions()
+    context = {
+        "python": sys.version.split()[0],
+        "os": platform.system() + " " + platform.release(),
+        # never the app/home path: the export leaves the machine
+        "versions": f"9router local {local} / npm {latest}",
+    }
+    return {"boot": boot_logs, "history": history, "context": context, **buckets}
+
+
+def _log_app_path() -> Path:
+    """File path for uvicorn runtime log; consumers read this for /logs display."""
+    p = app_paths.get_log_dir() / "app.log"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def get_log_config() -> dict:
-    """Access/default logs with timestamps — the console shows WHEN each request ran.
+    """Access/default logs with timestamps — console hiển thị prompt điều khiển
+    menu, uvicorn runtime & access logs được ghi vào file (app.log) cho /logs.
     asctime already carries ',<ms>'; appending %(msecs)03d printed the same ms twice."""
+    app_log = str(_log_app_path())
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -779,7 +928,7 @@ def get_log_config() -> dict:
                 "()": "uvicorn.logging.DefaultFormatter",
                 "fmt": "%(asctime)s %(levelprefix)s %(message)s",
                 "datefmt": "%d-%m-%Y %H:%M:%S",
-                "use_colors": False,    # Windows attach mode: sys.stdout is None -> isatty() crash
+                "use_colors": False,    # Windows: tránh crash isatty() khi stream không phải tty
             },
             "access": {
                 "()": "uvicorn.logging.AccessFormatter",
@@ -789,13 +938,10 @@ def get_log_config() -> dict:
             },
         },
         "handlers": {
-            # CÙNG MỘT STREAM cho cả hai: stderr+stdout lẫn lộn trên Windows console làm
-            # dòng ghi đè nhau (mất ký tự giữa timestamp). Access log cũng hữu ích khi
-            # redirect stdout, nên chọn stdout.
-            "default": {"class": "logging.StreamHandler", "formatter": "default",
-                        "stream": "ext://sys.stdout"},
-            "access": {"class": "logging.StreamHandler", "formatter": "access",
-                       "stream": "ext://sys.stdout"},
+            "default": {"class": "logging.FileHandler", "formatter": "default",
+                        "filename": app_log},
+            "access": {"class": "logging.FileHandler", "formatter": "access",
+                       "filename": app_log},
         },
         "loggers": {
             "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
