@@ -61,6 +61,56 @@ def _handle_console_command(cmd: str, url: str) -> bool:
     return True
 
 
+def _read_console_line(prompt: str, stop: threading.Event) -> str | None:
+    """Đọc một dòng console, trả None ngay khi `stop` được set.
+
+    Khi chạy console thật (isatty): dùng msvcrt để poll non-blocking, nhờ vậy
+    menu khay hệ thống 'Thoát' thoát app ngay lập tức mà không phải đợi gõ Enter.
+    Khi chạy pipe/detached (!isatty): dùng readline chuẩn.
+    """
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+
+    if not (sys.stdin and sys.stdin.isatty()):
+        try:
+            line = sys.stdin.readline()
+            return line.rstrip("\r\n") if line else None
+        except Exception:
+            return None
+
+    try:
+        import msvcrt
+    except ImportError:
+        try:
+            return input()
+        except (EOFError, KeyboardInterrupt):
+            return None
+
+    chars: list[str] = []
+    while not stop.is_set():
+        if not msvcrt.kbhit():
+            time.sleep(0.05)
+            continue
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):     # mã tiền tố phím đặc biệt: nuốt phím thứ hai
+            msvcrt.getwch()
+            continue
+        if ch in ("\r", "\n"):
+            sys.stdout.write("\n")
+            return "".join(chars)
+        if ch == "\x08":
+            if chars:
+                chars.pop()
+                sys.stdout.write("\b \b")
+            continue
+        if ch == "\x03":
+            raise KeyboardInterrupt
+        if ch >= " ":
+            chars.append(ch)
+            sys.stdout.write(ch)
+    return None
+
+
 def _port_busy(host: str, port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(0.5)
@@ -132,6 +182,7 @@ def main() -> None:
     ).start()
 
     # 5. Giữ console tương tác trên main thread + tray icon khi ẩn
+    tray.set_console_title("9router Patcher Manager")
     _console_banner(url)
     tray_icon = None
     if tray.available():
@@ -152,30 +203,22 @@ def main() -> None:
             tray_icon = None
 
     try:
-        # Nếu không có tty / stdin chuyển hướng (chạy nền hoặc test)... nếu có tray
-        # thì pump message để menu chuột phải hoạt động, ngược lại đợi shutdown.
-        interactive = bool(sys.stdin and sys.stdin.isatty())
+        has_stdin = bool(sys.stdin)
         while not shutdown_event.is_set():
-            if interactive:
+            if has_stdin:
                 try:
-                    cmd = input("9router > ")
+                    cmd = _read_console_line("9router > ", shutdown_event)
                 except KeyboardInterrupt:
                     break
-                except EOFError:
-                    # stdin đóng (stdout bị pipe, chạy detached) — không ai gõ lệnh,
-                    # nhưng server vẫn phải phục vụ browser. Chuyển sang chế độ nền.
-                    interactive = False
-                    continue
+                if cmd is None:
+                    # stdin đóng (EOF) hoặc shutdown_event đã set — thoát loop
+                    break
                 state = _handle_console_command(cmd, url)
                 if state is False:
                     break
                 # "9router > " chỉ nhắc lệnh; hướng dẫn đã in một lần ở banner trên.
             else:
-                if tray_icon is not None:
-                    tray_icon.pump_once()
-                    time.sleep(0.2)
-                else:
-                    time.sleep(0.5)
+                time.sleep(0.5)
     except KeyboardInterrupt:
         pass
     finally:

@@ -46,6 +46,45 @@ def test_tray_icon_start_noop_off_windows():
         assert tray.TrayIcon("x").start() is False
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 shell APIs")
+def test_tray_available_on_windows():
+    """available() không được phụ thuộc GetConsoleWindow: pytest chạy không console."""
+    assert tray.available() is True
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 shell APIs")
+def test_tray_icon_really_creates_shell_icon():
+    """Regression: user32.GetConsoleWindow + int HWND_MESSAGE + thiếu argtypes làm
+    Shell_NotifyIconW chưa bao giờ được gọi, nên [H] ẩn console mà không có icon khay."""
+    icon = tray.TrayIcon("9router tray test")
+    assert icon.start() is True
+    try:
+        assert icon.hwnd != 0
+        assert icon._added is True
+        assert icon._thread is not None and icon._thread.is_alive()
+    finally:
+        icon.stop()
+    assert icon.hwnd == 0
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 shell APIs")
+def test_hide_and_show_console_return_bool_on_windows():
+    """Không có console (pytest) thì phải trả False, không được raise."""
+    assert tray.hide_console() is False
+    assert tray.show_console() is False
+    assert tray.set_console_title("x") is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32 shell APIs")
+def test_console_windows_includes_root_frame():
+    """Windows Terminal bọc console trong frame cha: ẩn cả hai mới mất khỏi taskbar."""
+    wins = tray._console_windows()
+    if tray.console_hwnd():
+        assert wins and wins[0] == tray.console_hwnd()
+    else:
+        assert wins == []
+
+
 def test_log_line_kind_unchanged_contract():
     """Nhắc: ERROR đỏ, WARN vàng, INFO trung tính — template logs.html phụ thuộc."""
     from main import log_line_kind

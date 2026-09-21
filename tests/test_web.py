@@ -756,12 +756,20 @@ def test_no_dead_anchors_on_any_page(web, monkeypatch):
 
 
 def test_shutdown_accepted_with_same_origin(web, monkeypatch):
-    """POST /shutdown returns 202 and triggers SIGINT in a background thread."""
-    import unittest.mock
-    with unittest.mock.patch("os.kill") as mock_kill:
-        r = web["client"].post("/shutdown", headers={"Origin": OWN})
-        assert r.status_code == 202
-        assert r.json() == {"ok": True, "action": "shutdown"}
+    """POST /shutdown returns 202 and triggers SIGINT in a background thread.
+
+    Mock threading.Thread: thread thật ngủ 0.5s rồi gọi os.kill(SIGINT), nếu để nó
+    chạy thì 0.5s sau nó bắn SIGINT thật vào tiến trình pytest làm exit code 2 (ngắt).
+    """
+    spawns = []
+    monkeypatch.setattr(
+        "main.threading.Thread",
+        lambda *a, **k: spawns.append((a, k)) or SimpleNamespace(start=lambda: None),
+    )
+    r = web["client"].post("/shutdown", headers={"Origin": OWN})
+    assert r.status_code == 202
+    assert r.json() == {"ok": True, "action": "shutdown"}
+    assert len(spawns) == 1
 
 
 def test_shutdown_refused_from_evil_origin(web):

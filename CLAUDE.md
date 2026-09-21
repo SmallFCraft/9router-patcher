@@ -18,10 +18,10 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-09-20)
 
-- Full test suite: `python -m pytest tests/ -q` → **273 passed, 4 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **278 passed, 4 skipped**.
   The skips: engine measurements version-locked to 0.5.65 (do not debug), test_e2e_binary (when port in use), tray non-Windows fallback tests.
 - Engine tests: `python -m pytest tests/test_engine.py -q` → **98 passed, 1 skipped**.
-- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **38 passed, 2 skipped**.
+- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **43 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 
 ## Standalone Distribution (Executable)
