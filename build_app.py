@@ -13,6 +13,8 @@ import sys
 import time
 from pathlib import Path
 
+import version
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -53,7 +55,11 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         f"--include-data-dir={tpl_source}=templates",
         f"--include-data-files={enc_source}=patches.enc",
         f"--output-dir={output_dir}",
-        "--output-filename=9router-patch.exe",
+        f"--output-filename=9router-patch.exe",
+        f"--file-version={version.APP_VERSION}.0",
+        f"--product-version={version.APP_VERSION}.0",
+        "--product-name=9router Patch Manager",
+        "--company-name=9router-patcher",
         f"--report={output_dir / 'build-report.xml'}",
     ]
     if fast:
@@ -115,9 +121,20 @@ def build(fast: bool = False) -> int:
 
     exe = dist / "9router-patch.exe"
     if exe.is_file():
+        # Copy sang tên có version để upload hosting: file cũ trên server không bị đè,
+        # rollback chỉ là sửa version.json trỏ về bản trước. Tên cài cục bộ giữ nguyên
+        # "9router-patch.exe" — cơ chế hoán đổi self-update dựa vào đường dẫn đó.
+        versioned = dist / f"9router-patcher-v{version.APP_VERSION}.exe"
+        try:
+            shutil.copyfile(exe, versioned)
+        except OSError as e:
+            print(f"CẢNH BÁO: không copy được artifact có version: {e}")
         size_mb = exe.stat().st_size / (1024 * 1024)
         print(f"\nEncrypt: {t1 - t0:.1f}s | Nuitka: {t2 - t1:.1f}s | Total: {t2 - t0:.1f}s")
         print(f"SUCCESS: Built {exe} ({size_mb:.1f} MB)")
+        if versioned.is_file():
+            vsize = versioned.stat().st_size / (1024 * 1024)
+            print(f"Upload artifact: {versioned.name} ({vsize:.1f} MB)")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1
