@@ -148,14 +148,26 @@ def _start_stack_after_npm() -> None:
         log_boot(f"ERROR: bật lại router stack lỗi: {e}")
 
 
-def _ask_yn(question: str) -> bool:
-    """Hỏi (Y/n) [Y] theo style console. EOF/pipe đóng → Yes."""
+def _ask_yn(question: str, default: bool = False) -> bool:
+    """Hỏi (Y/n) hoặc (y/N) theo style console.
+
+    EOF / stdin đóng (chạy detached, pipe, task scheduler) → trả `default`.
+    Mặc định `False`: câu hỏi ở đây dẫn tới `npm install -g` đổi bản cài toàn cục,
+    không được tự đồng ý khi không có người ngồi trước máy.
+    """
     import console_ui
+    suffix = " [Y/n]: " if default else " [y/N]: "
+    ans = console_ui.prompt("?", question + suffix).strip().lower()
+    if not ans:                     # EOF hoặc Enter suông
+        return default
+    return ans in ("y", "yes")
+
+
+def _stdin_is_tty() -> bool:
     try:
-        ans = input(f"{console_ui.prompt_label()}{question}").strip().lower()
-    except EOFError:
-        return True
-    return ans in ("", "y", "yes")
+        return bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        return False
 
 
 def install_9router(on_output=None) -> tuple[bool, str]:
@@ -270,91 +282,104 @@ def run_doctor(interactive: bool = True) -> bool:
 
     Chặn boot chỉ ở bước 1 (thiếu node) và bước 2 (thiếu 9router, non-interactive);
     các bước còn lại lỗi thì chỉ CẢNH BÁO — vào được dashboard hãy sửa sau.
+
+    Quy tắc prompt: câu hỏi đổi bản cài toàn cục chỉ hiện khi stdin là TTY.
+    stdin đóng (task scheduler, pipe, detached) → coi như non-interactive,
+    KHÔNG tự npm khi không có người xác nhận (đo 2026-09-23).
     """
     import console_ui
     console_ui.enable_vt()
     console_ui.header("9router Patch Manager", f"v{version.APP_VERSION}")
+    g = console_ui.glyphs()
+    can_ask = interactive and _stdin_is_tty()
 
-    # 0. Tự cập nhật exe (đồng bộ) — có bản mới thì swap + restart ngay.
-    console_ui.step_begin("[0/5]", "Kiểm tra bản cập nhật exe")
+    # 1. Tự cập nhật exe (đồng bộ) — có bản mới thì swap + restart ngay.
+    console_ui.step_begin("[1/5]", "Kiểm tra bản cập nhật")
     try:
         import self_update
         meta = self_update.check_update()
         if meta is None:
-            console_ui.step_end("BỎ QUA", "warn", "không kết nối được máy chủ cập nhật")
+            console_ui.step_end("Bỏ qua", "warn")
         elif not meta["has_update"]:
-            console_ui.step_end(f"MỚI NHẤT v{version.APP_VERSION}", "info")
+            console_ui.step_end("Mới nhất", "info")
         else:
             res = self_update.download_and_swap(meta)
             if res["ok"]:
-                console_ui.step_end(f"ĐÃ CẬP NHẬT v{meta['version']}", "info", "khởi động lại...")
+                console_ui.step_end(f"Đã cập nhật v{meta['version']}", "info", "khởi động lại...")
                 self_update.restart_self()
             else:
-                console_ui.step_end("CẢNH BÁO", "warn", res["error"])
+                console_ui.step_end("Cảnh báo", "warn", res["error"][:60])
     except Exception as e:              # noqa: BLE001 - cập nhật lỗi không được chặn boot
-        console_ui.step_end("CẢNH BÁO", "warn", str(e))
+        console_ui.step_end("Cảnh báo", "warn", f"{type(e).__name__}: {e}"[:60])
 
-    # 1. Node.js & npm — thiếu là không chạy được gì.
-    console_ui.step_begin("[1/5]", "Kiểm tra Node.js & npm")
+    # 2. Node.js & npm — thiếu là không chạy được gì.
+    console_ui.step_begin("[2/5]", "Kiểm tra Node.js & npm")
     ok, msg = check_node()
     if ok:
         console_ui.step_end("OK", "ok")
     else:
-        console_ui.step_end("THIẾU", "bad")
-        print(f"\n  → {msg}\n", flush=True)
-        if interactive:
-            input("Nhấn Enter để thoát...")
+        console_ui.step_end("Thiếu", "bad")
+        console_ui.detail(g["warn"], msg)
+        if can_ask:
+            input("  Nhấn Enter để thoát...")
         return False
 
-    # 2. 9router toàn cục — thiếu thì hỏi cài; cũ hơn bản vá thì hỏi nâng cấp (interactive).
-    console_ui.step_begin("[2/5]", "Kiểm tra 9router toàn cục")
+    # 3. 9router toàn cục — thiếu thì hỏi cài; cũ hơn bản vá thì hỏi nâng cấp.
+    console_ui.step_begin("[3/5]", "Kiểm tra 9router toàn cục")
     ok, msg = check_9router()
     compat = current_compat()
     relation = (compat or {}).get("relation")
 
     if not ok:
-        if not interactive:
-            console_ui.step_end("THIẾU", "bad")
+        if not can_ask:
+            console_ui.step_end("Thiếu", "bad")
             return False
-        console_ui.step_end("CHƯA CÀI", "warn")
-        console_ui.detail("→", msg)
-        if interactive and _ask_yn("9router chưa được cài đặt. Cài toàn cục qua npm? (Y/n) [Y]: "):
+        console_ui.step_end("Chưa cài", "warn")
+        console_ui.detail(g["info"], msg)
+        if _ask_yn("9router chưa được cài đặt. Cài toàn cục qua npm?", default=True):
             console_ui.npm_run(getattr(engine, "target_version", lambda: "0.5.85")(),
                                install_9router, log_boot)
         else:
-            console_ui.detail("○", "Bỏ qua cài đặt 9router.")
-    elif relation == "older" and interactive:
+            console_ui.detail(g["skip"], "Bỏ qua cài đặt 9router.")
+    elif relation == "older" and can_ask:
         target = compat.get("target", engine.target_version())
         local_v = compat.get("local", "cũ")
-        console_ui.step_end("CẦN CẬP NHẬT", "warn", f"local v{local_v} → v{target}")
-        console_ui.detail("→", f"9router v{local_v} cũ hơn bản hỗ trợ (v{target}) — patch chưa áp được.")
-        if _ask_yn(f"Nâng cấp lên v{target} để áp dụng đầy đủ các patch? (Y/n) [Y]: "):
+        console_ui.step_end("Cần cập nhật", "warn")
+        console_ui.detail(g["warn"], f"Đã cài v{local_v}, bản hỗ trợ v{target} — patch chưa áp được.")
+        if _ask_yn(f"Nâng cấp lên v{target} ngay?", default=True):
             console_ui.npm_run(target, install_9router, log_boot)
         else:
-            console_ui.detail("○", f"Giữ nguyên v{local_v} (bỏ qua áp dụng patch).")
+            console_ui.detail(g["skip"], f"Giữ v{local_v} — bỏ qua patch.")
+    elif relation == "older":
+        target = compat.get("target", engine.target_version())
+        local_v = compat.get("local", "cũ")
+        console_ui.step_end("Cần cập nhật", "warn")
+        console_ui.detail(g["warn"], f"Đã cài v{local_v}, bản hỗ trợ v{target} — vào Dashboard để nâng cấp.")
     elif relation == "newer":
         target = compat.get("target", engine.target_version())
         local_v = compat.get("local", "")
-        console_ui.step_end("KHÁC VERSION", "warn", f"local v{local_v} > v{target}")
-        console_ui.detail("→", "Vào Dashboard để căn chỉnh về bản hỗ trợ.")
+        console_ui.step_end("Lệch version", "warn")
+        console_ui.detail(g["warn"], f"Đã cài v{local_v}, bản hỗ trợ v{target} — vào Dashboard để căn chỉnh.")
     else:
         console_ui.step_end("OK", "ok")
 
-    # 3. Patches — lỗi chỉ cảnh báo, dashboard vẫn sửa được.
-    console_ui.step_begin("[3/5]", "Kiểm tra patches tối ưu")
+    # 4. Patches — lỗi chỉ cảnh báo, dashboard vẫn sửa được.
+    console_ui.step_begin("[4/5]", "Kiểm tra patch")
     p_ok, p_msg = check_and_apply_patches()
     if p_ok:
         console_ui.step_end("OK", "ok")
     else:
-        console_ui.step_end("CẢNH BÁO", "warn", p_msg)
+        console_ui.step_end("Cảnh báo", "warn")
+        console_ui.detail(g["warn"], p_msg[:100])
 
-    # 4. Proxy Router Stack — trước đây nhảy số [5/5], đánh lại cho liền mạch.
-    console_ui.step_begin("[4/5]", "Khởi động Proxy Router Stack")
+    # 5. Proxy Router Stack.
+    console_ui.step_begin("[5/5]", "Khởi động router stack")
     s_ok, s_msg = ensure_router_stack()
     if s_ok:
         console_ui.step_end("OK", "ok")
     else:
-        console_ui.step_end("CẢNH BÁO", "warn", s_msg)
+        console_ui.step_end("Cảnh báo", "warn")
+        console_ui.detail(g["warn"], s_msg[:100])
 
-    console_ui.success("Hoàn tất chuẩn bị!", "đang khởi động Web Dashboard...")
+    console_ui.success("Sẵn sàng", "mở Web Dashboard...")
     return True

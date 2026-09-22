@@ -42,7 +42,8 @@ def _console_banner(url: str) -> None:
     """Khối hướng dẫn một lần lúc khởi động — in lại mỗi lệnh chỉ làm console trôi.
 
     Không lặp tên app/version ở đây: boot doctor vừa in header, hai khối giống nhau
-    chỉ tổ chiếm chỗ. Chỉ còn URL + phím tắt.
+    chỉ tổ chiếm chỗ. Hai dòng URL giữ nguyên chứ không gộp `(dashboard · /logs)`:
+    cả hai địa chỉ phải copy được nguyên vẹn.
     """
     import console_ui
     console_ui.enable_vt()
@@ -201,9 +202,11 @@ def main(argv: list[str] | None = None) -> None:
             return
         print(f"Port {PORT} đang bận nhưng --force được bật — chạy doctor rồi thử khởi động.")
 
-    # 2. Chạy preflight startup doctor trước khi server khởi động
+    # 2. Chạy preflight startup doctor trước khi server khởi động.
+    # Chỉ interactive khi stdin là TTY (console thật): stdin đóng/pipe mà vẫn True
+    # thì prompt (Y/n) mặc định đồng ý sẽ tự npm install -g khi không có người.
     try:
-        ok = boot_doctor.run_doctor(interactive=True)
+        ok = boot_doctor.run_doctor(interactive=bool(sys.stdin and sys.stdin.isatty()))
         if not ok:
             return
     except Exception as e:
@@ -237,6 +240,20 @@ def main(argv: list[str] | None = None) -> None:
     # 5. Giữ console tương tác trên main thread + tray icon khi ẩn
     tray.set_console_title(f"9router Patcher Manager v{version.APP_VERSION}")
     _console_banner(url)
+    if sys.stdin and sys.stdin.isatty():
+        import console_ui
+        try:
+            import engine
+            import updater
+            compat = updater.check_router_compatibility()
+            ps = engine.load_patches()
+            states = engine.scan(engine.build_dir(), ps)
+            n_ok = sum(1 for s in states if s.state == "applied")
+            console_ui.status_line(
+                f"Đang chạy: router :20128 · patch {n_ok}/{len(states)} đã áp (9router v{compat['local']}) "
+                f"· Enter mở dashboard · H ẩn · Q thoát")
+        except Exception:
+            console_ui.status_line("Đang chạy · Enter mở dashboard · H ẩn · Q thoát")
     tray_icon = None
     if tray.available():
         tray_icon = tray.TrayIcon(f"9router Patcher Manager v{version.APP_VERSION}",

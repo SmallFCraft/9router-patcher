@@ -138,3 +138,38 @@ def test_npm_run_streams_output_through_callback(capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "EBUSY" in out
     console_ui._VT = None
+
+
+def test_glyph_fallback_covers_all_runtime_icons(monkeypatch):
+    """Hồi quy 2026-09-23: cp1252 + glyphs() fallback — mọi icon runtime
+    (warn/skip/cross/info) phải có bản ASCII, không chỉ 11 box glyph."""
+
+    class Cp1252Stdout:
+        encoding = "cp1252"
+
+    monkeypatch.setattr(console_ui.sys, "stdout", Cp1252Stdout())
+    assert console_ui.unicode_ok() is False
+    g = console_ui.glyphs()
+    assert g is console_ui._ASCII_GLYPHS
+    # mọi key mà code runtime tra cứu phải tồn tại và encode được cp1252
+    for key in ("check", "cross", "caret", "dot", "info", "warn", "skip", "v", "h", "tl"):
+        assert key in g, key
+        g[key].encode("cp1252", "strict")
+
+
+def test_unicode_glyphs_have_matching_ascii_keys():
+    """Hai bộ glyph phải cùng key — thiếu key là KeyError lúc runtime trên console cũ."""
+    assert set(console_ui._UNICODE_GLYPHS) == set(console_ui._ASCII_GLYPHS)
+
+
+def test_status_line_never_exceeds_width(capsys, monkeypatch):
+    """Hồi quy 2026-09-23: dòng idle 102 ký tự tràn — status_line phải cắt."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+    long_text = ("Đang chạy: router :20128 · patch 34/34 đã áp (9router v0.5.85) "
+                 "· Enter mở dashboard · H ẩn · Q thoát")
+    assert len(long_text) > 78
+    console_ui.status_line(long_text)
+    out = capsys.readouterr().out.rstrip("\n")
+    assert len(out) <= console_ui.width() - 2, out
+    console_ui._VT = None

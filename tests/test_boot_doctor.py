@@ -192,7 +192,7 @@ def test_run_doctor_banner_shows_app_version(capsys, monkeypatch):
 
 
 def test_boot_check_update_step_reports_results(capsys, monkeypatch):
-    """Bước [0/5] kiểm tra exe: mới nhất / có bản mới / mất mạng."""
+    """Bước [1/5] kiểm tra exe: mới nhất / có bản mới / mất mạng."""
     import boot_doctor
     import self_update
 
@@ -201,7 +201,7 @@ def test_boot_check_update_step_reports_results(capsys, monkeypatch):
     monkeypatch.setattr(boot_doctor, "check_and_apply_patches", lambda: (True, "ok"))
     monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
 
-    # 1. Có bản mới -> swap -> báo đã tải
+    # 1. Có bản mới -> swap -> báo đã cập nhật
     monkeypatch.setattr(self_update, "check_update",
                         lambda url=None: {"version": "9.9.9", "has_update": True,
                                           "url": "https://x/y.exe", "sha256": ""})
@@ -209,14 +209,14 @@ def test_boot_check_update_step_reports_results(capsys, monkeypatch):
                         lambda meta: {"ok": True, "error": None})
     boot_doctor.run_doctor(interactive=False)
     out = capsys.readouterr().out
-    assert "[0/5]" in out
+    assert "[1/5]" in out
     assert "9.9.9" in out
 
     # 2. Mất mạng -> bỏ qua, vẫn boot tiếp
     monkeypatch.setattr(self_update, "check_update", lambda url=None: None)
     assert boot_doctor.run_doctor(interactive=False) is True
     out = capsys.readouterr().out
-    assert "BỎ QUA" in out
+    assert "Bỏ qua" in out
 
 
 def test_boot_restarts_after_successful_self_update(capsys, monkeypatch):
@@ -238,6 +238,42 @@ def test_boot_restarts_after_successful_self_update(capsys, monkeypatch):
         boot_doctor.run_doctor(interactive=False)
 
     out = capsys.readouterr().out
-    assert "ĐÃ CẬP NHẬT v9.9.9" in out
+    assert "Đã cập nhật v9.9.9" in out
     assert "khởi động lại" in out
     assert len(restarted) == 1
+
+
+def test_ask_yn_defaults_no_on_eof(monkeypatch):
+    """Hồi quy 2026-09-23: stdin đóng (pipe/task scheduler) mà mặc định Yes thì
+    prompt nâng cấp tự chạy npm install -g khi không có người xác nhận."""
+    import boot_doctor
+    import console_ui
+    monkeypatch.setattr(console_ui, "prompt", lambda icon, q: "")   # EOF trả ""
+    assert boot_doctor._ask_yn("Nâng cấp?", default=True) is True   # câu hỏi cài mới
+    assert boot_doctor._ask_yn("Nâng cấp?", default=False) is False  # câu đổi bản cài: phải là False
+
+
+def test_ask_yn_accepts_only_explicit_yes(monkeypatch):
+    import boot_doctor
+    import console_ui
+    for ans, expect in (("y", True), ("Y", True), ("yes", True),
+                        ("n", False), ("no", False), ("", True), ("lol", False)):
+        monkeypatch.setattr(console_ui, "prompt", lambda icon, q, _a=ans: _a)
+        assert boot_doctor._ask_yn("Q?", default=True) is expect, ans
+
+
+def test_run_doctor_non_interactive_never_asks(monkeypatch):
+    """interactive=False (stdin không phải TTY) không được gọi prompt nào."""
+    import boot_doctor
+    import console_ui, updater
+    called = []
+    monkeypatch.setattr(console_ui, "prompt", lambda *a, **k: called.append(a) or "")
+    monkeypatch.setattr(boot_doctor, "check_node", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_9router", lambda: (True, "ok"))
+    monkeypatch.setattr(updater, "check_router_compatibility",
+                        lambda: {"compatible": False, "relation": "older",
+                                 "local": "0.5.81", "target": "0.5.85"})
+    monkeypatch.setattr(boot_doctor, "check_and_apply_patches", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
+    boot_doctor.run_doctor(interactive=False)
+    assert called == []

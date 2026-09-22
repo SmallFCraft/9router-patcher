@@ -78,11 +78,13 @@ def palette() -> Palette:
 _UNICODE_GLYPHS = {
     "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
     "lt": "├", "rt": "┤", "h": "─", "v": "│",
-    "dot": "·", "check": "✓", "caret": "›",
+    "dot": "·", "check": "✓", "cross": "✗", "caret": "›",
+    "info": "·", "warn": "!", "skip": "○",
 }
 _ASCII_GLYPHS = {
     "tl": "+", "tr": "+", "bl": "+", "br": "+", "lt": "+", "rt": "+",
-    "h": "-", "v": "|", "dot": ".", "check": "v", "caret": ">",
+    "h": "-", "v": "|", "dot": ".", "check": "v", "cross": "x", "caret": ">",
+    "info": "-", "warn": "!", "skip": "o",
 }
 
 
@@ -94,6 +96,10 @@ def glyphs() -> dict[str, str]:
         return _UNICODE_GLYPHS
     except (UnicodeEncodeError, LookupError):
         return _ASCII_GLYPHS
+
+
+def unicode_ok() -> bool:
+    return glyphs() is _UNICODE_GLYPHS
 
 
 def width() -> int:
@@ -129,10 +135,25 @@ def step_begin(label: str, text: str) -> None:
 
 
 def step_end(status: str, kind: str = "info", note: str = "") -> None:
-    """Chấm dẫn + badge trạng thái, đóng dòng bước đang mở."""
+    """Chấm dẫn + badge trạng thái, đóng dòng bước đang mở.
+
+    Dòng step luôn đúng `width()`: note dài thì chấm thu về 2 và note cắt gọn,
+    không bao giờ tràn qua mép box (đo 2026-09-23: badge+note từng tràn +95 cột)."""
     p, g = palette(), glyphs()
     color = {"ok": p.green, "warn": p.yellow, "bad": p.red}.get(kind, p.cyan)
-    dots = g["dot"] * max(2, width() - _STEP_HEAD - len(status))
+    head_room = _STEP_HEAD + 1 + 2 + len(status)
+    avail = width() - head_room
+    budget = max(0, avail - 2)          # chỗ cho dot + note
+    if note:
+        max_note = budget - 2
+        if max_note < 12:
+            note, dots = "", g["dot"] * max(0, budget)
+        else:
+            short = note if len(note) <= max_note else note[:max_note - 1] + "…"
+            dots = g["dot"] * max(2, budget - len(short) - 1)
+            note = short
+    else:
+        dots = g["dot"] * max(0, min(avail, width() - _STEP_HEAD - len(status)))
     tail = f"{color}{status}{p.reset}" + (f" {p.gray}{note}{p.reset}" if note else "")
     print(f" {p.gray}{dots}{p.reset}  {tail}", flush=True)
 
@@ -160,15 +181,41 @@ def panel(rows: list[tuple[str, str]], keys: list[tuple[str, str]] | None = None
 
 
 def prompt_label() -> str:
+    """Prompt idle của app quản lý (boot_doctor và app.py dùng chung một chỗ duy nhất).
+
+    Chữ `patch` + `›`: phân biệt với CLI 9router thật (ai cũng biết npm package tên
+    gì), giữ style caret xám của cả console."""
     p, g = palette(), glyphs()
-    return f"  {p.cyan}9router{p.reset} {p.gray}{g['caret']}{p.reset} "
+    return f"  {p.cyan}patch{p.reset} {p.gray}{g['caret']}{p.reset} "
+
+
+def status_line(text: str) -> None:
+    """Một dòng trạng thái ngay trên prompt idle.
+
+    Cắt theo `width()`: console nghỉ vẫn phải gọn trong khung, không đẩy
+    prompt xuống dòng khi cửa sổ hẹp (đo 2026-09-23: dòng 102 ký tự tràn)."""
+    p = palette()
+    limit = width() - 4
+    if len(text) > limit:
+        text = text[:limit - 1].rstrip() + "…"
+    print(f"  {p.gray}{text}{p.reset}", flush=True)
 
 
 def detail(icon: str, text: str) -> None:
     """Dòng phụ dưới một step: canh lề với khung, màu icon theo ngữ nghĩa."""
     p, g = palette(), glyphs()
-    color = {"✗": p.red, "✓": p.green}.get(icon.strip(), p.gray)
+    color = {g["cross"]: p.red, g["check"]: p.green,
+             g["info"]: p.gray, g["warn"]: p.yellow, g["skip"]: p.gray}.get(icon.strip(), p.gray)
     print(f"  {p.gray}{g['v']}{p.reset} {color}{icon}{p.reset} {text}", flush=True)
+
+
+def prompt(icon: str, question: str) -> str:
+    """Hỏi trong khung step: lồng dưới rail `│`, trả raw input. EOF → ""."""
+    p, g = palette(), glyphs()
+    try:
+        return input(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{icon}{p.reset} {question}").strip()
+    except EOFError:
+        return ""
 
 
 def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") -> tuple[bool, str]:
@@ -179,20 +226,29 @@ def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") 
     """
     import sys as _sys
     p, g = palette(), glyphs()
+    live = _sys.stdout.isatty() if hasattr(_sys.stdout, "isatty") else False
+    frames = (["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if unicode_ok()
+              else ["-", "\\", "|", "/"])
     print(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{label} 9router@{target}{p.reset}", flush=True)
-    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    i = [0]
+    i, last = [0], [""]
 
     def tick(line: str) -> None:
+        if not live:
+            log = line if line == last[0] else line  # pipe: log thật, không spinner
+            last[0] = line
+            print(f"  {p.gray}{g['v']}{p.reset} {p.gray}{log[:100]}{p.reset}", flush=True)
+            return
         i[0] += 1
         short = line[:66] + ("…" if len(line) > 66 else "")
-        _sys.stdout.write(f"\r  {p.gray}{g['v']}{p.reset} "
-                          f"{p.cyan}{spinner[i[0] % len(spinner)]}{p.reset} {short}"
-                          + " " * 6)
+        frame = (f"\r  {p.gray}{g['v']}{p.reset} "
+                 f"{p.cyan}{frames[i[0] % len(frames)]}{p.reset} {short}")
+        _sys.stdout.write(frame + " " * max(0, len(last[0]) - len(frame)))
+        last[0] = frame
         _sys.stdout.flush()
 
     ok, msg = installer(on_output=tick)
-    _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+    if live:
+        _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
     if not ok:
         if log_fn:
             log_fn(f"ERROR: {msg}")

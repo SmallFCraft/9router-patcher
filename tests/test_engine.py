@@ -1500,14 +1500,13 @@ def test_errbody_html_title_extracts_title_or_fallback(patches):
 
 
 def test_errbody_html_title_anchor_hits_real_build(patches):
-    """P30 anchor must exist on the installed build exactly once (in 8499.js); skip if absent."""
-    if not (Path(r"E:/Apps/npm-global/node_modules/9router/app/.next-cli-build") / "server").is_dir():
-        pytest.skip("9router build not installed")
+    """P30 anchor exists exactly once in the build (0.5.85 moved it 8499.js -> 6022.js)."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
     p = by_id(patches, "errbody-html-title")
-    t = read(Path(
-        r"E:/Apps/npm-global/node_modules/9router/app/"
-        r".next-cli-build/server/chunks/8499.js"))
-    assert t.count(p.find) == 1 or t.count(p.replace) == 1
+    places = _anchor_placements(build, p)
+    assert sum(places.values()) == 1, places
 
 
 # ---------- p31: responses-thinking-history-400 ----------
@@ -1577,15 +1576,35 @@ console.log("P31-THINKING-DISABLED-OK");
     assert r.returncode == 0 and "P31-THINKING-DISABLED-OK" in r.stdout, r.stderr or r.stdout
 
 
+def _anchor_placements(build, p) -> dict[str, int]:
+    """{relpath: số điểm định nghĩa} cho một patch, tính trên TOÀN build.
+
+    Một điểm = `max(count(find), count(replace))` trong file: patch đã áp thì `find`
+    có thể nằm lồng trong `replace` (P35: find là tiền tố của replace), cộng dồn hai
+    vế sẽ đếm thành 2 cho cùng một chỗ.
+
+    Đừng hardcode tên chunk trong test real-build: 0.5.85 đổi tên chunk (318->5330,
+    37981->60210) và chuyển cả module sang chunk khác (P30: 8499.js -> 6022.js)
+    trong khi patch vẫn đúng — engine quét mọi file, test cũng phải vậy.
+    """
+    out: dict[str, int] = {}
+    root = Path(build) / "server"
+    for f in sorted(root.rglob("*.js")):
+        t = f.read_text(encoding="utf-8", errors="replace")
+        n = max(t.count(p.find), t.count(p.replace))
+        if n:
+            out[f.relative_to(root).as_posix()] = n
+    return out
+
+
 def test_responses_thinking_disabled_anchor_hits_real_build(patches):
-    """P31 anchor must exist on the installed build exactly once (8499.js provider normalizer);
-    skip when the build is absent or the anchor differs on this version."""
-    build = Path(engine.build_dir()) if not _no_build() else None
-    if build is None:
-        pytest.skip("9router build not installed")
+    """P31 anchor tồn tại đúng một lần đâu đó trong build (chunk đổi tên theo version)."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
     p = by_id(patches, "responses-thinking-history-400")
-    t = read(build / "server" / "chunks" / "8499.js")
-    assert t.count(p.find) == 1 or t.count(p.replace) == 1
+    places = _anchor_placements(build, p)
+    assert sum(places.values()) == 1, places
 
 
 def _target_mismatch():
@@ -1670,15 +1689,14 @@ console.log("P35-AP-GUARD-OK");
 
 
 def test_upstream_claude_sse_passthrough_anchor_hits_real_build(patches):
-    """P35 anchor must exist on the installed build exactly once (chunks/8499.js, ap def)."""
+    """P35 anchor exists exactly once in the build (find is a prefix of replace)."""
     if _target_mismatch():
         pytest.skip("install version does not match patches target_version")
     build = Path(engine.build_dir())
     p = by_id(patches, "upstream-claude-sse-passthrough")
-    t = read(build / "server" / "chunks" / "8499.js")
-    # `find` is a prefix of `replace`: exactly one ao() def, patched or not.
-    assert t.count(p.find) == 1
-    assert t.count(p.replace) in (0, 1)
+    # `find` is a prefix of `replace`: exactly one def, patched or not.
+    places = _anchor_placements(build, p)
+    assert sum(places.values()) == 1, places
 
 
 # ---------- p36: muse-spark-freetier-tool-signature ----------
@@ -1733,15 +1751,14 @@ console.log("P36-SHAPE-OK");
 
 
 def test_muse_spark_freetier_anchor_hits_real_build(patches):
-    """P36 anchor must exist on the installed build exactly once (chunks/8499.js, v())."""
-    build = Path(engine.build_dir()) if not _no_build() else None
-    if build is None:
-        pytest.skip("9router build not installed")
+    """P36 anchor exists exactly once in the build (find/replace don't overlap,
+    so the block is in exactly one of clean/applied)."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
     p = by_id(patches, "muse-spark-freetier-tool-signature")
-    t = read(build / "server" / "chunks" / "8499.js")
-    # find/replace do not overlap (the guard is spliced into the middle of `find`),
-    # so the block is in exactly one of the two states: clean or applied.
-    assert t.count(p.find) + t.count(p.replace) == 1
+    places = _anchor_placements(build, p)
+    assert sum(places.values()) == 1, places
 
 
 # ---------- locate (dead-anchor diagnosis) ----------
