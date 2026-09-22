@@ -198,34 +198,36 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
         _SWAP_LOCK.release()
 
 
+def _check_once() -> None:
+    """Một lượt kiểm tra + tải. Tách riêng để boot gọi ngay lượt đầu, worker tái dùng."""
+    try:
+        if is_enabled():
+            _set_state(phase="checking")
+            meta = check_update()
+            now = time.time()
+            if meta:
+                if meta["has_update"]:
+                    _set_state(checked_at=now, remote_version=meta["version"],
+                               has_update=True, changelog=meta.get("changelog", ""))
+                    download_and_swap(meta)
+                else:
+                    _set_state(checked_at=now, remote_version=meta["version"],
+                               has_update=False, phase="idle", error=None,
+                               changelog=meta.get("changelog", ""))
+            else:
+                _set_state(checked_at=now, phase="idle")
+        # Tắt switch: giữ phase cũ, không reset về idle — tránh nhấp nháy badge trên UI.
+    except Exception as e:
+        _set_state(phase="error", error=str(e))
+
+
 def run_worker(stop_event: threading.Event, interval: float | None = None) -> None:
-    """Vòng lặp thread daemon tự động kiểm tra và tải bản cập nhật nền nền.
+    """Thread daemon: check ngay lượt đầu lúc boot, sau đó mỗi `interval` giây.
 
     Mọi exception bắt tại chỗ, ghi state, tick sau thử lại — thread không bao giờ chết.
     """
     sleep_time = interval if interval is not None else config.AUTO_UPDATE_INTERVAL_SECONDS
-    while not stop_event.is_set():
-        try:
-            if is_enabled():
-                _set_state(phase="checking")
-                meta = check_update()
-                now = time.time()
-                if meta:
-                    if meta["has_update"]:
-                        _set_state(checked_at=now, remote_version=meta["version"],
-                                   has_update=True, changelog=meta.get("changelog", ""))
-                        download_and_swap(meta)
-                    else:
-                        _set_state(checked_at=now, remote_version=meta["version"],
-                                   has_update=False, phase="idle", error=None,
-                                   changelog=meta.get("changelog", ""))
-                else:
-                    _set_state(checked_at=now, phase="idle")
-            else:
-                # Tắt switch: giữ phase cũ, không reset về idle — tránh nhấp nháy badge trên UI.
-                pass
-        except Exception as e:
-            _set_state(phase="error", error=str(e))
-        if stop_event.wait(sleep_time):
-            break
+    _check_once()                       # lượt đầu ngay khi khởi động, không chờ đủ 5 phút
+    while not stop_event.wait(sleep_time):
+        _check_once()
 

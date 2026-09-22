@@ -1,6 +1,8 @@
 """Tests for self-update engine and version comparison."""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 
@@ -199,6 +201,34 @@ def test_worker_downloads_when_newer_found(monkeypatch):
     self_update.run_worker(stop, interval=60.0)
     assert len(swapped) == 1
     assert swapped[0]["version"] == "2.1.0"
+
+
+def test_worker_checks_immediately_at_boot_not_after_interval(monkeypatch):
+    """Lượt kiểm tra đầu chạy ngay lúc khởi động, không chờ hết 5 phút.
+
+    interval đặt 3600s — nếu worker ngủ trước rồi mới check thì test treo/timeout;
+    ở đây check_update phải được gọi trước lần wait đầu tiên.
+    """
+    import self_update
+    import threading
+
+    stop = threading.Event()
+    checks = []
+
+    def fake_check(url=None):
+        checks.append(time.time())
+        stop.set()                  # thoát ngay sau lượt đầu tiên
+        return None
+
+    monkeypatch.setattr(self_update, "is_enabled", lambda: True)
+    monkeypatch.setattr(self_update, "check_update", fake_check)
+
+    t0 = time.time()
+    self_update.run_worker(stop, interval=3600.0)
+    elapsed = time.time() - t0
+
+    assert len(checks) == 1
+    assert elapsed < 5.0, f"worker chờ {elapsed:.1f}s trước lượt check đầu"
 
 
 
