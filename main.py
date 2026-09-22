@@ -824,9 +824,34 @@ def action_status():
     return JSONResponse(snap)
 
 
+@app.post("/router/align-target", dependencies=CSRF)
+def router_align_target(request: Request):
+    """Hạ cấp/cài 9router đúng bản target khi máy đang chạy bản mới hơn."""
+    if updater is None:
+        return JSONResponse({"ok": False, "error": "updater module missing"}, status_code=503)
+    if not OP_SLOT.acquire("action"):
+        return JSONResponse({"ok": False, "error": "update/thao tác khác đang chạy"},
+                            status_code=409)
+    try:
+        ok, msg = updater.install_target_router()
+    finally:
+        OP_SLOT.release()
+    _forget_versions()                  # npm vừa đổi bản cài — cache version phải dò lại
+    return JSONResponse({"ok": ok, "message": msg})
+
+
 @app.post("/apply", dependencies=CSRF)
 def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
     """No ids -> apply everything. An id or group name pulls in its whole group (engine)."""
+    try:
+        compat_fn = getattr(updater, "check_router_compatibility", None)
+        if callable(compat_fn) and not request.query_params.get("force"):
+            compat = compat_fn()
+            if compat.get("relation") == "newer":
+                return _error(request, f"9router v{compat['local']} mới hơn bản hỗ trợ "
+                                       f"(v{compat['target']}). Hãy hạ cấp về v{compat['target']} trước.")
+    except Exception:
+        pass                            # không dò được bản cài -> giữ hành vi cũ (cho apply)
     try:
         engine.apply(engine.build_dir(), engine.load_patches(), ids=ids or None)
     except Exception as e:              # PatchError, but also EBUSY/PermissionError on

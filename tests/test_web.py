@@ -54,6 +54,9 @@ def web(monkeypatch, tmp_path):
         start_router_stack=lambda emit: rec["router"].append("start") or True,
         stop_headroom=lambda emit: True,
         start_headroom=lambda emit: True,
+        check_router_compatibility=lambda *a, **k: {"compatible": True, "relation": "match",
+                                                    "local": "0.5.65", "target": "0.5.65"},
+        install_target_router=lambda *a, **k: (True, "ok"),
         headroom_status=lambda refresh=False: {"installed": True, "pythonw": "pyw.exe", "reason": ""},
     ))
     monkeypatch.setattr(main, "HISTORY_FILE", tmp_path / "update-history.jsonl")
@@ -945,4 +948,34 @@ def test_self_update_restart_route_enforces_csrf_and_calls_restart(web, monkeypa
     r = web["client"].post("/update/self/restart", headers={"Origin": "http://127.0.0.1:20129"})
     assert r.status_code == 200
     assert len(called) == 1
+
+
+def test_apply_blocked_when_router_is_newer_than_target(web, monkeypatch):
+    monkeypatch.setattr(main.updater, "check_router_compatibility",
+                        lambda *a, **k: {"compatible": False, "relation": "newer",
+                                         "local": "0.5.85", "target": "0.5.81"})
+    r = web["client"].post("/apply", headers={"Origin": "http://127.0.0.1:20129"})
+    assert r.status_code == 409
+    assert "mới hơn bản hỗ trợ" in r.text
+    assert web["apply"] == []
+
+
+def test_apply_force_bypasses_newer_router_block(web, monkeypatch):
+    monkeypatch.setattr(main.updater, "check_router_compatibility",
+                        lambda *a, **k: {"compatible": False, "relation": "newer",
+                                         "local": "0.5.85", "target": "0.5.81"})
+    r = web["client"].post("/apply?force=1", headers={"Origin": "http://127.0.0.1:20129"})
+    assert r.status_code == 303
+    assert len(web["apply"]) == 1
+
+
+def test_router_align_target_calls_install_and_enforces_csrf(web, monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.updater, "install_target_router",
+                        lambda *a, **k: calls.append(True) or (True, "Cài đặt 9router@0.5.81 thành công"))
+    assert web["client"].post("/router/align-target").status_code == 403
+    r = web["client"].post("/router/align-target", headers={"Origin": "http://127.0.0.1:20129"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert len(calls) == 1
 
