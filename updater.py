@@ -96,6 +96,55 @@ def current_version() -> str:
     return json.loads(pkg.read_text(encoding="utf-8"))["version"]
 
 
+def _target_version() -> str:
+    """Tested 9router pin. Delegates to engine.target_version() once Task 1 lands."""
+    fn = getattr(engine, "target_version", None)
+    return fn() if callable(fn) else "0.5.81"
+
+
+def check_router_compatibility(local_ver: str | None = None) -> dict:
+    target = _target_version()
+    current = local_ver or (current_version() if engine.install_dir().exists() else "unknown")
+    if current == "unknown":
+        return {"compatible": False, "relation": "unknown", "local": current, "target": target}
+    import self_update
+    curr_t = self_update.parse_version(current)
+    targ_t = self_update.parse_version(target)
+    if curr_t == targ_t:
+        relation = "match"
+    elif curr_t < targ_t:
+        relation = "older"
+    else:
+        relation = "newer"
+    return {
+        "compatible": relation == "match",
+        "relation": relation,
+        "local": current,
+        "target": target,
+    }
+
+
+def install_target_router(on_output=None) -> tuple[bool, str]:
+    target = _target_version()
+    cmd_base = _npm_cli()
+    if not cmd_base:
+        return False, "Không tìm thấy npm"
+    cmd = cmd_base + ["install", "-g", f"9router@{target}"]
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, text=True, bufsize=1, creationflags=SILENT_FLAGS)
+        if proc.stdout:
+            for line in iter(proc.stdout.readline, ""):
+                c = line.strip()
+                if c and on_output:
+                    on_output(c)
+            proc.stdout.close()
+        proc.wait(timeout=300)
+        return proc.returncode == 0, f"Cài đặt 9router@{target} {'thành công' if proc.returncode == 0 else 'thất bại'}"
+    except Exception as e:
+        return False, str(e)
+
+
 TARBALL_TIMEOUT = 120
 
 
@@ -276,12 +325,13 @@ def find_locks() -> list[Lock]:
     return out
 
 
-def npm_update() -> Step:
-    title = "npm i -g 9router@latest"
+def npm_update(target_pin: str | None = None) -> Step:
+    spec = f"9router@{target_pin}" if target_pin else "9router@latest"
+    title = f"npm i -g {spec}"
     base = _npm_cli()
     if not base:
         return Step(title, False, "npm-cli.js không tìm thấy (cần node + npm-global trên PATH)")
-    cmd = base + ["i", "-g", "9router@latest", "--prefer-online"]
+    cmd = base + ["i", "-g", spec, "--prefer-online"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True,
                            stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
@@ -674,14 +724,15 @@ def restart_processes(stopped: dict[int, tuple[str, str]], emit) -> str:
     return "đã khởi động lại: " + ", ".join(f"{n} (pid {p})" for n, _, p, _ in relaunched)
 
 
-def _npm_stream(emit) -> Step:
+def _npm_stream(emit, target_pin: str | None = None) -> Step:
     """npm with live output: every line goes to the console as it arrives. Popen has no timeout
     parameter, so a watchdog timer kills npm past NPM_TIMEOUT."""
-    title = "npm i -g 9router@latest"
+    spec = f"9router@{target_pin}" if target_pin else "9router@latest"
+    title = f"npm i -g {spec}"
     base = _npm_cli()
     if not base:
         return Step(title, False, "npm-cli.js không tìm thấy (cần node + npm-global trên PATH)")
-    cmd = base + ["i", "-g", "9router@latest", "--prefer-online"]
+    cmd = base + ["i", "-g", spec, "--prefer-online"]
     try:
         p = subprocess.Popen(cmd, shell=False, stdin=subprocess.DEVNULL,
                              creationflags=SILENT_FLAGS,
@@ -760,7 +811,7 @@ def _reapply(restarting: bool) -> str:
     return "\n".join(lines)
 
 
-def run_update(emit=None, autostop=False, skip_gate=False) -> list[Step]:
+def run_update(emit=None, autostop=False, skip_gate=False, target_pin: str | None = None) -> list[Step]:
     """6 bước theo thứ tự plan, dưới cùng một global lock với apply/revert.
 
     Bước 1–4 chỉ là thông tin: fail thì ghi `ok=False` + lỗi vào log rồi CHẠY TIẾP, vì
@@ -869,7 +920,7 @@ def run_update(emit=None, autostop=False, skip_gate=False) -> list[Step]:
         # process, trước npm. Probe version fail -> vẫn chạy gate: "không biết bản mới là gì"
         # không được đọc thành "an toàn để cài".
         same = probed.get("local") is not None and probed.get("local") == probed.get("latest")
-        if not skip_gate and not same:
+        if not skip_gate and not target_pin and not same:
             s_gate = do_step(nxt(DRYRUN_TITLE), lambda: dryrun_anchors(out),
                              "tải tarball (~20MB) + scan, vài chục giây")
             if not s_gate.ok:
@@ -879,8 +930,12 @@ def run_update(emit=None, autostop=False, skip_gate=False) -> list[Step]:
         if autostop:                # KHÔNG gác bằng locks_found: probe rỗng cũng là probe lỗi
             do_step(nxt("Tắt process đang giữ handle"), step_stop, "~2s mỗi process")
 
-        npm_fn = npm_update if emit is None else (lambda: _npm_stream(out))
-        s_npm = do_step(nxt("npm i -g 9router@latest"), npm_fn,
+        npm_title = f"npm i -g 9router@{target_pin}" if target_pin else "npm i -g 9router@latest"
+        if emit is None:
+            npm_fn = (lambda: npm_update(target_pin)) if target_pin else npm_update
+        else:
+            npm_fn = (lambda: _npm_stream(out, target_pin)) if target_pin else (lambda: _npm_stream(out))
+        s_npm = do_step(nxt(npm_title), npm_fn,
                         "thường 30–120s, có thể dài hơn — log chảy realtime bên dưới")
         if not s_npm.ok:            # npm fail: không patch đè lên cài dở dang
             if stopped or stack_stopped:

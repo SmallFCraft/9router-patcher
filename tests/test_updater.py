@@ -243,6 +243,24 @@ def test_current_version_reads_install_package_json(monkeypatch, tmp_path):
     assert updater.current_version() == "0.5.64"
 
 
+def test_check_router_compatibility():
+    import updater
+    # Match
+    res = updater.check_router_compatibility("0.5.81")
+    assert res["compatible"] is True
+    assert res["relation"] == "match"
+
+    # Older
+    res = updater.check_router_compatibility("0.5.79")
+    assert res["compatible"] is False
+    assert res["relation"] == "older"
+
+    # Newer
+    res = updater.check_router_compatibility("0.5.85")
+    assert res["compatible"] is False
+    assert res["relation"] == "newer"
+
+
 # ---------- dryrun_anchors (gate trước npm) ----------
 
 # ---------- dryrun_anchors (gate trước npm) ----------
