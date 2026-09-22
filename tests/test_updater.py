@@ -939,6 +939,25 @@ def test_start_router_stack_skips_running_launches_missing(monkeypatch, tmp_path
     assert len(pops) == 1 and pops[0][0] == "python headroom proxy"   # router skip, headroom launch
 
 
+def test_start_router_stack_skips_headroom_when_not_installed(monkeypatch, tmp_path):
+    """Máy chưa cài headroom: router lên là stack OK, không spawn lệnh headroom sinh log rác."""
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    (tmp_path / "stack.json").write_text(json.dumps({"router_cmd": "node custom-server.js"}), encoding="utf-8")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: 1 if port == 20128 else None)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setattr(updater, "headroom_status",
+                        lambda refresh=False: {"installed": False, "pythonw": None, "reason": "no headroom"})
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append((cmd, kw))
+                        or type("P", (), {"pid": 1})())
+    lines = []
+    assert updater.start_router_stack(lambda e: lines.append(e.get("text", "")))
+    assert pops == []        # router đang chạy, headroom bỏ qua -> không spawn gì
+    assert any("Headroom chưa được cài đặt" in ln for ln in lines)
+
+
 def test_start_router_injects_port_env(monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
     monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")

@@ -130,12 +130,28 @@ def probe_router() -> dict:
         return {"up": up, "hung": "unknown"}
 
 
+def _is_headroom_installed() -> bool:
+    """True nếu updater có sẵn và máy có cài headroom."""
+    try:
+        return bool(updater and hasattr(updater, "headroom_status")
+                    and updater.headroom_status().get("installed"))
+    except Exception:
+        return False
+
+
 def probe_headroom() -> dict:
+    """Trạng thái headroom: `installed=False` khi máy chưa cài (module tuỳ chọn).
+
+    Phân biệt "chưa cài" với "cài rồi nhưng DOWN" — UI phải nói rõ cái nào, nếu
+    không máy không dùng headroom sẽ thấy thẻ đỏ DOWN vô cớ."""
+    installed = _is_headroom_installed()
     try:
         d = _get_json(HEADROOM_READYZ)
-        return {"up": True, "detail": d.get("status", "ok") if isinstance(d, dict) else "ok"}
+        return {"up": True, "installed": installed,
+                "detail": d.get("status", "ok") if isinstance(d, dict) else "ok"}
     except Exception:
-        return {"up": False, "detail": "down"}
+        return {"up": False, "installed": installed,
+                "detail": "down" if installed else "chưa cài đặt"}
 
 
 # ---------------------------------------------------------------- snapshot (GET / LCP)
@@ -359,6 +375,7 @@ def _error(request: Request, msg: str):
 def logs_page(request: Request):
     ctx = _gather_logs()
     ctx["log_line_kind"] = log_line_kind
+    ctx["headroom_installed"] = _is_headroom_installed()
     return templates.TemplateResponse(request, "logs.html", ctx)
 
 

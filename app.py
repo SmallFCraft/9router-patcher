@@ -39,12 +39,18 @@ def _hide_console() -> None:
 
 
 def _console_banner(url: str) -> None:
-    """Khối hướng dẫn một lần lúc khởi động — in lại mỗi lệnh chỉ làm console trôi."""
-    print("=" * 62)
-    print(f"  9router Patch Manager v{version.APP_VERSION}")
-    print("  [Enter] Mở Dashboard   [L] Xem Logs   [H] Ẩn Console   [Q] Thoát")
-    print(f"  Dashboard: {url}      Logs: {url}/logs")
-    print("=" * 62)
+    """Khối hướng dẫn một lần lúc khởi động — in lại mỗi lệnh chỉ làm console trôi.
+
+    Không lặp tên app/version ở đây: boot doctor vừa in header, hai khối giống nhau
+    chỉ tổ chiếm chỗ. Chỉ còn URL + phím tắt.
+    """
+    import console_ui
+    console_ui.enable_vt()
+    console_ui.panel(
+        [("Dashboard", url), ("Logs", f"{url}/logs")],
+        keys=[("Enter", "Mở Dashboard"), ("L", "Xem Logs"),
+              ("H", "Ẩn Console"), ("Q", "Thoát")],
+    )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -266,7 +272,8 @@ def main(argv: list[str] | None = None) -> None:
     try:
         while not shutdown_event.is_set():
             try:
-                cmd = _read_console_line("9router > ", shutdown_event)
+                import console_ui
+                cmd = _read_console_line(console_ui.prompt_label(), shutdown_event)
             except KeyboardInterrupt:
                 break
             if cmd is None:

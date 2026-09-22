@@ -52,6 +52,7 @@ NPM_TIMEOUT = 300
 
 ROUTER_PORT = 20128
 HEADROOM_PORT = 8787
+HEADROOM_PROBE_TIMEOUT = 5.0
 # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: relaunched processes outlive this server, no console
 DETACHED_FLAGS = 0x00000008 | 0x00000200
 # CREATE_NO_WINDOW: subprocess đồng bộ không bao giờ cấp console window mới (tránh chớp tắt)
@@ -439,8 +440,58 @@ def _default_router_cmd() -> str | None:
             f"{os.fspath(server)}")
 
 
+def _real_pythonw() -> str | None:
+    """pythonw.exe THẬT đã cài (không phải stub WindowsApps 0 byte).
+
+    Stub `%LOCALAPPDATA%\\Microsoft\\WindowsApps\\pythonw.exe` luôn tồn tại và luôn
+    `is_file()`, nhưng chỉ mở Microsoft Store — spawn nó sinh cửa sổ Store và
+    headroom không bao giờ chạy (đo 2026-09-22). Chỉ nhận path có thật cạnh
+    python.exe đang chạy."""
+    cand = Path(sys.executable).parent / "pythonw.exe"
+    return str(cand) if cand.is_file() else None
+
+
+def _pythonw_has_headroom(pythonw: str) -> bool:
+    """headroom đã cài trong interpreter này chưa.
+
+    headroom là module TUỲ CHỌN: máy chỉ dùng 9router làm proxy thì không cài,
+    và lúc đó mọi lần spawn chỉ đẻ ra `ModuleNotFoundError: headroom.cli` trong
+    log. Probe một lần (~0.3s) rẻ hơn nhiều so với log rác mỗi lần boot."""
+    try:
+        r = subprocess.run(
+            [pythonw, "-c", "import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('headroom.cli') else 1)"],
+            shell=False, stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
+            capture_output=True, timeout=HEADROOM_PROBE_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
+
+
+_HEADROOM_STATUS: dict | None = None
+
+
+def headroom_status(refresh: bool = False) -> dict:
+    """Trạng thái headroom của máy này: có pythonw thật không, có headroom không.
+
+    Memo hoá: probe spawn subprocess (~0.3s), mà snapshot worker gọi mỗi 3s.
+    headroom cài/gỡ giữa chừng thì khởi động lại app là thấy."""
+    global _HEADROOM_STATUS
+    if _HEADROOM_STATUS is not None and not refresh:
+        return _HEADROOM_STATUS
+    pythonw = _real_pythonw()
+    if not pythonw:
+        _HEADROOM_STATUS = {"installed": False, "pythonw": None,
+                            "reason": "Không tìm thấy pythonw.exe (Python GUI subsystem)"}
+    elif not _pythonw_has_headroom(pythonw):
+        _HEADROOM_STATUS = {"installed": False, "pythonw": pythonw,
+                            "reason": "Chưa cài headroom (module tuỳ chọn — pip install headroom-ai)"}
+    else:
+        _HEADROOM_STATUS = {"installed": True, "pythonw": pythonw, "reason": ""}
+    return _HEADROOM_STATUS
+
+
 def _default_headroom_cmd() -> str | None:
-    """Command line for the headroom proxy.
+    """Command line for the headroom proxy, None nếu máy chưa cài headroom.
 
     MUST run via pythonw.exe (GUI subsystem), never via the headroom.exe pip shim.
     The shim is a CONSOLE-subsystem launcher: spawning it detached leaves it without
@@ -453,12 +504,9 @@ def _default_headroom_cmd() -> str | None:
     interpreter relative to it points nowhere: prefer the real installed pythonw
     on PATH (works frozen and in a venv), and only fall back to the
     interpreter-relative location the source build used."""
-    for cand in (
-        shutil.which("pythonw.exe"),
-        str(Path(sys.executable).parent / "pythonw.exe"),
-    ):
-        if cand and Path(cand).is_file():
-            return f'"{cand}" -m headroom.cli proxy --port {HEADROOM_PORT} --code-aware'
+    pythonw = _real_pythonw()
+    if pythonw and _pythonw_has_headroom(pythonw):
+        return f'"{pythonw}" -m headroom.cli proxy --port {HEADROOM_PORT} --code-aware'
     return None
 
 
@@ -549,7 +597,8 @@ def stop_headroom(emit) -> bool:
 def start_headroom(emit) -> bool:
     cmd = _stack_cmdlines().get("headroom_cmd") or _default_headroom_cmd()
     if not cmd:
-        emit({"type": "line", "text": "  Không tìm thấy pythonw.exe để chạy headroom — bỏ qua"})
+        st = headroom_status()
+        emit({"type": "line", "text": f"  Headroom: {st.get('reason') or 'bỏ qua'}"})
         return False
     cwd = HEADROOM_CWD if HEADROOM_CWD.is_dir() else None
     return _launch_port_cmd("headroom", HEADROOM_PORT, cmd, cwd, emit)
@@ -563,10 +612,18 @@ def stop_router_stack(emit) -> bool:
 
 
 def start_router_stack(emit) -> bool:
-    """Bật LẦN LƯỢT: router lên hẳn trước rồi mới tới headroom — tránh xung đột."""
+    """Bật LẦN LƯỢT: router lên hẳn trước rồi mới tới headroom (nếu có).
+
+    headroom là tuỳ chọn: router lên là stack OK, headroom thiếu không làm fail."""
     ok = start_router(emit)
     emit({"type": "line", "text": "  --"})
-    return start_headroom(emit) and ok
+    # Nếu user đã từng chạy headroom (có trong saved state) hoặc máy có cài headroom
+    has_saved_cmd = bool(_stack_cmdlines().get("headroom_cmd"))
+    if not has_saved_cmd and not headroom_status()["installed"]:
+        emit({"type": "line", "text": "  Headroom chưa được cài đặt (tuỳ chọn) — bỏ qua"})
+        return ok
+    h_ok = start_headroom(emit)
+    return ok and h_ok
 
 
 def restart_processes(stopped: dict[int, tuple[str, str]], emit) -> str:

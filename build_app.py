@@ -182,6 +182,12 @@ def build(fast: bool = False) -> int:
         except OSError as e:
             print(f"CẢNH BÁO: không copy được artifact vào {files_dir.name}/: {e}")
 
+        # Chỉ dọn sau khi build THÀNH CÔNG: giữ đúng 2 bản vừa build, xóa artifact cũ còn sót.
+        keep = {standard.name, versioned.name}
+        removed = prune_stale_artifacts(files_dir, keep)
+        if removed:
+            print(f"Đã dọn {removed} artifact cũ trong files/")
+
         size_mb = exe.stat().st_size / (1024 * 1024)
         print(f"\nEncrypt: {t1 - t0:.1f}s | Nuitka: {t2 - t1:.1f}s | Total: {t2 - t0:.1f}s")
         print(f"SUCCESS: Built {exe} ({size_mb:.1f} MB)")

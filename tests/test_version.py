@@ -43,13 +43,19 @@ def test_cli_version_flag_exits_cleanly(capsys):
     assert exc_info.value.code == 0
 
 
-def test_console_banner_contains_app_version(capsys):
-    """Banner khởi động in đúng v2.0.0."""
+def test_console_banner_shows_urls_and_keys(capsys):
+    """Panel khởi động: URL + phím tắt. Version KHÔNG lặp lại ở đây — boot doctor
+    đã in header, hai khối trùng tên app chỉ chiếm chỗ console."""
     import app
     import version
+
     app._console_banner("http://127.0.0.1:20129")
     captured = capsys.readouterr()
-    assert f"v{version.APP_VERSION}" in captured.out
+    assert "http://127.0.0.1:20129" in captured.out
+    assert "http://127.0.0.1:20129/logs" in captured.out
+    for key in ("Enter", "L", "H", "Q"):
+        assert f"[{key}]" in captured.out
+    assert version.APP_VERSION not in captured.out
 
 
 def test_main_force_bypasses_port_busy_early_exit(monkeypatch):

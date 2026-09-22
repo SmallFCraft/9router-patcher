@@ -44,6 +44,13 @@
 
   <article class="card stat" data-service="headroom">
     <div class="stat-label">{{ icon('gauge') }}Headroom</div>
+    {% if not headroom.installed %}
+    <div class="stat-value"><span class="muted" data-updown>CHƯA CÀI</span></div>
+    <div class="stat-sub">
+      Tiện ích tuỳ chọn :8787 — không bắt buộc để chạy 9router.
+      Cài: <span class="mono">pip install headroom-ai</span>
+    </div>
+    {% else %}
     <div class="stat-value">
       <span class="dot {{ 'up' if headroom.up else 'down' }}"></span>
       {% if headroom.up %}<span class="up" data-updown>UP</span>{% else %}<span class="down" data-updown>DOWN</span>{% endif %}
@@ -60,6 +67,7 @@
       </form>
       {% endif %}
     </div>
+    {% endif %}
   </article>
 
   <article class="card stat">

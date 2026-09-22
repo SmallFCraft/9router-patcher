@@ -59,10 +59,24 @@ def check_node() -> tuple[bool, str]:
         return False, msg
 
 def check_9router() -> tuple[bool, str]:
+    """9router toàn cục đã cài chưa, và có bản npm mới hơn không.
+
+    KHÔNG tự npm update lúc boot: bản mới thường đổi minify, anchor cũ chết theo
+    (đo 2026-09-22: ua-messages unknown trên 0.5.85). Chỉ báo có bản mới, để người
+    dùng chạy /update (có dry-run gate) khi sẵn sàng.
+    """
     try:
         idir = engine.install_dir()
         ver = updater.current_version() if updater else "unknown"
         msg = f"9router v{ver} đã cài đặt tại {idir.name}"
+        latest = ""
+        if updater:
+            try:
+                latest = updater.latest_version()
+            except Exception:
+                latest = ""
+        if ver != "unknown" and latest and latest != ver:
+            msg += f" (npm có bản {latest} — vào Dashboard → cập nhật an toàn)"
         log_boot(f"OK: {msg}")
         return True, msg
     except Exception:
@@ -154,80 +168,85 @@ def ensure_router_stack(on_output=None) -> tuple[bool, str]:
         return False, err
 
 def run_doctor(interactive: bool = True) -> bool:
-    print("=" * 60)
-    print(f" 9router Patcher Manager v{version.APP_VERSION}")
-    print("=" * 60)
+    """Doctor lúc khởi động: 5 bước, mỗi bước một dòng `nhãn ... badge`.
 
-    # 0. Kiểm tra bản cập nhật exe đồng bộ — có bản mới thì swap ngay, hiệu lực từ
-    # lần mở tới. Lỗi mạng/SHA256 chỉ in cảnh báo, không chặn boot doctor.
-    print("[0/5] Kiểm tra bản cập nhật exe...", end=" ", flush=True)
+    Chặn boot chỉ ở bước 1 (thiếu node) và bước 2 (thiếu 9router, non-interactive);
+    các bước còn lại lỗi thì chỉ CẢNH BÁO — vào được dashboard hãy sửa sau.
+    """
+    import console_ui
+    console_ui.enable_vt()
+    console_ui.header("9router Patch Manager", f"v{version.APP_VERSION}")
+
+    # 0. Tự cập nhật exe (đồng bộ) — có bản mới thì swap + restart ngay.
+    console_ui.step_begin("[0/5]", "Kiểm tra bản cập nhật exe")
     try:
         import self_update
         meta = self_update.check_update()
         if meta is None:
-            print("[ BỎ QUA ] (không kết nối được máy chủ cập nhật)")
+            console_ui.step_end("BỎ QUA", "warn", "không kết nối được máy chủ cập nhật")
         elif not meta["has_update"]:
-            print(f"[ MỚI NHẤT v{version.APP_VERSION} ]")
+            console_ui.step_end(f"MỚI NHẤT v{version.APP_VERSION}", "info")
         else:
             res = self_update.download_and_swap(meta)
             if res["ok"]:
-                print(f"[ ĐÃ CẬP NHẬT v{meta['version']} — đang khởi động lại... ]")
+                console_ui.step_end(f"ĐÃ CẬP NHẬT v{meta['version']}", "info", "khởi động lại...")
                 self_update.restart_self()
             else:
-                print(f"[ CẢNH BÁO ] ({res['error']})")
-    except Exception as e:
-        print(f"[ CẢNH BÁO ] ({e})")
+                console_ui.step_end("CẢNH BÁO", "warn", res["error"])
+    except Exception as e:              # noqa: BLE001 - cập nhật lỗi không được chặn boot
+        console_ui.step_end("CẢNH BÁO", "warn", str(e))
 
-    # 1. Node.js & npm
-    print("[1/5] Kiểm tra Node.js & npm...", end=" ", flush=True)
+    # 1. Node.js & npm — thiếu là không chạy được gì.
+    console_ui.step_begin("[1/5]", "Kiểm tra Node.js & npm")
     ok, msg = check_node()
     if ok:
-        print("[ OK ]")
+        console_ui.step_end("OK", "ok")
     else:
-        print("[ THIẾU ]")
-        print(f"\n  -> {msg}\n")
+        console_ui.step_end("THIẾU", "bad")
+        print(f"\n  → {msg}\n", flush=True)
         if interactive:
             input("Nhấn Enter để thoát...")
         return False
 
-    # 2. 9router global package
-    print("[2/5] Kiểm tra 9router toàn cục...", end=" ", flush=True)
+    # 2. 9router toàn cục — thiếu thì hỏi cài (interactive) hoặc bỏ (non-interactive).
+    console_ui.step_begin("[2/5]", "Kiểm tra 9router toàn cục")
     ok, msg = check_9router()
     if ok:
-        print("[ OK ]")
+        console_ui.step_end("OK", "ok")
+    elif not interactive:
+        console_ui.step_end("THIẾU", "bad")
+        return False
     else:
-        print("[ THIẾU ]")
-        if interactive:
-            ans = input("\n? 9router chưa được cài đặt. Cài đặt toàn cục qua npm? (Y/n) [Y]: ").strip().lower()
-            if ans in ("", "y", "yes"):
-                print("  > npm install -g 9router@latest...")
-                i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
-                print()
-                if not i_ok:
-                    print(f"  [!] {i_msg}")
-                    input("Nhấn Enter để tiếp tục (chế độ xem)...")
-                else:
-                    print("  [ OK ] Cài đặt 9router hoàn tất!")
+        console_ui.step_end("CHƯA CÀI", "warn")
+        print(f"\n  → {msg}", flush=True)
+        ans = input("\n? 9router chưa được cài đặt. Cài đặt toàn cục qua npm? (Y/n) [Y]: ").strip().lower()
+        if ans in ("", "y", "yes"):
+            print("  > npm install -g 9router@latest...")
+            i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
+            print()
+            if not i_ok:
+                print(f"  [!] {i_msg}")
+                input("Nhấn Enter để tiếp tục (chế độ xem)...")
             else:
-                print("  Bỏ qua cài đặt 9router.")
+                print("  [ OK ] Cài đặt 9router hoàn tất!")
         else:
-            return False
+            print("  Bỏ qua cài đặt 9router.")
 
-    # 3. Patch Status
-    print("[3/5] Kiểm tra patches tối ưu...", end=" ", flush=True)
+    # 3. Patches — lỗi chỉ cảnh báo, dashboard vẫn sửa được.
+    console_ui.step_begin("[3/5]", "Kiểm tra patches tối ưu")
     p_ok, p_msg = check_and_apply_patches()
     if p_ok:
-        print("[ OK ]")
+        console_ui.step_end("OK", "ok")
     else:
-        print(f"[ CẢNH BÁO ] ({p_msg})")
+        console_ui.step_end("CẢNH BÁO", "warn", p_msg)
 
-    # 5. Proxy Router Stack
-    print("[5/5] Khởi động Proxy Router Stack...", end=" ", flush=True)
+    # 4. Proxy Router Stack — trước đây nhảy số [5/5], đánh lại cho liền mạch.
+    console_ui.step_begin("[4/5]", "Khởi động Proxy Router Stack")
     s_ok, s_msg = ensure_router_stack()
     if s_ok:
-        print("[ OK ]")
+        console_ui.step_end("OK", "ok")
     else:
-        print(f"[ CẢNH BÁO ] ({s_msg})")
+        console_ui.step_end("CẢNH BÁO", "warn", s_msg)
 
-    print("\n✓ Hoàn tất chuẩn bị! Đang khởi động Web Dashboard...\n")
+    console_ui.success("Hoàn tất chuẩn bị!", "đang khởi động Web Dashboard...")
     return True

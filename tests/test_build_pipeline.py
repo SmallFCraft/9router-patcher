@@ -69,3 +69,18 @@ def test_build_app_copies_versioned_artifact(tmp_path, monkeypatch):
     src = (build_app.ROOT / "build_app.py").read_text(encoding="utf-8")
     assert "9router-patch-v" in src
     assert "shutil.copyfile" in src
+
+
+def test_prune_stale_artifacts_keeps_only_current_build(tmp_path):
+    """prune_stale_artifacts: chỉ giữ bản vừa build, xóa artifact cũ + file rác."""
+    files_dir = tmp_path / "files"
+    files_dir.mkdir()
+    for name in ("9router-patch.exe", "9router-patch-v2.1.5.exe",
+                 "9router-patch-v2.1.4.exe", "trash.bin"):
+        (files_dir / name).write_bytes(b"x")
+
+    removed = build_app.prune_stale_artifacts(
+        files_dir, {"9router-patch.exe", "9router-patch-v2.1.5.exe"})
+    assert removed == 2
+    assert sorted(p.name for p in files_dir.iterdir()) == [
+        "9router-patch-v2.1.5.exe", "9router-patch.exe"]

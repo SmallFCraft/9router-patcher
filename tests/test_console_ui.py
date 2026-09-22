@@ -1,0 +1,94 @@
+"""Tests for console_ui: styles, VAN backfill, throttle, cache invalidation."""
+from __future__ import annotations
+
+import pytest
+
+import console_ui
+
+
+def test_clean_output_without_tty(capsys, monkeypatch):
+    """Stdout pipe/CI (không TTY): không còn escape code, nội dung đầy đủ."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+    import version
+
+    console_ui.header("9router Patch Manager", f"v{version.APP_VERSION}")
+    out = capsys.readouterr().out
+    assert "\033[" not in out
+    assert "9router Patch Manager" in out
+    assert f"v{version.APP_VERSION}" in out
+    console_ui._VT = None
+
+
+def test_steps_print_one_line_each(capsys, monkeypatch):
+    """5 bước + xác nhận: mỗi dòng có nhãn [N/M], nội dung và trạng thái. [0/5]
+    là nhãn của bước tự cập nhật."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    console_ui.header("9router Patch Manager", "v2.1.5")
+    console_ui.step_begin("[0/5]", "Kiểm tra bản cập nhật exe")
+    console_ui.step_end("MỚI NHẤT v2.1.5", "info")
+    console_ui.step_begin("[1/5]", "Kiểm tra Node.js & npm")
+    console_ui.step_end("OK", "ok")
+    console_ui.step_begin("[2/5]", "Kiểm tra 9router toàn cục")
+    console_ui.step_end("OK", "ok")
+    console_ui.step_begin("[3/5]", "Kiểm tra patches tối ưu")
+    console_ui.step_end("OK", "ok")
+    console_ui.step_begin("[4/5]", "Khởi động Proxy Router Stack")
+    console_ui.step_end("OK", "ok")
+    console_ui.success("Hoàn tất chuẩn bị!", "đang khởi động Web Dashboard...")
+
+    out = capsys.readouterr().out
+    for num in ("[0/5]", "[1/5]", "[2/5]", "[3/5]", "[4/5]"):
+        assert num in out
+    assert "MỚI NHẤT v2.1.5" in out
+    assert "Hoàn tất chuẩn bị!" in out
+    assert "\033[" not in out
+    console_ui._VT = None
+
+
+def test_no_color_env_disables_styling(capsys, monkeypatch):
+    """NO_COLOR có hiệu lực ngay cả khi stdout là TTY."""
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: True)
+    console_ui._VT = None
+
+    console_ui.header("X", "v1.0.0")
+    console_ui.panel([("Dashboard", "http://127.0.0.1:20129")])
+    out = capsys.readouterr().out
+    assert "\033[" not in out
+    assert "Dashboard" in out
+    console_ui._VT = None
+
+
+def test_ascii_glyphs_when_encoding_cannot_handle_unicode(monkeypatch):
+    """Encoding cp1252 (không hỗ trợ ╭─│): rẽ sang bộ ASCII (+-|).
+
+    `sys.stdout.encoding` là thuộc tính read-only — phải thay cả object stdout."""
+    class Cp1252Stdout:
+        encoding = "cp1252"
+
+    monkeypatch.setattr(console_ui.sys, "stdout", Cp1252Stdout())
+    g = console_ui.glyphs()
+    assert g["tl"] == "+"
+    assert g["h"] == "-"
+
+
+def test_panel_render_keys_and_rows(capsys, monkeypatch):
+    """Panel in đầy đủ URL + phím tắt, không còn escape."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    url = "http://127.0.0.1:20129"
+    console_ui.panel(
+        [("Dashboard", url), ("Logs", f"{url}/logs")],
+        keys=[("Enter", "Mở Dashboard"), ("L", "Xem Logs"),
+              ("H", "Ẩn Console"), ("Q", "Thoát")],
+    )
+    out = capsys.readouterr().out
+    assert url in out
+    assert f"{url}/logs" in out
+    for key in ("Enter", "L", "H", "Q"):
+        assert f"[{key}]" in out
+    console_ui._VT = None

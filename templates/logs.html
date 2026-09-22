@@ -151,10 +151,17 @@
       {{ icon('copy') }}Copy
     </button>
   </div>
+  {% if not headroom_installed %}
+  <p class="banner" style="margin-bottom:1rem">
+    {{ icon('alert') }}<span><strong>Headroom chưa được cài đặt trên máy này.</strong>
+    Đây là tiện ích bộ đệm proxy LLM tuỳ chọn; 9router vẫn hoạt động bình thường mà không cần Headroom.
+    Cài đặt nếu cần: <code class="mono">pip install headroom-ai</code></span>
+  </p>
+  {% endif %}
   {% if headroom %}
   {{ logpre(headroom, "headroom-log-pre") }}
   {% else %}
-  <p class="small muted">(Chưa có nhật ký headroom)</p>
+  <p class="small muted">Chưa có nhật ký headroom (service chưa chạy hoặc chưa được kích hoạt).</p>
   {% endif %}
 </section>
 

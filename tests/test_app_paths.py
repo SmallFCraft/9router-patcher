@@ -46,13 +46,15 @@ def test_frozen_paths_resolve_to_appdata_and_exe_dir(tmp_path, monkeypatch):
     assert app_paths.get_backup_root() == tmp_path / "9router-backups"
 
 
-def test_headroom_cmd_uses_pythonw_not_console_shim(monkeypatch):
+def test_headroom_cmd_uses_pythonw_not_console_shim(monkeypatch, tmp_path):
     """Regression 2026-09-21: the headroom.exe pip shim is CONSOLE-subsystem, so spawning it
     detached makes its inner python.exe allocate a Windows Terminal window; closing that window
     kills headroom. The command must go through pythonw.exe -m headroom.cli instead."""
     import updater
-    monkeypatch.setattr(updater.shutil, "which",
-                        lambda cmd: r"C:\Py\pythonw.exe" if cmd == "pythonw.exe" else None)
+    fake_pyw = tmp_path / "pythonw.exe"
+    fake_pyw.write_text("", encoding="utf-8")
+    monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(updater, "_pythonw_has_headroom", lambda p: True)
     cmd = updater._default_headroom_cmd()
     assert cmd is not None
     assert "pythonw.exe" in cmd
@@ -67,8 +69,8 @@ def test_headroom_cmd_falls_back_to_interpreter_dir(monkeypatch, tmp_path):
     import updater
     fake_pyw = tmp_path / "pythonw.exe"
     fake_pyw.write_text("", encoding="utf-8")
-    monkeypatch.setattr(updater.shutil, "which", lambda cmd: None)
     monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(updater, "_pythonw_has_headroom", lambda p: True)
     cmd = updater._default_headroom_cmd()
     assert cmd is not None and str(fake_pyw) in cmd
 
@@ -76,6 +78,20 @@ def test_headroom_cmd_falls_back_to_interpreter_dir(monkeypatch, tmp_path):
 def test_headroom_cmd_returns_none_without_pythonw(monkeypatch, tmp_path):
     """No pythonw anywhere: report failure rather than falling back to the window-spawning shim."""
     import updater
-    monkeypatch.setattr(updater.shutil, "which", lambda cmd: None)
     monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
     assert updater._default_headroom_cmd() is None
+
+
+def test_headroom_cmd_returns_none_when_headroom_not_installed(monkeypatch, tmp_path):
+    """pythonw.exe có thật nhưng chưa cài package headroom -> trả None, không đẻ log rác."""
+    import updater
+    fake_pyw = tmp_path / "pythonw.exe"
+    fake_pyw.write_text("", encoding="utf-8")
+    monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(updater, "_pythonw_has_headroom", lambda p: False)
+    assert updater._default_headroom_cmd() is None
+    updater._HEADROOM_STATUS = None
+    st = updater.headroom_status(refresh=True)
+    assert st["installed"] is False
+    assert "Chưa cài headroom" in st["reason"]
+

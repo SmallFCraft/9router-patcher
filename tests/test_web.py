@@ -54,6 +54,7 @@ def web(monkeypatch, tmp_path):
         start_router_stack=lambda emit: rec["router"].append("start") or True,
         stop_headroom=lambda emit: True,
         start_headroom=lambda emit: True,
+        headroom_status=lambda refresh=False: {"installed": True, "pythonw": "pyw.exe", "reason": ""},
     ))
     monkeypatch.setattr(main, "HISTORY_FILE", tmp_path / "update-history.jsonl")
     main.LOCK_CACHE.update(locks=[], error=None, probed_at=0.0)
@@ -891,3 +892,31 @@ def test_update_page_renders_self_update_section(web):
     assert "9router Patch Manager" in html
     assert 'id="auto-update-toggle"' in html
     assert 'id="self-update-btn"' in html
+
+
+def test_index_shows_optional_headroom_when_not_installed(web, monkeypatch):
+    """Máy chưa cài headroom: thẻ headroom hiện CHƯA CÀI rõ ràng, không báo DOWN đỏ."""
+    import main
+    monkeypatch.setattr(main, "_is_headroom_installed", lambda: False)
+    with main.SNAP_LOCK:
+        main.SNAP["probes"] = {
+            "ok": True,
+            "router": {"up": True, "hung": 0},
+            "headroom": {"up": False, "installed": False, "detail": "chưa cài đặt"},
+            "at": 0.0,
+        }
+    html = web["client"].get("/").text
+    assert "data-service=\"headroom\"" in html
+    assert "CHƯA CÀI" in html
+    assert "Tiện ích tuỳ chọn" in html
+
+
+def test_logs_page_shows_banner_when_headroom_not_installed(web, monkeypatch):
+    """Trang /logs: tab Headroom có banner giải thích rõ module tuỳ chọn khi chưa cài."""
+    import main
+    monkeypatch.setattr(main, "_is_headroom_installed", lambda: False)
+    html = web["client"].get("/logs").text
+    assert "pane-headroom" in html
+    assert "Headroom chưa được cài đặt trên máy này" in html
+    assert "pip install headroom-ai" in html
+
