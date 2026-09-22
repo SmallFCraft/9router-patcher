@@ -15,6 +15,8 @@
 # `group`: các patch cùng group nằm cùng một file, áp/gỡ atomic (cả nhóm hoặc không cái nào).
 # `defines`: patch này định nghĩa symbol mà patch khác trong group gọi -> áp ĐẦU TIÊN, gỡ CUỐI CÙNG.
 
+target_version = "0.5.81"
+
 [[patch]]
 id = "connect-timeout-180s"
 order = 1

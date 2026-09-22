@@ -39,6 +39,11 @@ NODE_TIMEOUT = 30
 LOCK = threading.RLock()
 
 
+def target_version() -> str:
+    import config
+    return getattr(config, "TARGET_9ROUTER_VERSION", "0.5.81")
+
+
 class PatchError(Exception):
     pass
 
