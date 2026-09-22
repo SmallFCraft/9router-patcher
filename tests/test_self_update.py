@@ -130,7 +130,7 @@ def test_download_and_swap_normalizes_versioned_filename(tmp_path, monkeypatch):
     import self_update
     import hashlib
 
-    versioned = tmp_path / "9router-patcher-v2.1.2.exe"
+    versioned = tmp_path / "9router-patch-v2.1.2.exe"
     versioned.write_bytes(b"OLD_VERSIONED_EXE")
 
     new_content = b"NEW_VERSION_EXE_DATA_PAYLOAD"

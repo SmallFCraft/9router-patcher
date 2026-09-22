@@ -55,16 +55,16 @@ def test_exe_locked_detects_free_and_open_file(tmp_path: Path):
 
 
 def test_build_app_copies_versioned_artifact(tmp_path, monkeypatch):
-    """build() phải copy exe sang tên có version để upload hosting (9router-patcher-vX.Y.Z.exe)."""
+    """build() phải copy exe sang tên có version để upload hosting (9router-patch-vX.Y.Z.exe)."""
     import build_app
     import version
 
     # Tên artifact kỳ vọng khớp version.APP_VERSION
-    expected = f"9router-patcher-v{version.APP_VERSION}.exe"
-    assert expected.startswith("9router-patcher-v")
+    expected = f"9router-patch-v{version.APP_VERSION}.exe"
+    assert expected.startswith("9router-patch-v")
     assert expected.endswith(".exe")
 
     # build() phải tham chiếu tên này (kiểm tra qua source: không chạy build thật 160s)
     src = (build_app.ROOT / "build_app.py").read_text(encoding="utf-8")
-    assert "9router-patcher-v" in src
+    assert "9router-patch-v" in src
     assert "shutil.copyfile" in src

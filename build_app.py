@@ -158,7 +158,7 @@ def build(fast: bool = False) -> int:
         # Copy sang tên có version để upload hosting: file cũ trên server không bị đè,
         # rollback chỉ là sửa version.json trỏ về bản trước. Tên cài cục bộ giữ nguyên
         # "9router-patch.exe" — cơ chế hoán đổi self-update dựa vào đường dẫn đó.
-        versioned = dist / f"9router-patcher-v{version.APP_VERSION}.exe"
+        versioned = dist / f"9router-patch-v{version.APP_VERSION}.exe"
         try:
             shutil.copyfile(exe, versioned)
         except OSError as e:

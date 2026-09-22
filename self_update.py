@@ -152,7 +152,7 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
         exe_dir = exe.parent
         new_file = exe_dir / "9router-patch.new"
         # Chuẩn hóa tên file trên máy user: luôn là 9router-patch.exe, không mang version.
-        # Nếu user chạy file cũ tên 9router-patcher-v2.1.2.exe thì sau update sẽ thành 9router-patch.exe.
+        # Nếu user chạy file cũ tên 9router-patch-v2.1.2.exe thì sau update sẽ thành 9router-patch.exe.
         target_exe = exe_dir / "9router-patch.exe"
 
         _set_state(phase="downloading", error=None,
