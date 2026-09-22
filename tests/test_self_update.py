@@ -125,6 +125,52 @@ def test_download_and_swap_success_flow(tmp_path, monkeypatch):
     assert len(list(tmp_path.glob("9router-patch.old-*"))) == 0
 
 
+def test_download_and_swap_normalizes_versioned_filename(tmp_path, monkeypatch):
+    """User chạy file gắn version -> sau swap chuẩn hóa thành 9router-patch.exe."""
+    import self_update
+    import hashlib
+
+    versioned = tmp_path / "9router-patcher-v2.1.2.exe"
+    versioned.write_bytes(b"OLD_VERSIONED_EXE")
+
+    new_content = b"NEW_VERSION_EXE_DATA_PAYLOAD"
+    _dummy_dl_monkeypatch(monkeypatch, self_update, new_content)
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    meta = {
+        "version": "9.9.9",
+        "url": "https://example.com/files/app.exe",
+        "sha256": hashlib.sha256(new_content).hexdigest(),
+    }
+
+    res = self_update.download_and_swap(meta, current_exe=versioned)
+    assert res["ok"] is True, res
+
+    target = tmp_path / "9router-patch.exe"
+    assert target.read_bytes() == new_content
+    old_files = list(tmp_path.glob("9router-patch.old-*"))
+    assert len(old_files) == 1
+    assert old_files[0].read_bytes() == b"OLD_VERSIONED_EXE"
+
+
+def test_restart_self_prefers_normalized_filename(monkeypatch):
+    """Có 9router-patch.exe sau swap -> restart spawn đúng bản chuẩn hóa."""
+    import self_update
+
+    spawned = []
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    class FakePopen:
+        def __init__(self, argv, **kwargs):
+            spawned.append(argv)
+
+    monkeypatch.setattr(self_update.subprocess, "Popen", FakePopen)
+
+    with pytest.raises(SystemExit):
+        self_update.restart_self()
+    assert len(spawned) == 1
+
+
 def test_download_and_swap_rejects_sha256_mismatch(tmp_path, monkeypatch):
     """SHA256 lệch: xóa file tạm, exe gốc nguyên vẹn, không hoán đổi."""
     import self_update

@@ -149,7 +149,11 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
             return {"ok": False, "error": "dev-mode"}
 
         exe = current_exe or Path(sys.argv[0]).resolve()
-        new_file = exe.parent / "9router-patch.new"
+        exe_dir = exe.parent
+        new_file = exe_dir / "9router-patch.new"
+        # Chuẩn hóa tên file trên máy user: luôn là 9router-patch.exe, không mang version.
+        # Nếu user chạy file cũ tên 9router-patcher-v2.1.2.exe thì sau update sẽ thành 9router-patch.exe.
+        target_exe = exe_dir / "9router-patch.exe"
 
         _set_state(phase="downloading", error=None,
                    remote_version=meta.get("version", ""))
@@ -179,10 +183,15 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
 
         # Tên .old có timestamp: tiến trình đang chạy vẫn giữ handle trên file cũ,
         # đổi tên cố định sẽ đè nhau ở lần cập nhật sau trong cùng phiên.
-        old_file = exe.parent / f"9router-patch.old-{int(time.time())}"
+        old_file = exe_dir / f"9router-patch.old-{int(time.time())}"
         try:
             os.replace(exe, old_file)
-            os.replace(new_file, exe)
+            if target_exe != exe and target_exe.exists():
+                try:
+                    target_exe.unlink()
+                except OSError:
+                    pass
+            os.replace(new_file, target_exe)
         except Exception as e:
             if old_file.exists() and not exe.exists():
                 try:
@@ -208,12 +217,14 @@ def restart_self() -> None:
     if not app_paths.is_frozen():
         return
     exe = Path(sys.argv[0]).resolve()
+    target_exe = exe.parent / "9router-patch.exe"
+    run_exe = target_exe if target_exe.is_file() else exe
     # Windows: cờ CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS để exe con không bị
     # kéo sập theo khi tiến trình cha gọi exit().
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
-    subprocess.Popen([str(exe)] + sys.argv[1:],
+    subprocess.Popen([str(run_exe)] + sys.argv[1:],
                      creationflags=creationflags,
                      close_fds=True)
     sys.exit(0)
