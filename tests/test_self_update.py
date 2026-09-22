@@ -232,3 +232,30 @@ def test_worker_checks_immediately_at_boot_not_after_interval(monkeypatch):
 
 
 
+
+
+def test_restart_self_spawns_new_exe_and_exits(monkeypatch):
+    """restart_self: spawn exe mới detached rồi thoát (SystemExit)."""
+    import self_update
+
+    spawned = []
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    class FakePopen:
+        def __init__(self, argv, **kwargs):
+            spawned.append((argv, kwargs))
+
+    monkeypatch.setattr(self_update.subprocess, "Popen", FakePopen)
+
+    with pytest.raises(SystemExit) as exc:
+        self_update.restart_self()
+    assert exc.value.code == 0
+    assert len(spawned) == 1
+
+
+def test_restart_self_noop_in_dev_mode(monkeypatch):
+    """Chạy từ source .py: restart_self không làm gì, không thoát."""
+    import self_update
+
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: False)
+    self_update.restart_self()  # không raise

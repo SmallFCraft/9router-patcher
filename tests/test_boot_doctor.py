@@ -78,3 +78,27 @@ def test_boot_check_update_step_reports_results(capsys, monkeypatch):
     assert boot_doctor.run_doctor(interactive=False) is True
     out = capsys.readouterr().out
     assert "BỎ QUA" in out
+
+
+def test_boot_restarts_after_successful_self_update(capsys, monkeypatch):
+    """Boot hoán đổi exe mới xong -> gọi restart_self, bản mới có hiệu lực ngay."""
+    import boot_doctor
+    import self_update
+
+    monkeypatch.setattr(boot_doctor, "check_node", lambda: (True, "ok"))
+    restarted = []
+    monkeypatch.setattr(self_update, "restart_self",
+                        lambda: restarted.append(True) or (_ for _ in ()).throw(SystemExit(0)))
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: {"version": "9.9.9", "has_update": True,
+                                          "url": "https://x/y.exe", "sha256": ""})
+    monkeypatch.setattr(self_update, "download_and_swap",
+                        lambda meta: {"ok": True, "error": None})
+
+    with pytest.raises(SystemExit):
+        boot_doctor.run_doctor(interactive=False)
+
+    out = capsys.readouterr().out
+    assert "ĐÃ CẬP NHẬT v9.9.9" in out
+    assert "khởi động lại" in out
+    assert len(restarted) == 1

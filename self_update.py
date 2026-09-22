@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -196,6 +197,27 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
         return {"ok": True, "error": None}
     finally:
         _SWAP_LOCK.release()
+
+
+def restart_self() -> None:
+    """Khởi động lại bằng file exe vừa hoán đổi và thoát tiến trình hiện tại.
+
+    - Frozen (exe): spawn exe mới bằng subprocess detached rồi sys.exit(0).
+    - Source (.py): không restart (môi trường dev).
+    """
+    if not app_paths.is_frozen():
+        return
+    exe = Path(sys.argv[0]).resolve()
+    # Windows: cờ CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS để exe con không bị
+    # kéo sập theo khi tiến trình cha gọi exit().
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008  # DETACHED_PROCESS
+    subprocess.Popen([str(exe)] + sys.argv[1:],
+                     creationflags=creationflags,
+                     close_fds=True)
+    sys.exit(0)
+
 
 
 def _check_once() -> None:

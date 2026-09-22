@@ -171,7 +171,8 @@ def run_doctor(interactive: bool = True) -> bool:
         else:
             res = self_update.download_and_swap(meta)
             if res["ok"]:
-                print(f"[ ĐÃ TẢI v{meta['version']} — áp dụng từ lần mở tới ]")
+                print(f"[ ĐÃ CẬP NHẬT v{meta['version']} — đang khởi động lại... ]")
+                self_update.restart_self()
             else:
                 print(f"[ CẢNH BÁO ] ({res['error']})")
     except Exception as e:
