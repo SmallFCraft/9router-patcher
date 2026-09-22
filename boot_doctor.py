@@ -69,14 +69,30 @@ def check_9router() -> tuple[bool, str]:
         idir = engine.install_dir()
         ver = updater.current_version() if updater else "unknown"
         msg = f"9router v{ver} đã cài đặt tại {idir.name}"
-        latest = ""
+        compat = None
         if updater:
-            try:
-                latest = updater.latest_version()
-            except Exception:
-                latest = ""
-        if ver != "unknown" and latest and latest != ver:
-            msg += f" (npm có bản {latest} — vào Dashboard → cập nhật an toàn)"
+            check_compat = getattr(updater, "check_router_compatibility", None)
+            if check_compat:
+                try:
+                    compat = check_compat()
+                except Exception:
+                    compat = None
+        if compat:
+            relation = compat.get("relation")
+            target = compat.get("target", "")
+            if relation == "older":
+                msg += f" (cũ hơn bản vá v{target} — nâng cấp lên v{target} để patch khớp)"
+            elif relation == "newer":
+                msg += f" (mới hơn bản vá v{target} — patch chưa kiểm chứng, không tự áp dụng)"
+        else:
+            latest = ""
+            if updater:
+                try:
+                    latest = updater.latest_version()
+                except Exception:
+                    latest = ""
+            if ver != "unknown" and latest and latest != ver:
+                msg += f" (npm có bản {latest} — vào Dashboard → cập nhật an toàn)"
         log_boot(f"OK: {msg}")
         return True, msg
     except Exception:
@@ -88,8 +104,9 @@ def install_9router(on_output=None) -> tuple[bool, str]:
     npm = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm:
         return False, "Không tìm thấy npm để cài đặt"
-    log_boot("Bắt đầu cài đặt 9router toàn cục qua npm...")
-    cmd = [npm, "install", "-g", "9router@latest"]
+    target = getattr(engine, "target_version", lambda: "0.5.81")()
+    log_boot(f"Bắt đầu cài đặt 9router@{target} toàn cục qua npm...")
+    cmd = [npm, "install", "-g", f"9router@{target}"]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL,
@@ -114,8 +131,8 @@ def install_9router(on_output=None) -> tuple[bool, str]:
             log_boot(f"ERROR: {err}")
             return False, err
         if proc.returncode == 0:
-            log_boot("Cài đặt 9router@latest thành công")
-            return True, "Cài đặt 9router@latest thành công"
+            log_boot(f"Cài đặt 9router@{target} thành công")
+            return True, f"Cài đặt 9router@{target} thành công"
         return False, f"npm install thoát với mã lỗi {proc.returncode}"
     except Exception as e:
         err = f"Lỗi trong quá trình cài đặt 9router: {e}"
@@ -124,6 +141,18 @@ def install_9router(on_output=None) -> tuple[bool, str]:
 
 def check_and_apply_patches(on_output=None) -> tuple[bool, str]:
     try:
+        if updater:
+            check_compat = getattr(updater, "check_router_compatibility", None)
+            if check_compat:
+                try:
+                    compat = check_compat()
+                except Exception:
+                    compat = None
+                if compat and compat.get("relation") == "newer":
+                    msg = (f"9router v{compat['local']} mới hơn bản vá "
+                           f"(v{compat['target']}) — bỏ qua apply để tránh lỗi")
+                    log_boot(f"WARN: {msg}")
+                    return False, msg
         build_path = engine.build_dir()
         if not build_path.exists():
             return False, "Thư mục build 9router không tồn tại"
@@ -221,7 +250,8 @@ def run_doctor(interactive: bool = True) -> bool:
         print(f"\n  → {msg}", flush=True)
         ans = input("\n? 9router chưa được cài đặt. Cài đặt toàn cục qua npm? (Y/n) [Y]: ").strip().lower()
         if ans in ("", "y", "yes"):
-            print("  > npm install -g 9router@latest...")
+            target = getattr(engine, "target_version", lambda: "0.5.81")()
+            print(f"  > npm install -g 9router@{target}...")
             i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
             print()
             if not i_ok:
