@@ -530,6 +530,14 @@ def index(request: Request):
     counts = {k: sum(1 for s in states if s.state == k)
               for k in ("applied", "clean", "partial", "dead-anchor")}
     backup = _latest_backup()
+    compat = {"compatible": True, "relation": "match", "local": versions["local"],
+              "target": getattr(engine, "target_version", lambda: "0.5.81")()}
+    try:
+        compat_fn = getattr(updater, "check_router_compatibility", None)
+        if callable(compat_fn):
+            compat = compat_fn(versions["local"])
+    except Exception:
+        pass
     return templates.TemplateResponse(request, "index.html", {
         "groups": groups,
         "patch_count": len(states),
@@ -540,6 +548,7 @@ def index(request: Request):
         "headroom": probes["headroom"],
         "local_version": versions["local"],
         "latest_version": versions["latest"],
+        "compat": compat,
         "build_path": build_path,
         "scan_seconds": scan["scan_seconds"],
         "now_epoch": scan["at"],           # thời điểm quét thật — "vừa xong" tính từ đó

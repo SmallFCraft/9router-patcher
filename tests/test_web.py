@@ -985,3 +985,42 @@ def test_base_template_has_self_update_modal(web):
     assert 'id="self-update-modal"' in html
     assert 'id="btn-self-update-restart"' in html
 
+
+
+def test_index_disables_apply_and_shows_warning_when_router_newer(web, monkeypatch):
+    import updater
+    newer = {"compatible": False, "relation": "newer", "local": "0.5.85", "target": "0.5.81"}
+    monkeypatch.setattr(updater, "check_router_compatibility", lambda *a, **k: newer)
+    # the fixture swaps main.updater for a stub namespace — patch the object the route reads
+    monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: newer)
+    html = web["client"].get("/").text
+    assert "mới hơn bản hỗ trợ" in html
+    assert "disabled" in html
+    # not vacuous: every /apply submit button really carries the attribute; revert stays usable
+    apply_forms = re.findall(r'<form method="post" action="/apply">.*?</form>', html, re.S)
+    assert len(apply_forms) >= 7
+    assert all("disabled" in f for f in apply_forms)
+    assert 'action="/router/align-target"' in html
+    assert "0.5.81" in html and "0.5.85" in html
+    assert re.search(r'action="/revert"', html)
+
+
+def test_index_keeps_apply_enabled_and_hints_upgrade_when_router_older(web, monkeypatch):
+    older = {"compatible": False, "relation": "older", "local": "0.5.70", "target": "0.5.81"}
+    monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: older)
+    html = web["client"].get("/").text
+    assert "cũ hơn bản hỗ trợ" in html
+    assert "0.5.81" in html
+    apply_forms = re.findall(r'<form method="post" action="/apply">.*?</form>', html, re.S)
+    assert apply_forms and not any("disabled" in f for f in apply_forms)
+    assert 'action="/router/align-target"' not in html
+
+
+def test_index_banner_shows_only_version_numbers(web, monkeypatch):
+    """Banner is user-facing: version numbers only, never patch payload."""
+    newer = {"compatible": False, "relation": "newer", "local": "0.5.85", "target": "0.5.81"}
+    monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: newer)
+    html = web["client"].get("/").text
+    banner = html.split('class="banner"')[1].split("</p>")[0]
+    for p in REAL_PATCHES:
+        assert p.find not in banner and p.replace not in banner and p.id not in banner

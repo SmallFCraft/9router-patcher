@@ -90,7 +90,11 @@
   <div class="meter" role="img" aria-label="{{ counts.applied }} trên {{ patch_count }} patch đã áp"><i style="width: {{ pct }}%"></i></div>
   <div class="toolbar">
     <form method="post" action="/apply">
+      {% if compat and compat.get("relation") == "newer" %}
+      <button class="btn btn-primary" type="submit" disabled title="9router v{{ compat.local }} mới hơn bản hỗ trợ (v{{ compat.target }}) — hạ cấp trước khi apply">{{ icon('play') }}Apply tất cả</button>
+      {% else %}
       <button class="btn btn-primary" type="submit">{{ icon('play') }}Apply tất cả</button>
+      {% endif %}
     </form>
     <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
     <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
@@ -106,6 +110,15 @@
 <p class="banner">{{ icon('alert') }}<span>Không quét được build: {{ error }}</span></p>
 {% elif dead %}
 <p class="banner">{{ icon('alert') }}<span>CẢNH BÁO: patch mất anchor (upstream đã đổi build): {{ dead | join(", ") }}</span></p>
+{% endif %}
+
+{% if compat and compat.get("relation") == "newer" %}
+<form id="align-target-form" method="post" action="/router/align-target"></form>
+<p class="banner">{{ icon('alert') }}<span>CẢNH BÁO: 9router v{{ compat.local }} mới hơn bản hỗ trợ (v{{ compat.target }}). Apply đã bị khóa — hạ cấp về bản hỗ trợ trước.</span>
+  <button class="btn btn-primary btn-sm" type="submit" form="align-target-form" style="margin-left:auto; flex:none" data-confirm="Cài đặt lại 9router v{{ compat.target }}? Các patch sẽ áp lại lên bản đó.">{{ icon('undo') }}Cài đặt lại v{{ compat.target }}</button>
+</p>
+{% elif compat and compat.get("relation") == "older" %}
+<p class="banner">{{ icon('alert') }}<span>9router v{{ compat.local }} cũ hơn bản hỗ trợ (v{{ compat.target }}). Nên cập nhật lên bản hỗ trợ mới nhất.</span></p>
 {% endif %}
 
 {% if not groups and not error %}
@@ -125,7 +138,11 @@
       <div class="gactions">
         <form method="post" action="/apply">
           <input type="hidden" name="ids" value="{{ g.name }}">
+          {% if compat and compat.get("relation") == "newer" %}
+          <button class="btn btn-ghost btn-sm" type="submit" disabled title="9router v{{ compat.local }} mới hơn bản hỗ trợ (v{{ compat.target }}) — hạ cấp trước khi apply">{{ icon('play') }}Apply</button>
+          {% else %}
           <button class="btn btn-ghost btn-sm" type="submit">{{ icon('play') }}Apply</button>
+          {% endif %}
         </form>
         <form method="post" action="/revert">
           <input type="hidden" name="group" value="{{ g.name }}">
