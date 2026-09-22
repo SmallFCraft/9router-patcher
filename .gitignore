@@ -9,7 +9,11 @@ tests/__pycache__/
 # with machine paths, tunnel URLs, error bodies
 backups/
 logs/
-docs/
+logs/
+docs/*
+!docs/superpowers
+docs/superpowers/*
+!docs/superpowers/specs
 # OS / editor
 Thumbs.db
 .DS_Store
