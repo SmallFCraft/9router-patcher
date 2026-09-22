@@ -152,10 +152,9 @@ def test_sse_group_has_exactly_one_action(web):
     # one apply + one revert control for the whole 4-patch group, never per-patch
     assert html.count('name="ids" value="sse-hang"') == 1
     assert html.count('name="group" value="sse-hang"') == 1
-    # 30 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
-    # errbody-html-title, responses-thinking-history-400, opencode-responses-*,
-    # upstream-claude-sse-passthrough)
-    assert html.count('name="group" value=') == 31
+    # group count = number of patch groups (was 31 with opencode-freetier-tool-signature,
+    # now one less after 0.5.85 native-fix removal); derive instead of hardcode.
+    assert html.count('name="group" value=') == len(engine.groups(REAL_PATCHES))
 
 
 def test_index_has_apply_all_form(web):
@@ -1080,7 +1079,7 @@ def test_index_banner_shows_only_version_numbers(web, monkeypatch):
 
 def test_update_page_has_safe_target_install_option(web):
     html = web["client"].get("/update").text
-    assert "0.5.81" in html
+    assert engine.target_version() in html
     assert "Cài đặt phiên bản tương thích" in html
 
 

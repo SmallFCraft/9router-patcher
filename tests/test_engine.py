@@ -115,8 +115,8 @@ def unlink_dir(link: Path) -> None:
 # ---------- structural ----------
 
 def test_load_patches_real_file(patches):
-    # P35 upstream-claude-sse-passthrough (TNT API returning Claude SSE on /chat/completions) added
-    assert len(patches) == 35
+    # P32 opencode-freetier-tool-signature removed 2026-09-22 (upstream 0.5.85 native Ke fix)
+    assert len(patches) == 34
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -131,7 +131,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 31  # 26 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-freetier-tool-signature + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough
+    assert len(grouped) == 30  # 25 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -866,14 +866,14 @@ def test_nonstream_retry_anchors_exactly_one_state_in_real_build(patches):
 
 
 def test_nonstream_retry_075_anchor_tracks_remapped_handler_bindings(patches):
-    """0.5.75 added handler args, shifting trackDone/appendLog and local names.
-    Retry must call the new appendLog binding, not stale F (now trackDone)."""
+    """0.5.85 shifted trackDone/appendLog and local names again (F->G, G->H, K->L, log J->K).
+    Retry must call the new appendLog binding, not a stale letter."""
     p11 = by_id(patches, "nonstream-retry-aggregate")
-    assert p11.find == ('log:J}){let K;if(F(),(a.headers.get("content-type")||"")'
+    assert p11.find == ('log:K}){let L;if(G(),(a.headers.get("content-type")||"")'
                         '.includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);'
-                        'if(!d)return G({status:')
-    assert p11.replace.startswith('log:J,retry:$x}){let K;if(F(),')
-    assert p11.replace.endswith('if($m)d=$m}}if(!d)return G({status:')
+                        'if(!d)return H({status:')
+    assert p11.replace.startswith('log:K,retry:$x}){let L;if(G(),')
+    assert p11.replace.endswith('if($m)d=$m}}if(!d)return H({status:')
 
 
 def test_nonstream_retry_aggregator_builds_claude_message(patches):
@@ -965,25 +965,25 @@ console.log("NON-SSE-METADATA-OK");
 # ---------- reasoning-effort body cap (p14) ----------
 
 def test_reasoning_effort_cap_mutates_the_body_that_is_sent(patches):
-    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite `ah` — the object handed to
-    `execute({body:ah})`. `aT` is the headroom RESPONSE ({tokens_before,...}), so capping it
+    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite `ai` — the object handed to
+    `execute({body:ai})`. `aW` is the headroom RESPONSE ({tokens_before,...}), so capping it
     is a silent no-op: THINK:max still goes out on >448KB bodies (the am empty-stream case).
-    The IIFE must also size-check `ah`, not `aT`."""
+    The IIFE must also size-check `ai`, not `aW`."""
     p14 = by_id(patches, "reasoning-effort-body-cap")
     iife = p14.replace[p14.replace.index("(function(){"):]
-    assert "aT" not in iife, "cap still reads/writes aT (headroom response), not ah (sent body)"
+    assert "aW" not in iife, "cap still reads/writes aW (headroom response), not ai (sent body)"
     script = """
-const d={line:()=>{}}; const as="t";
-let aT={tokens_before:1,tokens_after:1};
-let ah={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
+const d={line:()=>{}}; const at="t";
+let aW={tokens_before:1,tokens_after:1};
+let ai={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
 %s
-if (ah.reasoning_effort !== "high") throw new Error("body not capped: " + ah.reasoning_effort);
-ah={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
+if (ai.reasoning_effort !== "high") throw new Error("body not capped: " + ai.reasoning_effort);
+ai={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
 %s
-if (ah.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
-ah={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
+if (ai.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
+ai={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
 %s
-if (ah.reasoning_effort !== "max") throw new Error("small body must not cap");
+if (ai.reasoning_effort !== "max") throw new Error("small body must not cap");
 console.log("P14-BODY-CAP-OK");
 """ % (iife, iife, iife)
     if shutil.which("node") is None:
@@ -1365,12 +1365,12 @@ def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
     """P23: POST line no longer embeds the `${ao}/${ap}` provider-UUID target, adds a 100-char
     cap and a 4-char ACC short label; the rebuilt statement must still parse as JS."""
     rep = _patch_replace(patches, "log-post-trim")
-    assert "→ ${ao}/${ap}" not in rep          # provider-uuid target dropped
+    assert "→ ${ap}/${aq}" not in rep          # provider-uuid target dropped
     assert "slice(0,100)" in rep                # length cap present
     assert "slice(0,4)" in rep                  # ACC short label
     # wrap the emitted statement so node can syntax-check it in isolation
-    stmt = rep[rep.index("let aO=aN?at:aA;if(d?.line){"):]
-    script = "function st(aN,at,aA,ah,a,d,ao,ap,c,O,g,t,aF,as){" + stmt + "}\n"
+    stmt = rep[rep.index("let aS=aR?au:aB;if(d?.line){"):]
+    script = "function st(aR,au,aB,ai,a,d,ap,aq,c,P,g,t,aJ,at){" + stmt + "}\n"
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     tmp = tmp_path / "stmt.js"
@@ -1440,17 +1440,17 @@ def test_mcp_spawn_pair_applies_together(patches, tmp_path):
 
 def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
-    variable; guard reads `ah`, mutates in place, leaves the anchor statement intact."""
+    variable; guard reads `ai`, mutates in place, leaves the anchor statement intact."""
     p = by_id(patches, "max-tokens-floor")
-    assert p.find == 'let aY=(0,s.SB)(ao);'
-    assert p.replace.startswith('if(ah&&"number"==typeof ah.max_tokens&&ah.max_tokens<16)ah.max_tokens=16;')
+    assert p.find == 'let a$=(0,s.SB)(ap);'
+    assert p.replace.startswith('if(ai&&"number"==typeof ai.max_tokens&&ai.max_tokens<16)ai.max_tokens=16;')
     assert p.replace.endswith(p.find)
 
 
 def test_max_tokens_floor_anchor_hits_real_build(patches):
-    """P27 anchor must exist on the installed 0.5.69 build exactly once; skip when absent."""
-    if not (Path(r"E:/Apps/npm-global/node_modules/9router/app/.next-cli-build") / "server").is_dir():
-        pytest.skip("9router build not installed")
+    """P27 anchor must exist on the installed target build exactly once; skip when absent/version-mismatched."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
     p = by_id(patches, "max-tokens-floor")
     t = read(Path(
         r"E:/Apps/npm-global/node_modules/9router/app/"
@@ -1462,7 +1462,7 @@ def test_post_headroom_tool_result_remerge_patch_exists(patches):
     """P28 regression: a post-headroom merge must be anchored after compression, because
     Claude→OpenAI→Claude makes one user message per tool_result."""
     p = by_id(patches, "tool-result-remerge-post-headroom")
-    assert p.find == 'let aZ=ah.messages?.length'
+    assert p.find == 'let a_=ai.messages?.length'
     assert '"tool_result"===$b2' in p.replace
     assert '$ms2.splice($i2+1,$mg2.length,$kp2)' in p.replace
 
@@ -1588,6 +1588,17 @@ def test_responses_thinking_disabled_anchor_hits_real_build(patches):
     assert t.count(p.find) == 1 or t.count(p.replace) == 1
 
 
+def _target_mismatch():
+    """Skip build-bound checks when local install version does not match patches target_version."""
+    if _no_build():
+        return True
+    try:
+        import updater
+        return updater.current_version() != engine.target_version()
+    except Exception:
+        return True
+
+
 def _no_build():
     try:
         engine.build_dir()
@@ -1596,55 +1607,17 @@ def _no_build():
     return not (Path(engine.build_dir()) / "server").is_dir()
 
 
-# ---------- p32: opencode free-tier tool signature ----------
+# ---------- p32 removed 2026-09-22 ----------
+# Upstream 0.5.85 native fix (8499.js module 60210, Ke->h): `(0,m.Ke)(b,!0)` runs
+# unconditionally and injects ["bash","glob","grep","read"], so the patch became
+# dead weight. Any regression must prove upstream dropped its Ke gate first.
 
-def test_opencode_freetier_bumps_tool_signature_when_client_sends_tools(patches):
-    """P32: `w(b,!0)` phải chạy cả khi client ĐÃ gửi tools. Upstream gate opencode.ai đòi
-    tools array chứa cả `bash` và `read` chữ thường; guard cũ
-    `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)` bỏ qua nhánh bơm khi tools khác rỗng
-    → Claude Code (77 tools, `Bash`/`Read` viết hoa) luôn 403 FreeTierError.
-    Node unit mô phỏng nguyên văn hàm w() của upstream + body Claude Code."""
-    if shutil.which("node") is None:
-        pytest.skip("node not installed")
-    p32 = by_id(patches, "opencode-freetier-tool-signature")
-    script = """
-const u=[{type:"function",name:"bash",description:"This tool is currently unavailable and must not be used.",parameters:{type:"object",properties:{}}},{type:"function",name:"read",description:"This tool is currently unavailable and must not be used.",parameters:{type:"object",properties:{}}}];
-const v=u;
-function w(a,b){if(a&&"object"==typeof a)if(b){Array.isArray(a.tools)||(a.tools=[]);let b=new Set(a.tools.map(a=>a.name||a.function?.name));for(let c of v)b.has(c.name)||a.tools.push({...c});a.tool_choice||(a.tool_choice="auto")}else if(Array.isArray(a.tools)&&a.tools.length>0){let b=new Set(a.tools.map(a=>a.function?.name||a.name));for(let c of u)b.has(c.function.name)||a.tools.push({...c,function:{...c.function}})}else a.tools=u.map(a=>({...a,function:{...a.function}})),a.tool_choice||(a.tool_choice="none")}
-
-// Claude Code payload: real tools, capitalised names, tool_choice already set
-const real=[{type:"function",function:{name:"Agent"}},{type:"function",function:{name:"Bash"}},{type:"function",function:{name:"Read"}}];
-const body={tools:JSON.parse(JSON.stringify(real)),tool_choice:"auto"};
-
-// OLD guard: skipped w() entirely -> signature tools missing -> opencode.ai 403
-const oldBody=JSON.parse(JSON.stringify(body));
-Array.isArray(oldBody.tools)&&0!==oldBody.tools.length||w(oldBody,!0);
-const oldNames=oldBody.tools.map(t=>t.name||t.function?.name);
-
-// NEW guard (p32): always runs w() -> bash+read appended, real tools kept
-const newBody=JSON.parse(JSON.stringify(body));
-{ let b=newBody; %s
-const newNames=newBody.tools.map(t=>t.name||t.function?.name);
-
-if(oldNames.includes("bash")||oldNames.includes("read")) throw new Error("old guard unexpectedly bumped: "+oldNames);
-if(!newNames.includes("bash")||!newNames.includes("read")) throw new Error("p32 did not bump signature: "+newNames);
-for(const n of ["Agent","Bash","Read"]) if(!newNames.includes(n)) throw new Error("client tool dropped: "+n);
-if(newNames.length!==5) throw new Error("unexpected tool count: "+newNames.length+" "+newNames);
-if(newBody.tool_choice!=="auto") throw new Error("tool_choice clobbered: "+newBody.tool_choice);
-console.log("P32-OK");
-""" % p32.replace
-    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
-    assert r.returncode == 0 and "P32-OK" in r.stdout, f"node failed: {r.stderr or r.stdout}"
-
-
-def test_opencode_freetier_anchor_hits_real_build(patches):
-    """P32 anchor must exist on the installed build exactly once (chunks/318.js opencode provider)."""
-    build = Path(engine.build_dir()) if not _no_build() else None
-    if build is None:
-        pytest.skip("9router build not installed")
-    p = by_id(patches, "opencode-freetier-tool-signature")
-    t = read(build / "server" / "chunks" / "318.js")
-    assert t.count(p.find) + t.count(p.replace) == 1
+def test_opencode_freetier_native_fix_absorbs_p32(patches):
+    """P32 must stay deleted: confirm no patch re-adding a `w(b,!0)` guard crept back in."""
+    ids = [p.id for p in patches]
+    assert "opencode-freetier-tool-signature" not in ids
+    for p in patches:
+        assert "||w(b,!0)" not in p.find and "||w(b,!0)" not in p.replace, p.id
 
 
 # ---------- p35: upstream-claude-sse-passthrough ----------
@@ -1659,8 +1632,9 @@ def test_upstream_claude_sse_passthrough_guard_logic(patches):
     OpenAI choices must still go through the converter (empty result), non-object
     and non-claude targets must fall through unchanged."""
     p = by_id(patches, "upstream-claude-sse-passthrough")
-    assert p.find == ('function ao(a,b,c,d){if(b===a)return[(0,i.F5)(c,d?.toolNameMap)];')
+    assert p.find == ('function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];')
     script = """
+const j = { HR: (v) => v };
 const i = { F5: (c) => c };
 %s return []; }
 const cl = (t) => ({type: t});
@@ -1669,37 +1643,37 @@ const cl = (t) => ({type: t});
 for (const t of ["message_start", "content_block_start", "content_block_delta",
                  "content_block_stop", "message_delta", "message_stop", "ping"]) {
   const ev = cl(t);
-  const r = ao("openai", "claude", ev, {});
+  const r = ap("openai", "claude", ev, {});
   if (r.length !== 1 || r[0] !== ev) throw new Error(t + " not passed through");
 }
 
 // 2. claude target but already-openai-shaped object (choices, no .type) → falls through
 let fell = false;
 const Y8_stub = () => { fell = true; return []; };
-const src = ao.toString();
+const src = ap.toString();
 if (!src.includes("(0,i.F5)") || !src.includes("return[c]"))
-  throw new Error("guard rewrote ao shape: " + src.slice(0, 200));
+  throw new Error("guard rewrote ap shape: " + src.slice(0, 200));
 
 // 3. non-claude target (openai) + claude event → NOT intercepted
 const ev2 = cl("message_stop");
-const r2 = ao("claude", "openai", ev2, {});
+const r2 = ap("claude", "openai", ev2, {});
 if (r2.length === 1 && r2[0] === ev2) throw new Error("openai target must not passthrough");
 
 // 4. null c on claude target → falls through, no crash
-ao("openai", "claude", null, {});
-console.log("P35-AO-GUARD-OK");
-""" % ("function ao(a,b,c,d){" + p.replace.split("function ao(a,b,c,d){", 1)[1])
+ap("openai", "claude", null, {});
+console.log("P35-AP-GUARD-OK");
+""" % ("function ap(a,b,c,d){" + p.replace.split("function ap(a,b,c,d){", 1)[1])
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
-    assert r.returncode == 0 and "P35-AO-GUARD-OK" in r.stdout, r.stderr or r.stdout
+    assert r.returncode == 0 and "P35-AP-GUARD-OK" in r.stdout, r.stderr or r.stdout
 
 
 def test_upstream_claude_sse_passthrough_anchor_hits_real_build(patches):
-    """P35 anchor must exist on the installed build exactly once (chunks/8499.js, ao def)."""
-    build = Path(engine.build_dir()) if not _no_build() else None
-    if build is None:
-        pytest.skip("9router build not installed")
+    """P35 anchor must exist on the installed build exactly once (chunks/8499.js, ap def)."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
     p = by_id(patches, "upstream-claude-sse-passthrough")
     t = read(build / "server" / "chunks" / "8499.js")
     # `find` is a prefix of `replace`: exactly one ao() def, patched or not.
@@ -1957,14 +1931,14 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
     rc = engine.main(["locate", "--all", "--build", str(build)])
     out = capsys.readouterr().out
     assert rc == 1
-    assert "connect-timeout-180s" in out and "opencode-freetier-tool-signature" in out
+    assert "connect-timeout-180s" in out and "upstream-claude-sse-passthrough" in out
 
 
 def test_target_version_configured_and_matches_patches_toml():
     import config, engine
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.81"
-    assert engine.target_version() == "0.5.81"
+    assert config.TARGET_9ROUTER_VERSION == "0.5.85"
+    assert engine.target_version() == "0.5.85"
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):

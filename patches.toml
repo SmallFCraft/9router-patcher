@@ -1,13 +1,21 @@
-# 9router patches — nguồn duy nhất. Chuỗi find/replace HIỆN TẠI đo trên build 0.5.75.
-# 0.5.69 -> 0.5.75: module 5016 (w.N) thêm 3 param (`reqLogger:C`, `toolNameMap:D`, `provider/model`
-# đẩy vào đầu) nên minifier dịch tiếp chuỗi định danh 1 chữ: trackDone E->F, appendLog F->G,
-# reqTag H->I, log I->J, cục bộ J->K. p11 remap cả find lẫn replace (CẠM BẪY 0.5.65 lặp lại nếu
-# chỉ remap find). p19: hàm kế `function s(a)` -> `function t(a)`, thân patch không đổi.
-# 0.5.65 -> 0.5.69: closure `function n(a={})` trong 8895.js nhận thêm 2 param (`credentials:y`,
-# `sessionId`) nên minifier dịch CẢ chuỗi định danh 1 chữ lên một nấc: B(ctx)->C, L->M, M->N,
-# N(cờ)->O, O(hàm flush usage)->P. p6/p7/p8 phải remap; p9 giữ nguyên vì anchor của nó chỉ dùng
-# param của hàm (`t,p,u`) — chính vì thế p9 vẫn `clean` khi 3 patch còn lại `dead-anchor`.
-#   CẠM BẪY đã sập một lần (sáng 2026-09-06): remap `find` mà giữ `replace` của 0.5.65.
+# 9router patches — nguồn duy nhất. Chuỗi find/replace HIỆN TẠI đo trên build 0.5.85.
+# 0.5.81 -> 0.5.85: re-minify TOÀN BỘ chunk. Chunk id đổi tên (318->5330, 37981->60210, 65377->
+# 8499) nhưng 26/34 anchor sống nguyên vì chúng nằm trên chuỗi literal/log text, không phải định
+# danh 1 chữ. 8 anchor chết vì dịch chuỗi định danh; đã remap CẢ find LẪN replace:
+#   p10: ao/ap/ah/an/aq/P/R/O/M/aX/as -> ap/aq/ai/ao/ar/Q/S/P/N/aZ/at; provider `aY`->`a$`,
+#        controller `a$`->`a0`, proxyOptions `a_`->`a1`, providerSessionId `ar`->`as`, clientTool `aM`->`aQ`
+#   p11: trackDone F->G, appendLog G->H, cục bộ K->L; log param J->K
+#   p14: aW->aY, aN/aM->aR/aQ, ah->ai, as->at
+#   p23: aO/aN/at/aA->aS/aR/au/aB, O->P, ao/ap->ap/aq, ah->ai, aF->aJ, as->at
+#   p27/p28: aY->a$, ah->ai, aZ->a_
+#   p34: I->G (hàm capability lookup trong 5330.js)
+#   p35: ao->ap, `i.F5`->`j.HR((0,i.F5)(...))` (wrapper mới), 8499.js
+# p32 (opencode-freetier-tool-signature) ĐÃ XOÁ 2026-09-22: upstream 0.5.85 viết lại hàm gom tool
+# trong 8499.js module 60210 (`Ke` -> h). Bản cũ gate `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)`
+# chỉ bơm khi tools rỗng (nên phải vá); bản mới gọi `(0,m.Ke)(b,!0)` VÔ ĐIỀU KIỆN và luôn thêm đủ
+# `["bash","glob","grep","read"]` — patch trở thành thừa. Xác nhận chéo: opencode-zen-adapter docs
+# (gate free-tier 2026-09-19 đòi `tools` chứa `bash`+`read` chữ thường).
+#   CẠM BẪY đã sập một lần (sáng 2026-09-06): remap `find` mà giữ `replace` của version cũ.
 #   `replace` p8 khi đó khai `O=()=>{...}` (O phải là CỜ) và không bao giờ khai `P`, nên 4 lời gọi
 #   `P()` còn lại — kể cả 2 lời trong flush() — thành ReferenceError: `node --check` pass, SSE không
 #   đóng, gauge activeRequests kẹt. Remap `find` và `replace` CÙNG NHAU, không bao giờ riêng lẻ.
@@ -15,7 +23,7 @@
 # `group`: các patch cùng group nằm cùng một file, áp/gỡ atomic (cả nhóm hoặc không cái nào).
 # `defines`: patch này định nghĩa symbol mà patch khác trong group gọi -> áp ĐẦU TIÊN, gỡ CUỐI CÙNG.
 
-target_version = "0.5.81"
+target_version = "0.5.85"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -110,8 +118,8 @@ order = 10
 group = "nonstream-sse-retry"
 summary = "Nhả closure retry (execute stream:true) vào handler non-streaming"
 why = "chỉ caller (92500) có aY.execute; 5016 không tự fetch lại được"
-find = 'let a1={provider:ao,model:ap,body:a,stream:aF,translatedBody:ah,finalBody:an,requestStartTime:aq,connectionId:P,apiKey:R,clientRawRequest:O,onRequestSuccess:M,pxpipe:aX,reqTag:as,log:d},a2='
-replace = 'let a1={provider:ao,model:ap,body:a,stream:aF,translatedBody:ah,finalBody:an,requestStartTime:aq,connectionId:P,apiKey:R,clientRawRequest:O,onRequestSuccess:M,pxpipe:aX,reqTag:as,log:d,retry:async()=>{let $s2=a$.signal;try{typeof AbortSignal.any=="function"&&($s2=AbortSignal.any([a$.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await aY.execute({model:ap,body:typeof ah=="object"&&ah?{...ah,stream:!0}:ah,stream:!0,credentials:c,providerSessionId:ar,clientTool:aM,signal:$s2,log:d,proxyOptions:a_});return $e&&$e.response||null}catch{return null}}},a2='
+find = 'let a3={provider:ap,model:aq,body:a,stream:aJ,translatedBody:ai,finalBody:ao,requestStartTime:ar,connectionId:Q,apiKey:S,clientRawRequest:P,onRequestSuccess:N,pxpipe:aZ,reqTag:at,log:d},a4='
+replace = 'let a3={provider:ap,model:aq,body:a,stream:aJ,translatedBody:ai,finalBody:ao,requestStartTime:ar,connectionId:Q,apiKey:S,clientRawRequest:P,onRequestSuccess:N,pxpipe:aZ,reqTag:at,log:d,retry:async()=>{let $s2=a0.signal;try{typeof AbortSignal.any=="function"&&($s2=AbortSignal.any([a0.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await a$.execute({model:aq,body:typeof ai=="object"&&ai?{...ai,stream:!0}:ai,stream:!0,credentials:c,providerSessionId:as,clientTool:aQ,signal:$s2,log:d,proxyOptions:a1});return $e&&$e.response||null}catch{return null}}},a4='
 
 [[patch]]
 id = "nonstream-retry-aggregate"
@@ -119,8 +127,8 @@ order = 11
 group = "nonstream-sse-retry"
 summary = "k.F=null → retry stream:true + tự aggregate anthropic SSE thành JSON thay vì 502"
 why = "upstream trả SSE rác cho request stream:false; aggregate reader tăng dần, thoát sớm ở message_stop, mọi lỗi về 502 cũ"
-find = 'log:J}){let K;if(F(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d)return G({status:'
-replace = 'log:J,retry:$x}){let K;if(F(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d&&typeof $x=="function"){let $r=null;try{$r=await $x()}catch{}if($r&&$r.ok){let $m=null;try{if(($r.headers.get("content-type")||"").includes("text/event-stream"))$m=await (async($rp,$mo)=>{let $agg=$t=>{try{let $f=[];for(let $ln of String($t||"").split("\n")){let $s3=$ln.trim();if(!$s3.startsWith("data:"))continue;let $e=$s3.slice(5).trim();if(!$e||$e==="[DONE]")continue;try{$f.push(JSON.parse($e))}catch{}}if(!$f.length)return null;let $b={},$u=null,$st=null,$id="",$saw=!1;for(let $fr of $f){if(!$fr||typeof $fr.type!=="string")return null;if($fr.type==="message_start"){$id=$fr.message&&$fr.message.id||"";$mo=$fr.message&&$fr.message.model||$mo;$u=$fr.message&&$fr.message.usage||$u}else if($fr.type==="content_block_start"){$b[$fr.index??0]={type:$fr.content_block&&$fr.content_block.type||"text",text:"",name:$fr.content_block&&$fr.content_block.name||"",id:$fr.content_block&&$fr.content_block.id||"",json:""}}else if($fr.type==="content_block_delta"){let $b2=$b[$fr.index??0]||{type:"text",text:"",json:""};let $dl=$fr.delta||{};if($dl.type==="text_delta")$b2.text+=$dl.text||"";else if($dl.type==="input_json_delta")$b2.json+=$dl.partial_json||"";else if($dl.type==="thinking_delta")$b2.text+=$dl.thinking||"";$b[$fr.index??0]=$b2}else if($fr.type==="message_delta"){$st=$fr.delta&&$fr.delta.stop_reason||$st;$fr.usage&&($u={...$u,...$fr.usage})}else if($fr.type==="message_stop"){$saw=!0}else if($fr.type==="error"){return null}}if(!$saw)return null;let $ks=Object.keys($b).sort(($a,$z)=>$a-$z);if(!$ks.length)return null;let $ct=$ks.map($k=>{let $b2=$b[$k];if($b2.type==="tool_use"){let $inp={};try{$inp=JSON.parse($b2.json||"{}")}catch{}return{type:"tool_use",id:$b2.id||"toolu_"+$k,name:$b2.name||"",input:$inp}}if($b2.type==="thinking")return{type:"thinking",thinking:$b2.text,signature:""};return{type:"text",text:$b2.text}});return{id:$id||"msg_retry",type:"message",role:"assistant",model:$mo,content:$ct,stop_reason:$st||"end_turn",stop_sequence:null,usage:{input_tokens:$u&&$u.input_tokens||0,output_tokens:$u&&$u.output_tokens||0}}}catch{return null}};let $rd=$rp.body&&typeof $rp.body.getReader=="function"?$rp.body.getReader():null;if(!$rd){let $t2="";try{$t2=await $rp.text()}catch{return null}return $agg($t2)}let $dec=new TextDecoder(),$buf="",$dl=Date.now()+30000;for(;;){if(Date.now()>$dl){try{$rd.cancel()}catch{}break}let $r2;try{$r2=await $rd.read()}catch{break}if($r2.done)break;$buf+=$dec.decode($r2.value,{stream:!0});if($buf.indexOf("\"type\":\"message_stop\"")>=0){try{$rd.cancel()}catch{}break}}return $agg($buf)})($r,c);else{let $j=await $r.json();if($j&&typeof $j=="object")$m=$j}}catch{}if($m)d=$m}}if(!d)return G({status:'
+find = 'log:K}){let L;if(G(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d)return H({status:'
+replace = 'log:K,retry:$x}){let L;if(G(),(a.headers.get("content-type")||"").includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);if(!d&&typeof $x=="function"){let $r=null;try{$r=await $x()}catch{}if($r&&$r.ok){let $m=null;try{if(($r.headers.get("content-type")||"").includes("text/event-stream"))$m=await (async($rp,$mo)=>{let $agg=$t=>{try{let $f=[];for(let $ln of String($t||"").split("\n")){let $s3=$ln.trim();if(!$s3.startsWith("data:"))continue;let $e=$s3.slice(5).trim();if(!$e||$e==="[DONE]")continue;try{$f.push(JSON.parse($e))}catch{}}if(!$f.length)return null;let $b={},$u=null,$st=null,$id="",$saw=!1;for(let $fr of $f){if(!$fr||typeof $fr.type!=="string")return null;if($fr.type==="message_start"){$id=$fr.message&&$fr.message.id||"";$mo=$fr.message&&$fr.message.model||$mo;$u=$fr.message&&$fr.message.usage||$u}else if($fr.type==="content_block_start"){$b[$fr.index??0]={type:$fr.content_block&&$fr.content_block.type||"text",text:"",name:$fr.content_block&&$fr.content_block.name||"",id:$fr.content_block&&$fr.content_block.id||"",json:""}}else if($fr.type==="content_block_delta"){let $b2=$b[$fr.index??0]||{type:"text",text:"",json:""};let $dl=$fr.delta||{};if($dl.type==="text_delta")$b2.text+=$dl.text||"";else if($dl.type==="input_json_delta")$b2.json+=$dl.partial_json||"";else if($dl.type==="thinking_delta")$b2.text+=$dl.thinking||"";$b[$fr.index??0]=$b2}else if($fr.type==="message_delta"){$st=$fr.delta&&$fr.delta.stop_reason||$st;$fr.usage&&($u={...$u,...$fr.usage})}else if($fr.type==="message_stop"){$saw=!0}else if($fr.type==="error"){return null}}if(!$saw)return null;let $ks=Object.keys($b).sort(($a,$z)=>$a-$z);if(!$ks.length)return null;let $ct=$ks.map($k=>{let $b2=$b[$k];if($b2.type==="tool_use"){let $inp={};try{$inp=JSON.parse($b2.json||"{}")}catch{}return{type:"tool_use",id:$b2.id||"toolu_"+$k,name:$b2.name||"",input:$inp}}if($b2.type==="thinking")return{type:"thinking",thinking:$b2.text,signature:""};return{type:"text",text:$b2.text}});return{id:$id||"msg_retry",type:"message",role:"assistant",model:$mo,content:$ct,stop_reason:$st||"end_turn",stop_sequence:null,usage:{input_tokens:$u&&$u.input_tokens||0,output_tokens:$u&&$u.output_tokens||0}}}catch{return null}};let $rd=$rp.body&&typeof $rp.body.getReader=="function"?$rp.body.getReader():null;if(!$rd){let $t2="";try{$t2=await $rp.text()}catch{return null}return $agg($t2)}let $dec=new TextDecoder(),$buf="",$dl=Date.now()+30000;for(;;){if(Date.now()>$dl){try{$rd.cancel()}catch{}break}let $r2;try{$r2=await $rd.read()}catch{break}if($r2.done)break;$buf+=$dec.decode($r2.value,{stream:!0});if($buf.indexOf("\"type\":\"message_stop\"")>=0){try{$rd.cancel()}catch{}break}}return $agg($buf)})($r,c);else{let $j=await $r.json();if($j&&typeof $j=="object")$m=$j}}catch{}if($m)d=$m}}if(!d)return H({status:'
 
 # 0.5.69: payload claude (từ Claude Code/headroom) chứa message role:"system" NGAY TRONG
 # messages[] — ngoài chuẩn Anthropic API. AgentRouter backend gắt validate lệch index →
@@ -158,8 +166,8 @@ id = "reasoning-effort-body-cap"
 order = 14
 summary = "Body >448KB + effort max/xhigh/ultra → hạ high (chống compact treo 7 phút)"
 why = "xhigh trên ~185k token = 7m19s > patience 5 phút của client ZCode; hạ high còn ~2–3 phút thì kịp"
-find = 'aW.length&&d?.line&&d.line(as,"⚙",aW.join(" \xb7 ")),aN&&"claude"===aM&&(0,i._W)(ah);'
-replace = 'aW.length&&d?.line&&d.line(as,"⚙",aW.join(" \xb7 ")),aN&&"claude"===aM&&(0,i._W)(ah);(function(){try{let $z=["max","xhigh","ultra"],$cap=function(v){return "string"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!=="high"&&d?.line&&d.line(as,"⚙",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(ah).length/1024)}KB)`),"high"):v};let $big=JSON.stringify(ah).length>458752;if($big){if(ah&&"string"==typeof ah.reasoning_effort)ah.reasoning_effort=$cap(ah.reasoning_effort);if(ah&&ah.reasoning&&"object"==typeof ah.reasoning&&"string"==typeof ah.reasoning.effort)ah.reasoning.effort=$cap(ah.reasoning.effort)}}catch(e){}})();'
+find = 'aY.length&&d?.line&&d.line(at,"⚙",aY.join(" \xb7 ")),aR&&"claude"===aQ&&(0,i._W)(ai);'
+replace = 'aY.length&&d?.line&&d.line(at,"⚙",aY.join(" \xb7 ")),aR&&"claude"===aQ&&(0,i._W)(ai);(function(){try{let $z=["max","xhigh","ultra"],$cap=function(v){return "string"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!=="high"&&d?.line&&d.line(at,"⚙",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(ai).length/1024)}KB)`),"high"):v};let $big=JSON.stringify(ai).length>458752;if($big){if(ai&&"string"==typeof ai.reasoning_effort)ai.reasoning_effort=$cap(ai.reasoning_effort);if(ai&&ai.reasoning&&"object"==typeof ai.reasoning&&"string"==typeof ai.reasoning.effort)ai.reasoning.effort=$cap(ai.reasoning.effort)}}catch(e){}})();'
 
 # P15 — deadline tổng per-attempt: env 9R_ATTEMPT_DEADLINE_MS (default 240000, <=0 tắt);
 # cắt bằng c.handleError + c.abort() đúng cơ chế fallback. Watcher g() chỉ 1 bản trong 8895.js.
@@ -268,8 +276,8 @@ id = "log-post-trim"
 order = 23
 summary = "POST line: trim provider UUID, model prefix, length cap"
 why = "▶ POST claude-opus-5 → anthropic-compatible-107f4d88-50a4-41bc-8a77-501c54955883/glm-5.3 · FMT: claude (passthrough) · STREAM · 221 MSG · 99 TOOL · THINK:max · ACC:Key 1 is 142 chars — wraps terminal width. Model name is the human hook; UUID is noise."
-find = 'let aO=aN?at:aA;if(d?.line){let b=O?.body?.model||`${ao}/${ap}`,e=ah.messages?.length||ah.input?.length||ah.contents?.length||a.messages?.length||a.input?.length||0,f=ah.tools?.length||a.tools?.length||0,h=aN?`FMT: ${at} (passthrough)`:`FMT: ${at}→${aA}`,i="grok-cli"!==ao||(0,t.Au)(ap)?d.fmtThink?.((0,g.sS)(ah)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ao}/${ap}`,h,aF?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(as,"▶",k.join(" \xb7 "))}'
-replace = 'let aO=aN?at:aA;if(d?.line){let b=O?.body?.model||`${ap}`,e=ah.messages?.length||ah.input?.length||ah.contents?.length||a.messages?.length||a.input?.length||0,f=ah.tools?.length||a.tools?.length||0,h=aN?`FMT: ${at} (passthrough)`:`FMT: ${at}→${aA}`,i="grok-cli"!==ao||(0,t.Au)(ap)?d.fmtThink?.((0,g.sS)(ah)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[];k.push(`▶ ${b} · ${h} · ${aF?"STREAM":"JSON"} · ${e}MSG${f?" · "+f+"TOOL":""}${i?" · "+`THINK:${i}`:""} · ${j?" · "+j.slice(0,4):""}`),k.length>0&&(k[0]=k[0].slice(0,100)),d.line(as,"▶",k.join(" "))}'
+find = 'let aS=aR?au:aB;if(d?.line){let b=P?.body?.model||`${ap}/${aq}`,e=ai.messages?.length||ai.input?.length||ai.contents?.length||a.messages?.length||a.input?.length||0,f=ai.tools?.length||a.tools?.length||0,h=aR?`FMT: ${au} (passthrough)`:`FMT: ${au}→${aB}`,i="grok-cli"!==ap||(0,t.Au)(aq)?d.fmtThink?.((0,g.sS)(ai)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ap}/${aq}`,h,aJ?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(at,"▶",k.join(" \xb7 "))}'
+replace = 'let aS=aR?au:aB;if(d?.line){let b=P?.body?.model||`${aq}`,e=ai.messages?.length||ai.input?.length||ai.contents?.length||a.messages?.length||a.input?.length||0,f=ai.tools?.length||a.tools?.length||0,h=aR?`FMT: ${au} (passthrough)`:`FMT: ${au}→${aB}`,i="grok-cli"!==ap||(0,t.Au)(aq)?d.fmtThink?.((0,g.sS)(ai)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[];k.push(`▶ ${b} · ${h} · ${aJ?"STREAM":"JSON"} · ${e}MSG${f?" · "+f+"TOOL":""}${i?" · "+`THINK:${i}`:""} · ${j?" · "+j.slice(0,4):""}`),k.length>0&&(k[0]=k[0].slice(0,100)),d.line(at,"▶",k.join(" "))}'
 
 # P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
 # Anchor: 8910.js `if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b` around line 4570.
@@ -313,8 +321,8 @@ id = "max-tokens-floor"
 order = 27
 summary = "max_tokens < 16 → 16 trước khi gửi upstream (chống 400 gateway kén chọn)"
 why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2' → router 503 + khoá 30s; floor 16 vô hại với call thật (đều > 1k)"
-find = 'let aY=(0,s.SB)(ao);'
-replace = 'if(ah&&"number"==typeof ah.max_tokens&&ah.max_tokens<16)ah.max_tokens=16;let aY=(0,s.SB)(ao);'
+find = 'let a$=(0,s.SB)(ap);'
+replace = 'if(ai&&"number"==typeof ai.max_tokens&&ai.max_tokens<16)ai.max_tokens=16;let a$=(0,s.SB)(ap);'
 
 # P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
 # Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
@@ -328,8 +336,8 @@ id = "tool-result-remerge-post-headroom"
 order = 28
 summary = "Re-merge split tool_result user messages after headroom round-trip"
 why = "headroom Claude→OpenAI→Claude back-translate splits one user(2 tool_result) into N user msgs → agentrouter 400 tool_use-without-tool_result (log 18:50 2026-09-09); merge again post-headroom"
-find = 'let aZ=ah.messages?.length'
-replace = 'if(ah&&Array.isArray(ah.messages)){let $ms2=ah.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let aZ=ah.messages?.length'
+find = 'let a_=ai.messages?.length'
+replace = 'if(ai&&Array.isArray(ai.messages)){let $ms2=ai.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let a_=ai.messages?.length'
 
 # P29 — accept text/plain as SSE: some providers (agentrouter.org/glm-5.3) return valid SSE
 # body under content-type text/plain. The MIME guard blocks ANY non-SSE non-JSON response,
@@ -378,25 +386,6 @@ why = "responses→claude translator không sinh thinking block, normalizer lạ
 find = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}if(a.tools&&Array.isArray(a.tools)){'
 replace = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
 
-# P32 — OpenCode free-tier 403 "can only be used from within OpenCode" khi client gửi tools.
-# Root cause: server opencode.ai kiểm tra tools payload — bắt buộc phải chứa CẢ HAI tool
-# tên chữ thường `bash` VÀ `read` (chữ ký của client OpenCode thật). Đo thực nghiệm:
-#   [bash,read] + bất kỳ tool nào (kể cả 77 tools Claude Code) -> 200 OK
-#   thiếu 1 trong 2 hoặc viết hoa (Bash/Read) -> 403 FreeTierError
-# Upstream đã có hàm w(b,!0) bơm 2 tool này nhưng bị chặn bởi `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)`
-# — tức là chỉ bơm khi client KHÔNG gửi tools; khi Claude Code gửi tools thật thì nhánh này BỊ BỎ QUA.
-# Sửa thành `Array.isArray(b.tools)||(b.tools=[]),w(b,!0)` để LUÔN LUÔN đảm bảo 2 tool `bash`/`read`
-# có mặt trong mảng tools (hàm w tự dedupe bằng Set), giữ nguyên toàn bộ tools thật của client.
-# Anchor duy nhất 1 bản trong chunks/318.js.
-
-[[patch]]
-id = "opencode-freetier-tool-signature"
-order = 32
-summary = "Luôn bơm tool signature (bash+read) cho opencode: vượt 403 FreeTierError khi client gửi tools"
-why = "opencode.ai gate free tier bằng việc yêu cầu tools array phải chứa cả `bash` và `read` chữ thường; 9router có sẵn hàm bơm nhưng chỉ chạy khi tools rỗng, làm Claude Code (gửi 77 tools) luôn bị 403"
-find = 'Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)}'
-replace = 'Array.isArray(b.tools)||(b.tools=[]),w(b,!0)}'
-
 # P33/P34 — openai-responses param 400 trên opencode.ai/zen/v1/responses (muse-spark-*).
 # Cả hai lỗi phát sinh trong CÙNG transformRequest của class K (chunks/318.js) — bước cuối
 # trước khi gửi upstream, sau P27 (8895.js) và sau mọi normalizer khác:
@@ -422,8 +411,8 @@ id = "opencode-responses-noeffort-minimal"
 order = 34
 summary = "reasoning effort none/off → minimal cho openai responses (chống 400 THINK:off)"
 why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream chỉ down-clamp max/ultra nên 'none' lọt nguyên → 400 invalid_request_error param reasoning.effort"
-find = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
-replace = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
+find = 'let f=G(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
+replace = 'let f=G(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
 
 # P35 — upstream openai-compatible trả SSE kiểu Claude (api.tntapi.io.vn).
 # Đo trực tiếp 2026-09-22: TỪNG request tới /v1/chat/completions → body kiểu
@@ -439,8 +428,8 @@ id = "upstream-claude-sse-passthrough"
 order = 35
 summary = "Upstream openai-compatible trả SSE kiểu Claude → passthrough thay vì drop (chống 502 rỗng)"
 why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_block_delta (không phải OpenAI choices[].delta); Y8 emit 0 byte → peek P16 thấy stream rỗng → 502 + khóa key dù upstream đã tính token"
-find = 'function ao(a,b,c,d){if(b===a)return[(0,i.F5)(c,d?.toolNameMap)];'
-replace = 'function ao(a,b,c,d){if(b===a)return[(0,i.F5)(c,d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
+find = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];'
+replace = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
 
 # P36 — free-tier gate của OpenCode áp lên model muse-spark* đi qua relay
 # `anthropic-compatible` (gateway.agents.ai.vn, provider aa/). Đo trực tiếp 2026-09-22
