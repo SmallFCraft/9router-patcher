@@ -2,7 +2,7 @@
 
 Quy trình:
 1. Mã hóa patches.toml -> assets/patches.enc
-2. Chạy Nuitka biên dịch app.py thành dist/9router-patch.exe
+2. Chạy Nuitka biên dịch app.py thành dist/files/9router-patch.exe
 """
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         f"--include-data-dir={tpl_source}=templates",
         f"--include-data-files={enc_source}=patches.enc",
         f"--output-dir={output_dir}",
-        f"--output-filename=9router-patch.exe",
+        "--output-filename=9router-patch.exe",
         f"--file-version={version.APP_VERSION}.0",
         f"--product-version={version.APP_VERSION}.0",
         "--product-name=9router Patch Manager",
@@ -155,17 +155,17 @@ def build(fast: bool = False) -> int:
 
     exe = dist / "9router-patch.exe"
     if exe.is_file():
-        # Copy sang dist/files/<tên có version> để upload nguyên thư mục hosting:
-        # file cũ trên server không bị đè, rollback chỉ là sửa version.json trỏ về bản
-        # trước. Tên cài cục bộ giữ nguyên "9router-patch.exe" — cơ chế hoán đổi
-        # self-update dựa vào đường dẫn đó.
         files_dir = dist / "files"
         files_dir.mkdir(parents=True, exist_ok=True)
         versioned = files_dir / f"9router-patch-v{version.APP_VERSION}.exe"
+        standard = files_dir / "9router-patch.exe"
+
         try:
             shutil.copyfile(exe, versioned)
+            shutil.copyfile(exe, standard)
         except OSError as e:
-            print(f"CẢNH BÁO: không copy được artifact có version: {e}")
+            print(f"CẢNH BÁO: không copy được artifact vào {files_dir.name}/: {e}")
+
         size_mb = exe.stat().st_size / (1024 * 1024)
         print(f"\nEncrypt: {t1 - t0:.1f}s | Nuitka: {t2 - t1:.1f}s | Total: {t2 - t0:.1f}s")
         print(f"SUCCESS: Built {exe} ({size_mb:.1f} MB)")
@@ -173,8 +173,9 @@ def build(fast: bool = False) -> int:
             vsize = versioned.stat().st_size / (1024 * 1024)
             sha = sha256_file(versioned)
             manifest = write_version_manifest(dist, versioned)
-            print(f"Upload dir:      {files_dir.name}/  (upload nguyên thư mục này lên hosting)")
-            print(f"Upload artifact: {files_dir.name}/{versioned.name} ({vsize:.1f} MB)")
+            print(f"Artifacts staged under: {files_dir.name}/")
+            print(f"  1. {files_dir.name}/{standard.name} (bản chuẩn gửi cho user mới)")
+            print(f"  2. {files_dir.name}/{versioned.name} ({vsize:.1f} MB, bản có version lưu hosting)")
             print(f"SHA256:          {sha}")
             print(f"Manifest:        {manifest.name} (upload cùng thư mục gốc hosting)")
         return 0
