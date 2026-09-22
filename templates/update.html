@@ -28,6 +28,43 @@
   </div>
 </section>
 
+<section class="card panel" id="self-update-panel">
+  <div class="panel-head">
+    <h2>{{ icon('refresh') }}Cập nhật 9router Patch Manager (exe)</h2>
+    <span style="margin-left:auto"></span>
+    {% set su = self_update if self_update is defined else none %}
+    {% set appver = app_version if app_version is defined else "?" %}
+    {% if su and su.phase == "ready" %}
+      <span class="badge ok">Đã tải v{{ su.applied_version }} — áp dụng từ lần mở tới</span>
+    {% elif su and su.phase == "downloading" %}
+      <span class="badge warn"><span class="spin inline"></span> Đang tải exe mới…</span>
+    {% elif su and su.has_update %}
+      <span class="badge info">Có bản mới v{{ su.remote_version }}</span>
+    {% elif su and su.phase == "dev-mode" %}
+      <span class="badge muted">Chế độ dev (.py)</span>
+    {% elif su and su.phase == "error" %}
+      <span class="badge bad">{{ su.error or "Kiểm tra cập nhật thất bại" }}</span>
+    {% else %}
+      <span class="badge ok">Đang dùng v{{ appver }} (mới nhất)</span>
+    {% endif %}
+  </div>
+  <div style="margin-bottom:.8rem">
+    <label class="switch">
+      <input type="checkbox" id="auto-update-toggle"
+             {% if auto_update_enabled %}checked{% endif %}>
+      Tự động kiểm tra &amp; tải bản mới mỗi 5 phút (chạy nền)
+    </label>
+  </div>
+  <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
+    <button type="button" class="btn btn-ghost btn-sm" id="self-update-btn">
+      <span class="btn-label">{{ icon('refresh') }}Kiểm tra &amp; Cập nhật exe ngay</span>
+    </button>
+    <span class="small muted" id="self-update-msg">
+      {% if su and su.changelog %}{{ su.changelog }}{% endif %}
+    </span>
+  </div>
+</section>
+
 {#- lock_error contract — main.py picks the state by what it puts in the context:
       absent        -> probe chưa chạy hoặc không chạy được      => cảnh báo + nút dò
       "" (rỗng)     -> probe đã chạy và không lỗi                => được phép khẳng định dương
@@ -204,6 +241,50 @@
       el.hidden = el.getAttribute("data-idx") !== sel.value;
     });
   });
+
+  // Self-update exe: toggle switch tự động nền + nút kiểm tra thủ công.
+  var autoToggle = document.getElementById("auto-update-toggle");
+  if (autoToggle) {
+    autoToggle.addEventListener("change", function(){
+      fetch("/settings/auto-update", {
+        method: "POST", credentials: "same-origin",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "enabled=" + (autoToggle.checked ? "1" : "0")
+      }).then(function(r){ return r.json(); })
+        .then(function(j){
+          window.toast(j.auto_update ? "Đã bật tự động cập nhật nền"
+                                     : "Đã tắt tự động cập nhật nền");
+        })
+        .catch(function(){ window.toast("Lỗi lưu cài đặt", "bad"); });
+    });
+  }
+
+  var selfBtn = document.getElementById("self-update-btn");
+  if (selfBtn) {
+    selfBtn.addEventListener("click", function(){
+      selfBtn.disabled = true; selfBtn.classList.add("is-loading");
+      var msg = document.getElementById("self-update-msg");
+      if (msg) msg.textContent = "Đang kiểm tra máy chủ…";
+      fetch("/update/self", {
+        method: "POST", credentials: "same-origin",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "trigger=1"
+      }).then(function(r){ return r.json(); })
+        .then(function(j){
+          selfBtn.disabled = false; selfBtn.classList.remove("is-loading");
+          if (!j.ok) {
+            window.toast(j.error || "Cập nhật thất bại", "bad");
+            if (msg) msg.textContent = j.error || "";
+          } else {
+            window.toast(j.message || "Đã cập nhật! Bản mới có hiệu lực tự lần mở tới.");
+            setTimeout(function(){ location.reload(); }, 1200);
+          }
+        }).catch(function(){
+          selfBtn.disabled = false; selfBtn.classList.remove("is-loading");
+          window.toast("Lỗi mạng khi kiểm tra cập nhật", "bad");
+        });
+    });
+  }
 
   var form = document.getElementById("update-form");
   var panelBox = document.getElementById("console-panel");

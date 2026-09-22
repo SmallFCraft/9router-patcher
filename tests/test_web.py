@@ -883,3 +883,11 @@ def test_post_update_self_conflicts_with_running_job(web, monkeypatch):
         assert r.status_code == 409
     finally:
         main.OP_SLOT.release()
+
+
+def test_update_page_renders_self_update_section(web):
+    """Trang /update hiển thị panel self-update với toggle switch và nút kiểm tra."""
+    html = web["client"].get("/update").text
+    assert "9router Patch Manager" in html
+    assert 'id="auto-update-toggle"' in html
+    assert 'id="self-update-btn"' in html
