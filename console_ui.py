@@ -162,3 +162,44 @@ def panel(rows: list[tuple[str, str]], keys: list[tuple[str, str]] | None = None
 def prompt_label() -> str:
     p, g = palette(), glyphs()
     return f"  {p.cyan}9router{p.reset} {p.gray}{g['caret']}{p.reset} "
+
+
+def detail(icon: str, text: str) -> None:
+    """Dòng phụ dưới một step: canh lề với khung, màu icon theo ngữ nghĩa."""
+    p, g = palette(), glyphs()
+    color = {"✗": p.red, "✓": p.green}.get(icon.strip(), p.gray)
+    print(f"  {p.gray}{g['v']}{p.reset} {color}{icon}{p.reset} {text}", flush=True)
+
+
+def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") -> tuple[bool, str]:
+    """Chạy npm cài 9router@target: spinner 1 dòng + kết quả gọn trong khung step.
+
+    `installer` là hàm (on_output=None) -> (ok, msg); tách ra để caller
+    (boot_doctor) giữ logic stop-stack/retry, console_ui chỉ lo vẽ.
+    """
+    import sys as _sys
+    p, g = palette(), glyphs()
+    print(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{label} 9router@{target}{p.reset}", flush=True)
+    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    i = [0]
+
+    def tick(line: str) -> None:
+        i[0] += 1
+        short = line[:66] + ("…" if len(line) > 66 else "")
+        _sys.stdout.write(f"\r  {p.gray}{g['v']}{p.reset} "
+                          f"{p.cyan}{spinner[i[0] % len(spinner)]}{p.reset} {short}"
+                          + " " * 6)
+        _sys.stdout.flush()
+
+    ok, msg = installer(on_output=tick)
+    _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+    if not ok:
+        if log_fn:
+            log_fn(f"ERROR: {msg}")
+        print(f"  {p.gray}{g['v']}{p.reset} {p.red}✗{p.reset} {msg}", flush=True)
+        print(f"  {p.gray}{g['v']}{p.reset} {p.gray}Mở Dashboard → trang Update để cài lại thủ công.{p.reset}",
+              flush=True)
+    else:
+        print(f"  {p.gray}{g['v']}{p.reset} {p.green}✓{p.reset} 9router@{target} đã sẵn sàng",
+              flush=True)
+    return ok, msg

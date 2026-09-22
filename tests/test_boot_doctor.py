@@ -57,6 +57,118 @@ def test_check_and_apply_patches_skips_when_router_older_than_target(monkeypatch
     assert calls == []  # guard chạy TRƯỚC write — chưa từng chạm disk
 
 
+def test_install_9router_builds_versioned_cmd_and_runs_it(monkeypatch):
+    """install_9router ghim đúng 9router@<target>, không @latest."""
+    import boot_doctor, engine, updater
+    monkeypatch.setattr(boot_doctor.shutil, "which", lambda *a, **k: "npm")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    cmds = []
+
+    class P:
+        def __init__(self, cmd, **k):
+            cmds.append(cmd)
+            self.stdout, self.returncode = [], 0
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(boot_doctor.subprocess, "Popen", P)
+    ok, msg = boot_doctor.install_9router()
+    assert ok is True
+    assert cmds and cmds[0][-1] == f"9router@{engine.target_version()}"
+
+
+def test_install_9router_reports_tail_on_npm_failure(monkeypatch):
+    """npm exit != 0 → msg chứa 3 dòng cuối (không còn mã exit trần trụi như 4294963214)."""
+    import boot_doctor, updater
+    monkeypatch.setattr(boot_doctor.shutil, "which", lambda *a, **k: "npm")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    out = ["npm error code EBUSY\n", "npm error syscall rename\n", "npm error path E:\\x\n"]
+
+    class Lines:
+        def __init__(self, lines):
+            self._it = iter(lines)
+        def readline(self, *a):
+            try:
+                return next(self._it)
+            except StopIteration:
+                return ""
+        def close(self):
+            pass
+
+    class P:
+        def __init__(self, cmd, **k):
+            self.stdout = Lines(out)
+            self.returncode = 4294963214
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(boot_doctor.subprocess, "Popen", P)
+    ok, msg = boot_doctor.install_9router()
+    assert ok is False
+    assert "EBUSY" in msg and "4294963214" in msg
+
+
+def test_install_9router_stops_stack_first_and_restarts_after(monkeypatch):
+    """EBUSY 2026-09-22: npm rename app/ fail khi router còn nghe port.
+    install_9router phải tắt stack trước npm và bật lại sau (kể cả npm fail)."""
+    import boot_doctor, updater
+    monkeypatch.setattr(boot_doctor.shutil, "which", lambda *a, **k: "npm")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: 1234 if port == 20128 else None)
+    calls = []
+    monkeypatch.setattr(updater, "stop_router_stack",
+                        lambda emit: calls.append("stop") or True)
+    monkeypatch.setattr(updater, "start_router_stack",
+                        lambda emit: calls.append("start") or True)
+
+    class Lines:
+        def readline(self, *a):
+            return ""
+        def close(self):
+            pass
+
+    class P:
+        def __init__(self, cmd, **k):
+            self.stdout = Lines()
+            self.returncode = 0
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(boot_doctor.subprocess, "Popen", P)
+    ok, _ = boot_doctor.install_9router()
+    assert ok is True
+    assert calls == ["stop", "start"]
+
+
+def test_install_9router_skips_stack_when_nothing_listening(monkeypatch):
+    """Không ai nghe port → không đụng stack."""
+    import boot_doctor, updater
+    monkeypatch.setattr(boot_doctor.shutil, "which", lambda *a, **k: "npm")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    calls = []
+    monkeypatch.setattr(updater, "stop_router_stack",
+                        lambda emit: calls.append("stop") or True)
+    monkeypatch.setattr(updater, "start_router_stack",
+                        lambda emit: calls.append("start") or True)
+
+    class Lines:
+        def readline(self, *a):
+            return ""
+        def close(self):
+            pass
+
+    class P:
+        def __init__(self, cmd, **k):
+            self.stdout = Lines()
+            self.returncode = 0
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(boot_doctor.subprocess, "Popen", P)
+    ok, _ = boot_doctor.install_9router()
+    assert ok is True
+    assert calls == []
+
+
 def test_boot_logs_ring_buffer():
     boot_doctor.log_boot("Test line 1")
     logs = boot_doctor.get_boot_logs()

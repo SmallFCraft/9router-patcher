@@ -92,3 +92,49 @@ def test_panel_render_keys_and_rows(capsys, monkeypatch):
     for key in ("Enter", "L", "H", "Q"):
         assert f"[{key}]" in out
     console_ui._VT = None
+
+
+def test_npm_run_success_line_has_target_and_check(capsys, monkeypatch):
+    """npm_run thay dòng trạng thái dài bằng 1 dòng: arrow + version + ✓."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+    ok, msg = console_ui.npm_run("0.5.85", lambda on_output=None: (True, "done"))
+    out = capsys.readouterr().out
+    assert ok is True
+    assert "9router@0.5.85" in out
+    assert "đã sẵn sàng" in out
+    assert "\033[" not in out
+    console_ui._VT = None
+
+
+def test_npm_run_failure_shows_cause_and_dashboard_hint(capsys, monkeypatch):
+    """Fail: in nguyên nhân thật (EBUSY...) + chỉ đường Dashboard, không nuốt lỗi."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+    logged = []
+    ok, msg = console_ui.npm_run(
+        "0.5.85",
+        lambda on_output=None: (False, "npm cài 9router@0.5.85 thất bại (exit 1): EBUSY rename app"),
+        log_fn=logged.append)
+    out = capsys.readouterr().out
+    assert ok is False
+    assert "EBUSY" in out
+    assert "Dashboard" in out
+    assert logged and "EBUSY" in logged[0]
+    assert "\033[" not in out
+    console_ui._VT = None
+
+
+def test_npm_run_streams_output_through_callback(capsys, monkeypatch):
+    """Output npm chảy qua on_output, không bị bỏ khi không TTY."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    def installer(on_output=None):
+        on_output("npm error code EBUSY")
+        return False, "exit 1"
+
+    console_ui.npm_run("0.5.85", installer)
+    out = capsys.readouterr().out
+    assert "EBUSY" in out
+    console_ui._VT = None

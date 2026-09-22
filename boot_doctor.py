@@ -104,11 +104,67 @@ def check_9router() -> tuple[bool, str]:
         log_boot(f"WARN: {msg}")
         return False, msg
 
+def _stack_emit(ev) -> None:
+    log_boot(str(ev.get("text", "")) if isinstance(ev, dict) else str(ev))
+
+
+def _stop_stack_for_npm(on_output=None) -> bool:
+    """Tắt router stack trước npm: process đang giữ file app/ → EBUSY rename
+    (đo 2026-09-22: npm exit 4294963214 khi router còn nghe :20128).
+    True = đã tắt, caller bật lại sau npm."""
+    if not updater:
+        return False
+    pid_on_port = getattr(updater, "pid_on_port", None)
+    try:
+        running = callable(pid_on_port) and (
+            pid_on_port(20128) is not None or pid_on_port(8787) is not None)
+    except Exception:
+        running = False
+    if not running:
+        return False
+    log_boot("Tắt router stack trước khi npm (tránh EBUSY)...")
+    if on_output:
+        on_output("Tắt router stack trước khi cài đặt...")
+    stop_fn = getattr(updater, "stop_router_stack", None)
+    if not callable(stop_fn):
+        return False
+    try:
+        stop_fn(_stack_emit)
+    except Exception as e:          # tắt hụt thì npm sẽ báo — không chặn ở đây
+        log_boot(f"WARN: tắt router stack lỗi: {e}")
+    return True
+
+
+def _start_stack_after_npm() -> None:
+    if not updater:
+        return
+    start_fn = getattr(updater, "start_router_stack", None)
+    if not callable(start_fn):
+        return
+    try:
+        ok = start_fn(_stack_emit)
+        log_boot(f"Bật lại router stack: {'OK' if ok else 'THẤT BẠI — xem logs/'}")
+    except Exception as e:
+        log_boot(f"ERROR: bật lại router stack lỗi: {e}")
+
+
+def _ask_yn(question: str) -> bool:
+    """Hỏi (Y/n) [Y] theo style console. EOF/pipe đóng → Yes."""
+    import console_ui
+    try:
+        ans = input(f"{console_ui.prompt_label()}{question}").strip().lower()
+    except EOFError:
+        return True
+    return ans in ("", "y", "yes")
+
+
 def install_9router(on_output=None) -> tuple[bool, str]:
     npm = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm:
         return False, "Không tìm thấy npm để cài đặt"
-    target = getattr(engine, "target_version", lambda: "0.5.81")()
+    target = getattr(engine, "target_version", lambda: "0.5.85")()
+    stopped = _stop_stack_for_npm(on_output)
+    tail: list[str] = []
     log_boot(f"Bắt đầu cài đặt 9router@{target} toàn cục qua npm...")
     cmd = [npm, "install", "-g", f"9router@{target}"]
     try:
@@ -119,6 +175,7 @@ def install_9router(on_output=None) -> tuple[bool, str]:
             for line in iter(proc.stdout.readline, ""):
                 cleaned = line.strip()
                 if cleaned:
+                    tail.append(cleaned)
                     log_boot(f"npm: {cleaned}")
                     if on_output:
                         on_output(cleaned)
@@ -137,11 +194,20 @@ def install_9router(on_output=None) -> tuple[bool, str]:
         if proc.returncode == 0:
             log_boot(f"Cài đặt 9router@{target} thành công")
             return True, f"Cài đặt 9router@{target} thành công"
-        return False, f"npm install thoát với mã lỗi {proc.returncode}"
+        err = f"npm cài 9router@{target} thất bại (exit {proc.returncode})"
+        if tail:
+            err += ": " + " | ".join(tail[-3:])
+        if any("EBUSY" in t for t in tail):
+            err += " — file đang bị process giữ (router chưa tắt hẳn?)"
+        log_boot(f"ERROR: {err}")
+        return False, err
     except Exception as e:
         err = f"Lỗi trong quá trình cài đặt 9router: {e}"
         log_boot(f"ERROR: {err}")
         return False, err
+    finally:
+        if stopped:
+            _start_stack_after_npm()
 
 def check_and_apply_patches(on_output=None) -> tuple[bool, str]:
     try:
@@ -251,41 +317,26 @@ def run_doctor(interactive: bool = True) -> bool:
             console_ui.step_end("THIẾU", "bad")
             return False
         console_ui.step_end("CHƯA CÀI", "warn")
-        print(f"\n  → {msg}", flush=True)
-        ans = input("\n? 9router chưa được cài đặt. Cài đặt toàn cục qua npm? (Y/n) [Y]: ").strip().lower()
-        if ans in ("", "y", "yes"):
-            target = getattr(engine, "target_version", lambda: "0.5.85")()
-            print(f"  > npm install -g 9router@{target}...")
-            i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
-            print()
-            if not i_ok:
-                print(f"  [!] {i_msg}")
-                input("Nhấn Enter để tiếp tục (chế độ xem)...")
-            else:
-                print(f"  [ OK ] Cài đặt 9router@{target} hoàn tất!")
+        console_ui.detail("→", msg)
+        if interactive and _ask_yn("9router chưa được cài đặt. Cài toàn cục qua npm? (Y/n) [Y]: "):
+            console_ui.npm_run(getattr(engine, "target_version", lambda: "0.5.85")(),
+                               install_9router, log_boot)
         else:
-            print("  Bỏ qua cài đặt 9router.")
+            console_ui.detail("○", "Bỏ qua cài đặt 9router.")
     elif relation == "older" and interactive:
         target = compat.get("target", engine.target_version())
         local_v = compat.get("local", "cũ")
-        console_ui.step_end("CẦN CẬP NHẬT", "warn", f"local v{local_v} < v{target}")
-        print(f"\n  → 9router v{local_v} cũ hơn bản hỗ trợ (v{target}).", flush=True)
-        ans = input(f"? Nâng cấp lên v{target} để áp dụng đầy đủ các patch? (Y/n) [Y]: ").strip().lower()
-        if ans in ("", "y", "yes"):
-            print(f"  > npm install -g 9router@{target}...")
-            i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
-            print()
-            if not i_ok:
-                print(f"  [!] {i_msg}")
-                input("Nhấn Enter để tiếp tục (chế độ xem)...")
-            else:
-                print(f"  [ OK ] Cập nhật 9router@{target} hoàn tất!")
+        console_ui.step_end("CẦN CẬP NHẬT", "warn", f"local v{local_v} → v{target}")
+        console_ui.detail("→", f"9router v{local_v} cũ hơn bản hỗ trợ (v{target}) — patch chưa áp được.")
+        if _ask_yn(f"Nâng cấp lên v{target} để áp dụng đầy đủ các patch? (Y/n) [Y]: "):
+            console_ui.npm_run(target, install_9router, log_boot)
         else:
-            print(f"  Giữ nguyên 9router v{local_v} (bỏ qua áp dụng patch).")
+            console_ui.detail("○", f"Giữ nguyên v{local_v} (bỏ qua áp dụng patch).")
     elif relation == "newer":
         target = compat.get("target", engine.target_version())
         local_v = compat.get("local", "")
         console_ui.step_end("KHÁC VERSION", "warn", f"local v{local_v} > v{target}")
+        console_ui.detail("→", "Vào Dashboard để căn chỉnh về bản hỗ trợ.")
     else:
         console_ui.step_end("OK", "ok")
 
