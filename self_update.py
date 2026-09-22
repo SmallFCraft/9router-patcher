@@ -1,15 +1,31 @@
 """Self-update engine for 9router Patch Manager standalone executable."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import sys
+import threading
+import time
 import urllib.request
 from pathlib import Path
 
 import app_paths
 import config
 import version
+
+_SWAP_LOCK = threading.Lock()
+_STATE_LOCK = threading.Lock()
+_STATE: dict = {
+    "checked_at": 0.0,
+    "remote_version": "",
+    "has_update": False,
+    "phase": "idle",            # idle | checking | downloading | ready | error | dev-mode
+    "error": None,
+    "applied_version": None,
+    "changelog": "",
+}
 
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -85,4 +101,99 @@ def check_update(url: str | None = None) -> dict | None:
         }
     except Exception:
         return None
+
+
+def state() -> dict:
+    """Snapshot trạng thái self-update, an toàn đa luồng."""
+    with _STATE_LOCK:
+        return dict(_STATE)
+
+
+def _set_state(**kwargs) -> None:
+    with _STATE_LOCK:
+        _STATE.update(kwargs)
+
+
+def cleanup_old_files(exe_dir: Path | None = None) -> int:
+    """Xóa file .old-* và .new còn sót lúc khởi động. PermissionError bị bỏ qua
+    (file cũ của tiến trình khác đang chạy) — lần khởi động sau dọn tiếp."""
+    if exe_dir is None:
+        if not app_paths.is_frozen():
+            return 0
+        exe_dir = Path(sys.argv[0]).resolve().parent
+
+    count = 0
+    for pattern in ("9router-patch.old-*", "9router-patch.new"):
+        for f in exe_dir.glob(pattern):
+            try:
+                f.unlink()
+                count += 1
+            except (OSError, PermissionError):
+                pass
+    return count
+
+
+def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
+    """Tải exe mới, xác thực SHA256 rồi hoán đổi nguyên tử vào exe hiện tại.
+
+    Windows cho phép os.replace() trên file exe đang chạy (đã đo trực tiếp) —
+    không cần batch script, không cần khởi động lại, không cần pending-flag.
+    """
+    if not _SWAP_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Cập nhật đang diễn ra"}
+
+    try:
+        if not app_paths.is_frozen() and current_exe is None:
+            _set_state(phase="dev-mode", error="Chạy từ source .py — bỏ qua hoán đổi exe.")
+            return {"ok": False, "error": "dev-mode"}
+
+        exe = current_exe or Path(sys.argv[0]).resolve()
+        new_file = exe.parent / "9router-patch.new"
+
+        _set_state(phase="downloading", error=None,
+                   remote_version=meta.get("version", ""))
+        hasher = hashlib.sha256()
+        req = urllib.request.Request(
+            meta["url"], headers={"User-Agent": f"9router-patcher/{version.APP_VERSION}"})
+        try:
+            with urllib.request.urlopen(req, timeout=30.0) as resp, open(new_file, "wb") as f:
+                while True:
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    hasher.update(chunk)
+        except Exception as e:
+            new_file.unlink(missing_ok=True)
+            _set_state(phase="error", error=f"Lỗi tải file: {e}")
+            return {"ok": False, "error": str(e)}
+
+        actual = hasher.hexdigest().lower()
+        expected = (meta.get("sha256") or "").strip().lower()
+        if expected and actual != expected:
+            new_file.unlink(missing_ok=True)
+            err = f"SHA256 mismatch: mong muốn {expected[:8]}…, nhận {actual[:8]}…"
+            _set_state(phase="error", error=err)
+            return {"ok": False, "error": err}
+
+        # Tên .old có timestamp: tiến trình đang chạy vẫn giữ handle trên file cũ,
+        # đổi tên cố định sẽ đè nhau ở lần cập nhật sau trong cùng phiên.
+        old_file = exe.parent / f"9router-patch.old-{int(time.time())}"
+        try:
+            os.replace(exe, old_file)
+            os.replace(new_file, exe)
+        except Exception as e:
+            if old_file.exists() and not exe.exists():
+                try:
+                    os.replace(old_file, exe)
+                except Exception:
+                    pass
+            _set_state(phase="error", error=f"Lỗi hoán đổi exe: {e}")
+            return {"ok": False, "error": str(e)}
+
+        _set_state(phase="ready", applied_version=meta["version"],
+                   has_update=False, error=None)
+        return {"ok": True, "error": None}
+    finally:
+        _SWAP_LOCK.release()
 

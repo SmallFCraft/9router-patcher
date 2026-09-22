@@ -75,3 +75,85 @@ def test_check_update_handles_network_error_gracefully(monkeypatch):
     monkeypatch.setattr(self_update.urllib.request, "urlopen", fail)
     assert self_update.check_update() is None
 
+
+def _dummy_dl_monkeypatch(monkeypatch, self_update, content: bytes, chunk: int = 65536):
+    """Giả lập urlopen trả về nội dung tải theo từng chunk."""
+    class DummyDlResponse:
+        def __init__(self): self._buf = content
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self, size=chunk):
+            out, self._buf = self._buf[:size], self._buf[size:]
+            return out
+
+    monkeypatch.setattr(self_update.urllib.request, "urlopen",
+                        lambda req, timeout=30: DummyDlResponse())
+
+
+def test_download_and_swap_success_flow(tmp_path, monkeypatch):
+    """Tải thành công, SHA256 khớp: exe được thay, file cũ đổi tên .old-<ts>."""
+    import self_update
+    import hashlib
+
+    exe_file = tmp_path / "9router-patch.exe"
+    exe_file.write_bytes(b"OLD_VERSION_EXE")
+
+    new_content = b"NEW_VERSION_EXE_DATA_PAYLOAD"
+    _dummy_dl_monkeypatch(monkeypatch, self_update, new_content)
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    meta = {
+        "version": "2.0.1",
+        "url": "https://example.com/files/app.exe",
+        "sha256": hashlib.sha256(new_content).hexdigest(),
+    }
+
+    res = self_update.download_and_swap(meta, current_exe=exe_file)
+    assert res["ok"] is True, res
+    assert exe_file.read_bytes() == new_content
+
+    old_files = list(tmp_path.glob("9router-patch.old-*"))
+    assert len(old_files) == 1
+    assert old_files[0].read_bytes() == b"OLD_VERSION_EXE"
+    assert self_update.state()["phase"] == "ready"
+    assert self_update.state()["applied_version"] == "2.0.1"
+
+    cleaned = self_update.cleanup_old_files(exe_dir=tmp_path)
+    assert cleaned == 1
+    assert len(list(tmp_path.glob("9router-patch.old-*"))) == 0
+
+
+def test_download_and_swap_rejects_sha256_mismatch(tmp_path, monkeypatch):
+    """SHA256 lệch: xóa file tạm, exe gốc nguyên vẹn, không hoán đổi."""
+    import self_update
+
+    exe_file = tmp_path / "9router-patch.exe"
+    exe_file.write_bytes(b"ORIGINAL_EXE")
+
+    _dummy_dl_monkeypatch(monkeypatch, self_update, b"CORRUPTED_EXE")
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    meta = {
+        "version": "2.0.1",
+        "url": "https://example.com/files/app.exe",
+        "sha256": "0" * 64,
+    }
+
+    res = self_update.download_and_swap(meta, current_exe=exe_file)
+    assert res["ok"] is False
+    assert "SHA256" in res["error"]
+    assert exe_file.read_bytes() == b"ORIGINAL_EXE"
+    assert not (tmp_path / "9router-patch.new").exists()
+
+
+def test_download_and_swap_dev_mode_never_touches_files(tmp_path, monkeypatch):
+    """Chạy từ source (không frozen): bỏ qua, không tải, không hoán đổi."""
+    import self_update
+
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: False)
+    res = self_update.download_and_swap({"version": "2.0.1", "url": "https://x/y.exe"})
+    assert res["ok"] is False
+    assert res["error"] == "dev-mode"
+    assert list(tmp_path.glob("*")) == []
+
+
