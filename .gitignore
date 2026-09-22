@@ -14,6 +14,7 @@ docs/*
 !docs/superpowers
 docs/superpowers/*
 !docs/superpowers/specs
+!docs/superpowers/plans
 # OS / editor
 Thumbs.db
 .DS_Store

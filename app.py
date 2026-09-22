@@ -5,6 +5,7 @@ Khởi động uvicorn server trên 127.0.0.1:20129 và tự động mở trình
 """
 from __future__ import annotations
 
+import argparse
 import ctypes
 import socket
 import sys
@@ -18,6 +19,7 @@ from pathlib import Path
 import uvicorn
 import boot_doctor
 import tray
+import version
 from boot_doctor import log_boot
 from main import HOST, PORT, app, get_log_config
 
@@ -39,9 +41,29 @@ def _hide_console() -> None:
 def _console_banner(url: str) -> None:
     """Khối hướng dẫn một lần lúc khởi động — in lại mỗi lệnh chỉ làm console trôi."""
     print("=" * 62)
+    print(f"  9router Patch Manager v{version.APP_VERSION}")
     print("  [Enter] Mở Dashboard   [L] Xem Logs   [H] Ẩn Console   [Q] Thoát")
     print(f"  Dashboard: {url}      Logs: {url}/logs")
     print("=" * 62)
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse đối số dòng lệnh của launcher."""
+    parser = argparse.ArgumentParser(
+        prog="9router-patch.exe",
+        description="9router Patch Manager",
+    )
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"%(prog)s {version.APP_VERSION}",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bỏ qua kiểm tra port bận, ép chạy lại doctor + server",
+    )
+    return parser.parse_args(argv)
 
 
 def _handle_console_command(cmd: str, url: str) -> bool:
@@ -72,11 +94,27 @@ def _read_console_line(prompt: str, stop: threading.Event) -> str | None:
     sys.stdout.flush()
 
     if not (sys.stdin and sys.stdin.isatty()):
-        try:
-            line = sys.stdin.readline()
-            return line.rstrip("\r\n") if line else None
-        except Exception:
+        # pipe/detached: readline chặn vô hạn nên đọc trên thread nền và poll stop —
+        # nút Thoát ở khay vẫn thoát được; EOF (pipe đóng) trả None, caller giữ server.
+        if stop.is_set():
             return None
+        box: list = []
+
+        def _read() -> None:
+            try:
+                box.append(sys.stdin.readline())
+            except Exception:
+                box.append("")
+
+        reader = threading.Thread(target=_read, name="console-stdin-reader", daemon=True)
+        reader.start()
+        while reader.is_alive():
+            if stop.wait(0.05):
+                return None
+        if stop.is_set():
+            return None
+        line = box[0] if box else ""
+        return line.rstrip("\r\n") if line else None
 
     try:
         import msvcrt
@@ -97,17 +135,20 @@ def _read_console_line(prompt: str, stop: threading.Event) -> str | None:
             continue
         if ch in ("\r", "\n"):
             sys.stdout.write("\n")
+            sys.stdout.flush()
             return "".join(chars)
         if ch == "\x08":
             if chars:
                 chars.pop()
                 sys.stdout.write("\b \b")
+                sys.stdout.flush()
             continue
         if ch == "\x03":
             raise KeyboardInterrupt
         if ch >= " ":
             chars.append(ch)
             sys.stdout.write(ch)
+            sys.stdout.flush()
     return None
 
 
@@ -131,7 +172,8 @@ def _open_browser_when_ready(url: str, timeout: float = 10.0) -> None:
     webbrowser.open(url)
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
     url = f"http://{HOST}:{PORT}"
 
     # Console mặc định (cp437/cp1252) không in được tiếng Việt — ép UTF-8,
@@ -142,19 +184,24 @@ def main() -> None:
     except Exception:
         pass
 
-    # 1. Chạy preflight startup doctor trước khi server khởi động
+    # 1. Nếu port 20129 đã có tiến trình khác lắng nghe: mở trình duyệt và thoát ngay,
+    # KHÔNG chạy doctor để tránh lần bật thứ hai auto-apply/restart stack đè lên app đang chạy.
+    # --force bỏ qua nhánh này (dùng khi bản cũ đang chạy và muốn chạy bản mới).
+    if _port_busy(HOST, PORT):
+        if not args.force:
+            print(f"Port {PORT} đã được sử dụng. Mở dashboard trong trình duyệt...")
+            print("(Dùng --force để chạy lại doctor + server bất chấp port đang bận.)")
+            webbrowser.open(url)
+            return
+        print(f"Port {PORT} đang bận nhưng --force được bật — chạy doctor rồi thử khởi động.")
+
+    # 2. Chạy preflight startup doctor trước khi server khởi động
     try:
         ok = boot_doctor.run_doctor(interactive=True)
         if not ok:
             return
     except Exception as e:
         boot_doctor.log_boot(f"Lỗi khi chạy boot_doctor: {e}")
-
-    # 2. Nếu port 20129 đã có tiến trình khác lắng nghe: mở trình duyệt và thoát
-    if _port_busy(HOST, PORT):
-        print(f"Port {PORT} đã được sử dụng. Mở dashboard trong trình duyệt...")
-        webbrowser.open(url)
-        return
 
     # 3. Chạy uvicorn trong thread nền với shutdown event
     config = uvicorn.Config(
@@ -202,23 +249,33 @@ def main() -> None:
         except Exception:
             tray_icon = None
 
+    # stdin không tương tác (redirect/pipe đóng): không đọc stdin, nếu không EOF
+    # lúc boot làm dashboard tắt ngay. Chỉ thoát loop khi user gõ Q hoặc Quit ở khay.
+    interactive = bool(sys.stdin and sys.stdin.isatty())
+    if not interactive:
+        try:
+            shutdown_event.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            if tray_icon is not None:
+                tray_icon.stop()
+            server.should_exit = True
+            server_thread.join(timeout=3.0)
+        return
     try:
-        has_stdin = bool(sys.stdin)
         while not shutdown_event.is_set():
-            if has_stdin:
-                try:
-                    cmd = _read_console_line("9router > ", shutdown_event)
-                except KeyboardInterrupt:
-                    break
-                if cmd is None:
-                    # stdin đóng (EOF) hoặc shutdown_event đã set — thoát loop
-                    break
-                state = _handle_console_command(cmd, url)
-                if state is False:
-                    break
-                # "9router > " chỉ nhắc lệnh; hướng dẫn đã in một lần ở banner trên.
-            else:
-                time.sleep(0.5)
+            try:
+                cmd = _read_console_line("9router > ", shutdown_event)
+            except KeyboardInterrupt:
+                break
+            if cmd is None:
+                # shutdown_event đã set (khay Thoát) — thoát loop
+                break
+            state = _handle_console_command(cmd, url)
+            if state is False:
+                break
+            # "9router > " chỉ nhắc lệnh; hướng dẫn đã in một lần ở banner trên.
     except KeyboardInterrupt:
         pass
     finally:
