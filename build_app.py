@@ -155,10 +155,13 @@ def build(fast: bool = False) -> int:
 
     exe = dist / "9router-patch.exe"
     if exe.is_file():
-        # Copy sang tên có version để upload hosting: file cũ trên server không bị đè,
-        # rollback chỉ là sửa version.json trỏ về bản trước. Tên cài cục bộ giữ nguyên
-        # "9router-patch.exe" — cơ chế hoán đổi self-update dựa vào đường dẫn đó.
-        versioned = dist / f"9router-patch-v{version.APP_VERSION}.exe"
+        # Copy sang dist/files/<tên có version> để upload nguyên thư mục hosting:
+        # file cũ trên server không bị đè, rollback chỉ là sửa version.json trỏ về bản
+        # trước. Tên cài cục bộ giữ nguyên "9router-patch.exe" — cơ chế hoán đổi
+        # self-update dựa vào đường dẫn đó.
+        files_dir = dist / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
+        versioned = files_dir / f"9router-patch-v{version.APP_VERSION}.exe"
         try:
             shutil.copyfile(exe, versioned)
         except OSError as e:
@@ -170,9 +173,10 @@ def build(fast: bool = False) -> int:
             vsize = versioned.stat().st_size / (1024 * 1024)
             sha = sha256_file(versioned)
             manifest = write_version_manifest(dist, versioned)
-            print(f"Upload artifact: {versioned.name} ({vsize:.1f} MB)")
+            print(f"Upload dir:      {files_dir.name}/  (upload nguyên thư mục này lên hosting)")
+            print(f"Upload artifact: {files_dir.name}/{versioned.name} ({vsize:.1f} MB)")
             print(f"SHA256:          {sha}")
-            print(f"Manifest:        {manifest.name} (upload cùng thư mục hosting)")
+            print(f"Manifest:        {manifest.name} (upload cùng thư mục gốc hosting)")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1
