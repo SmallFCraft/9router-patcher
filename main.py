@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
@@ -605,6 +605,27 @@ def trigger_self_update(request: Request):
                              "state": self_update.state()})
     finally:
         OP_SLOT.release()
+
+
+@app.get("/api/self-update/status", include_in_schema=False)
+def self_update_status():
+    st = self_update.state()
+    return JSONResponse({"ok": True, **st})
+
+
+@app.post("/update/self/restart", dependencies=CSRF, include_in_schema=False)
+def self_update_restart(background: BackgroundTasks):
+    # BackgroundTasks chạy sau khi response 200 đã gửi — TestClient cũng đợi nó nên test thấy được call.
+    # restart_self() kết thúc bằng sys.exit: ngoài main thread nó chỉ giết thread đó, process vẫn sống
+    # (đã đo trực tiếp) — nên bắt SystemExit (chỉ frozen path mới raise, sau khi đã spawn exe mới)
+    # rồi SIGINT để uvicorn shutdown gracefully, cùng cơ chế với route /shutdown.
+    def _restart_after_response():
+        try:
+            self_update.restart_self()
+        except SystemExit:
+            os.kill(os.getpid(), signal.SIGINT)
+    background.add_task(_restart_after_response)
+    return JSONResponse({"ok": True, "message": "Đang khởi động lại ứng dụng..."})
 
 
 @app.post("/update", dependencies=CSRF)

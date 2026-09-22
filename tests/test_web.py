@@ -920,3 +920,29 @@ def test_logs_page_shows_banner_when_headroom_not_installed(web, monkeypatch):
     assert "Headroom chưa được cài đặt trên máy này" in html
     assert "pip install headroom-ai" in html
 
+
+def test_self_update_status_api(web, monkeypatch):
+    import self_update
+    monkeypatch.setattr(self_update, "state", lambda: {
+        "phase": "ready", "applied_version": "2.1.7", "has_update": False,
+        "remote_version": "2.1.7", "changelog": "fix stuff"
+    })
+    r = web["client"].get("/api/self-update/status")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["ok"] is True
+    assert j["phase"] == "ready"
+    assert j["applied_version"] == "2.1.7"
+
+
+def test_self_update_restart_route_enforces_csrf_and_calls_restart(web, monkeypatch):
+    import self_update
+    called = []
+    monkeypatch.setattr(self_update, "restart_self", lambda: called.append(True))
+    # No origin -> 403
+    assert web["client"].post("/update/self/restart").status_code == 403
+    # With origin -> 200 and calls restart_self
+    r = web["client"].post("/update/self/restart", headers={"Origin": "http://127.0.0.1:20129"})
+    assert r.status_code == 200
+    assert len(called) == 1
+
