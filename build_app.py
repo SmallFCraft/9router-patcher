@@ -44,6 +44,13 @@ def write_version_manifest(dist: Path, artifact: Path) -> Path:
     return out
 
 
+def win_file_version() -> str:
+    """APP_VERSION → chuỗi 4 số cho Nuitka --file-version/--product-version.
+    3 số thì pad .0 (2.2.4 → 2.2.4.0); 4 số giữ nguyên (2.2.4.1)."""
+    parts = version.APP_VERSION.split(".")
+    return version.APP_VERSION + (".0" if len(parts) == 3 else "")
+
+
 def prune_stale_artifacts(files_dir: Path, keep: set[str]) -> int:
     """Xóa artifact cũ trong dist/files/ — chỉ giữ bản vừa build.
 
@@ -85,6 +92,7 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
     ])
     # Máy 16 cores => cấp N-2 jobs để compile/check C files song song
     jobs = max(1, (os.cpu_count() or 4) - 2)
+    fver = win_file_version()
     cmd = [
         sys.executable,
         "-m",
@@ -98,8 +106,8 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         f"--include-data-files={enc_source}=patches.enc",
         f"--output-dir={output_dir}",
         "--output-filename=9router-patch.exe",
-        f"--file-version={version.APP_VERSION}.0",
-        f"--product-version={version.APP_VERSION}.0",
+        f"--file-version={fver}",
+        f"--product-version={fver}",
         "--product-name=9router Patch Manager",
         "--company-name=9router-patcher",
         f"--report={output_dir / 'build-report.xml'}",

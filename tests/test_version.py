@@ -5,11 +5,11 @@ import pytest
 
 
 def test_app_version_format():
-    """APP_VERSION phải là chuỗi semver chuẩn (X.Y.Z)."""
+    """APP_VERSION là semver X.Y.Z + hotfix thứ 4 tùy chọn (X.Y.Z.W)."""
     import version
     assert hasattr(version, "APP_VERSION")
     parts = version.APP_VERSION.split(".")
-    assert len(parts) == 3
+    assert 3 <= len(parts) <= 4
     assert all(p.isdigit() for p in parts)
 
 
@@ -95,13 +95,25 @@ def test_build_app_version_flags_are_four_part(tmp_path):
     postprocessing; test này bắt trước khi tốn 160s compile.
     """
     import build_app
+    import version
 
     cmd = build_app.get_nuitka_cmd(tmp_path)
     flags = [a for a in cmd if a.startswith(("--file-version=", "--product-version="))]
     assert len(flags) == 2, flags
+    expect = build_app.win_file_version()
     for flag in flags:
         value = flag.split("=", 1)[1]
+        assert value == expect, flag
         parts = value.split(".")
-        assert 2 <= len(parts) <= 4, flag
+        assert len(parts) == 4, flag
         assert all(p.isdigit() for p in parts), flag
+
+
+def test_win_file_version_pads_and_keeps(monkeypatch):
+    """3 số pad .0, 4 số giữ nguyên — luôn đúng 4 số cho Nuitka."""
+    import build_app
+    monkeypatch.setattr("version.APP_VERSION", "2.2.4")
+    assert build_app.win_file_version() == "2.2.4.0"
+    monkeypatch.setattr("version.APP_VERSION", "2.2.4.1")
+    assert build_app.win_file_version() == "2.2.4.1"
 
