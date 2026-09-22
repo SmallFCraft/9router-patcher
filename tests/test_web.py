@@ -73,7 +73,6 @@ def set_scan(monkeypatch, mapping):
                         lambda build, patches, **kw: [_state(p, mapping.get(p.id, "applied"))
                                                       for p in patches])
 
-
 # ---------- GET / ----------
 
 def test_index_lists_all_9_patches(web):
@@ -149,9 +148,10 @@ def test_sse_group_has_exactly_one_action(web):
     # one apply + one revert control for the whole 4-patch group, never per-patch
     assert html.count('name="ids" value="sse-hang"') == 1
     assert html.count('name="group" value="sse-hang"') == 1
-    # 29 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
-    # errbody-html-title, responses-thinking-history-400, opencode-responses-*)
-    assert html.count('name="group" value=') == 29
+    # 30 groups total (incl. sse-hang, nonstream-sse-retry, claude-system-hoist,
+    # errbody-html-title, responses-thinking-history-400, opencode-responses-*,
+    # upstream-claude-sse-passthrough)
+    assert html.count('name="group" value=') == 31
 
 
 def test_index_has_apply_all_form(web):
@@ -812,3 +812,74 @@ def test_inline_scripts_in_all_templates_parse(web):
             inlined += 1
     assert inlined >= 2, f"expected at least 2 script blocks, found {inlined}"
 
+
+
+# ---------- self-update routes: /settings/auto-update, /update/self ----------
+
+def test_toggle_auto_update_setting_roundtrip(web):
+    """POST /settings/auto-update đổi switch auto-update, không cần reload trang."""
+    import self_update
+
+    client = web["client"]
+    # 1. CSRF guard: không có Origin -> 403
+    r = client.post("/settings/auto-update", data={"enabled": "0"})
+    assert r.status_code == 403
+
+    headers = {"Origin": OWN}
+    # 2. Tắt:
+    r = client.post("/settings/auto-update", data={"enabled": "0"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "auto_update": False}
+    assert self_update.is_enabled() is False
+
+    # 3. Bật lại:
+    r = client.post("/settings/auto-update", data={"enabled": "1"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "auto_update": True}
+    assert self_update.is_enabled() is True
+
+
+def test_post_update_self_uses_self_update_engine(web, monkeypatch):
+    """POST /update/self gọi self_update engine: có bản mới -> tải, không có -> no-op."""
+    import self_update
+
+    client = web["client"]
+    headers = {"Origin": OWN}
+
+    # Case 1: không kết nối được máy chủ
+    monkeypatch.setattr(self_update, "check_update", lambda url=None: None)
+    r = client.post("/update/self", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    assert "máy chủ" in r.json()["error"]
+
+    # Case 2: đã là bản mới nhất
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: {"version": "9.0.0", "has_update": False})
+    r = client.post("/update/self", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+    # Case 3: có bản mới -> tải thành công
+    swapped = []
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: {"version": "2.0.1", "has_update": True,
+                                          "url": "https://fake.com/exe", "sha256": ""})
+    monkeypatch.setattr(self_update, "download_and_swap",
+                        lambda meta: swapped.append(meta) or {"ok": True, "error": None})
+
+    r = client.post("/update/self", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert len(swapped) == 1
+
+
+def test_post_update_self_conflicts_with_running_job(web, monkeypatch):
+    """POST /update/self chiếm OP_SLOT: job npm đang chạy -> 409."""
+    occupy = main.OP_SLOT.acquire("job")
+    assert occupy is True
+    try:
+        r = web["client"].post("/update/self", headers={"Origin": OWN})
+        assert r.status_code == 409
+    finally:
+        main.OP_SLOT.release()

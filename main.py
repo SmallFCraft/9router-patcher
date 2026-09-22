@@ -542,6 +542,8 @@ def update_page(request: Request, probe: str = ""):
         "steps": LAST_UPDATE_STEPS,
         "history": _load_history(),
         "probed_at": LOCK_CACHE["probed_at"] or None,
+        "self_update": self_update.state(),
+        "auto_update_enabled": self_update.is_enabled(),
     }
     if LOCK_CACHE["error"] is not None:
         ctx["lock_error"] = LOCK_CACHE["error"]
@@ -557,6 +559,35 @@ def update_locks():
     return JSONResponse({"locks": locks, "error": LOCK_CACHE["error"],
                          "probed_at": LOCK_CACHE["probed_at"],
                          "job_running": JOB.running})
+
+
+@app.post("/settings/auto-update", dependencies=CSRF)
+def set_auto_update(request: Request, enabled: Annotated[str, Form()] = "1"):
+    """Bật/tắt tự động cập nhật exe nền. Lưu vào settings.json ngay, không cần reload."""
+    on = enabled in ("1", "true", "True")
+    self_update.set_enabled(on)
+    return JSONResponse({"ok": True, "auto_update": on})
+
+
+@app.post("/update/self", dependencies=CSRF)
+def trigger_self_update(request: Request):
+    """Kiểm tra + tải + hoán đổi exe ngay theo yêu cầu thủ công. Chiếm OP_SLOT."""
+    if not OP_SLOT.acquire("job"):
+        return JSONResponse({"ok": False, "error": "update/thao tác khác đang chạy"},
+                            status_code=409)
+    try:
+        meta = self_update.check_update()
+        if not meta:
+            return JSONResponse({"ok": False, "error": "Không kết nối được máy chủ cập nhật",
+                                 "state": self_update.state()})
+        if not meta["has_update"]:
+            return JSONResponse({"ok": True, "error": None, "message": "Đã là bản mới nhất",
+                                 "state": self_update.state()})
+        res = self_update.download_and_swap(meta)
+        return JSONResponse({"ok": res["ok"], "error": res["error"],
+                             "state": self_update.state()})
+    finally:
+        OP_SLOT.release()
 
 
 @app.post("/update", dependencies=CSRF)
