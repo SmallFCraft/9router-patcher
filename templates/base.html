@@ -302,6 +302,14 @@ document.documentElement.dataset.theme=t;})();
   .toast.bad{color:var(--bad)}
   .toast.out{opacity:0; transition:opacity .15s steps(3,start)}
 
+  /* ---------- self-update modal ---------- */
+  #self-update-modal{
+    position:fixed; inset:0; z-index:120;
+    align-items:center; justify-content:center; padding:1rem;
+    background:rgba(5,7,15,.6);
+  }
+  #self-update-modal .modal-box{max-width:26rem; width:100%; padding:16px 18px}
+
   /* ---------- responsive ---------- */
   @media (max-width:960px){ .statgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @media (max-width:640px){
@@ -354,6 +362,19 @@ document.documentElement.dataset.theme=t;})();
 </footer>
 
 <div id="toasts" aria-live="polite"></div>
+
+<div id="self-update-modal" role="dialog" aria-modal="true" aria-labelledby="self-update-modal-title" style="display:none">
+  <div class="card modal-box">
+    <div class="panel-head">
+      <h2 id="self-update-modal-title">🚀 ĐÃ CẬP NHẬT PHIÊN BẢN MỚI</h2>
+    </div>
+    <p>Bản mới <span class="chip" id="self-update-modal-ver">—</span> đã tải xong, sẵn sàng áp dụng.</p>
+    <div class="toolbar">
+      <button type="button" class="btn btn-primary btn-sm" id="btn-self-update-restart">Khởi động lại ngay</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-self-update-dismiss">Để sau</button>
+    </div>
+  </div>
+</div>
 
 {% block scripts %}{% endblock %}
 
@@ -490,6 +511,40 @@ document.documentElement.dataset.theme=t;})();
 
   syncAuto();
   scheduleAuto();
+
+  // self-update popup: every page polls /api/self-update/status, shows modal
+  // once per version when phase === "ready" (dismiss remembered in sessionStorage).
+  var suModal=$("#self-update-modal"), suVer=$("#self-update-modal-ver"),
+      suRestart=$("#btn-self-update-restart"), suDismiss=$("#btn-self-update-dismiss");
+  function suCheck(){
+    if(document.hidden||!suModal||suModal.style.display!=="none") return;
+    fetch("/api/self-update/status",{credentials:"same-origin"})
+      .then(function(r){return r.json()})
+      .then(function(s){
+        if(!s||s.phase!=="ready"||!s.applied_version) return;
+        var dismissed=null; try{dismissed=sessionStorage.getItem("_9r_dismissed_update")}catch(e){}
+        if(dismissed===s.applied_version) return;
+        if(suVer) suVer.textContent="v"+s.applied_version;
+        suModal.style.display="flex";
+      })
+      .catch(function(){});
+  }
+  if(suModal){
+    setInterval(suCheck,15000);
+    if(suDismiss) suDismiss.addEventListener("click",function(){
+      suModal.style.display="none";
+      var v=suVer?suVer.textContent.replace(/^v/,""):null;
+      if(v){try{sessionStorage.setItem("_9r_dismissed_update",v)}catch(e){}}
+    });
+    if(suRestart) suRestart.addEventListener("click",function(){
+      suRestart.disabled=true;
+      suRestart.textContent="Đang khởi động lại...";
+      // browser gửi Origin tự động cho POST cùng origin — không set tay được (forbidden header).
+      fetch("/update/self/restart",{method:"POST",credentials:"same-origin",
+        headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"trigger=1"})
+        .catch(function(){suRestart.disabled=false;suRestart.textContent="Khởi động lại ngay"});
+    });
+  }
 
   window.toast=toast;
 })();

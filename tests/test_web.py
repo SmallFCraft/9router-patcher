@@ -979,3 +979,9 @@ def test_router_align_target_calls_install_and_enforces_csrf(web, monkeypatch):
     assert r.json()["ok"] is True
     assert len(calls) == 1
 
+
+def test_base_template_has_self_update_modal(web):
+    html = web["client"].get("/").text
+    assert 'id="self-update-modal"' in html
+    assert 'id="btn-self-update-restart"' in html
+
