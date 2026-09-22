@@ -1024,3 +1024,9 @@ def test_index_banner_shows_only_version_numbers(web, monkeypatch):
     banner = html.split('class="banner"')[1].split("</p>")[0]
     for p in REAL_PATCHES:
         assert p.find not in banner and p.replace not in banner and p.id not in banner
+
+
+def test_update_page_has_safe_target_install_option(web):
+    html = web["client"].get("/update").text
+    assert "0.5.81" in html
+    assert "Cài đặt phiên bản tương thích" in html

@@ -3,6 +3,7 @@
 {% block title %}Update · 9router{% endblock %}
 {% block heading %}{{ icon('refresh') }}Update 9router{% endblock %}
 {% block content %}
+{% set tv = target_version if target_version is defined and target_version else "—" %}
 <section class="card panel">
   <div class="verflow">
     <div class="verbox">
@@ -11,11 +12,21 @@
     </div>
     {{ icon('arrow') }}
     <div class="verbox">
+      <span class="small muted">Bản chuẩn</span>
+      <span class="ver">{% if tv != "—" %}v{{ tv }}{% else %}—{% endif %}</span>
+    </div>
+    {{ icon('arrow') }}
+    <div class="verbox">
       <span class="small muted">npm latest</span>
       <span class="ver">{{ latest_version if latest_version is defined else "—" }}</span>
     </div>
     {% set lv = local_version if local_version is defined else "unknown" %}
     {% set la = latest_version if latest_version is defined else "unknown" %}
+    {% if lv != "unknown" and tv != "—" and lv == tv %}
+      <span class="badge ok">khớp bản chuẩn v{{ tv }}</span>
+    {% elif lv != "unknown" and tv != "—" %}
+      <span class="badge warn">khác bản chuẩn v{{ tv }}</span>
+    {% endif %}
     {% if lv != "unknown" and la != "unknown" and lv == la %}
       <span class="badge ok">đã mới nhất — update là no-op</span>
     {% elif lv != "unknown" and la != "unknown" %}
@@ -98,7 +109,25 @@
   {% endif %}
 </section>
 
-<section class="card panel">
+<section class="card panel" id="align-target-panel">
+  <div class="panel-head">
+    <h2>{{ icon('undo') }}Cài đặt phiên bản tương thích</h2>
+    {% if tv != "—" %}<span class="badge ok">v{{ tv }}</span>{% endif %}
+  </div>
+  <p class="small muted" style="margin:.1rem 0 .8rem">Bản chuẩn đã kiểm thử với bộ patch — không lo mất anchor.</p>
+  <form id="align-target-form" method="post" action="/router/align-target">
+    <div>
+      <button class="btn btn-primary btn-lg" type="submit" data-confirm="Cài đặt lại bản tương thích? npm sẽ cài đè bản hiện tại.">
+        <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+        <span class="btn-label">{{ icon('undo') }}Cài đặt phiên bản tương thích{% if tv != "—" %} (v{{ tv }}){% endif %}</span>
+      </button>
+    </div>
+  </form>
+</section>
+
+<details class="card panel" data-key="latest-update">
+  <summary class="small muted" style="cursor:pointer">Dành cho dev: thử npm latest (có thể mất anchor)</summary>
+  <div style="margin-top:.8rem">
   <div class="panel-head">
     <h2>{{ icon('terminal') }}Chạy update</h2>
   </div>
@@ -112,14 +141,15 @@
       Bỏ qua dry-run anchor — update dù anchor có thể chết trên bản mới (cần khi đã sửa patches.toml và muốn cài ngay)
     </label>
     <div>
-      <button class="btn btn-primary btn-lg" type="submit">
+      <button class="btn btn-ghost btn-lg" type="submit">
         <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
         <span class="btn-label">npm i -g 9router@latest rồi apply lại patch</span>
       </button>
     </div>
   </form>
   <p class="small muted" style="margin:.7rem 0 0">Không tự restart khi tắt chế độ tự động — restart tay sau khi xong. Xem log trực tiếp ở console bên dưới khi chạy.</p>
-</section>
+  </div>
+</details>
 
 <section class="card panel console-panel" id="console-panel" hidden>
   <div class="con-head">
@@ -284,6 +314,38 @@
           window.toast("Lỗi mạng khi kiểm tra cập nhật", "bad");
         });
     });
+  }
+
+  var alignForm = document.getElementById("align-target-form");
+  if (alignForm) {
+    alignForm.addEventListener("submit", function(e){
+      var btn = e.submitter || alignForm.querySelector("button[type='submit']");
+      e._9rHandled = true;
+      if (btn && btn.hasAttribute("data-confirm") && !window.confirm(btn.getAttribute("data-confirm"))) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      if (btn) { btn.disabled = true; btn.classList.add("is-loading"); }
+      window.toast("Đang cài đặt phiên bản tương thích… (có thể mất 30–60s)");
+      fetch("/router/align-target", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {"Accept": "application/json"}
+      }).then(function(r){ return r.json(); })
+        .then(function(j){
+          if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
+          if (j.ok) {
+            window.toast(j.message || "Cài đặt thành công! Đang tải lại…");
+            setTimeout(function(){ location.reload(); }, 1200);
+          } else {
+            window.toast(j.error || j.message || "Cài đặt thất bại", "bad");
+          }
+        }).catch(function(){
+          if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
+          window.toast("Lỗi kết nối khi cài đặt", "bad");
+        });
+    }, true);
   }
 
   var form = document.getElementById("update-form");

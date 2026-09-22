@@ -564,6 +564,7 @@ def update_page(request: Request, probe: str = ""):
     local, latest = _fresh_versions()
     ctx = {
         "local_version": local, "latest_version": latest,
+        "target_version": getattr(engine, "target_version", lambda: "0.5.81")(),
         "locks": LOCK_CACHE["locks"],
         "steps": LAST_UPDATE_STEPS,
         "history": _load_history(),
