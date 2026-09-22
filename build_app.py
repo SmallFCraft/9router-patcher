@@ -164,7 +164,7 @@ def build(fast: bool = False) -> int:
             manifest = write_version_manifest(dist, versioned)
             print(f"Upload artifact: {versioned.name} ({vsize:.1f} MB)")
             print(f"SHA256:          {sha}")
-            print(f"Manifest:        {manifest.name} (upload cùng thư mục hosting)")
+            print(f"Manifest:        {manifest.name} (upload cung thu muc hosting)")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1
