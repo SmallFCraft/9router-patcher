@@ -863,9 +863,10 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
         compat_fn = getattr(updater, "check_router_compatibility", None)
         if callable(compat_fn) and not request.query_params.get("force"):
             compat = compat_fn()
-            if compat.get("relation") == "newer":
-                return _error(request, f"9router v{compat['local']} mới hơn bản hỗ trợ "
-                                       f"(v{compat['target']}). Hãy hạ cấp về v{compat['target']} trước.")
+            action = {"newer": "hạ cấp về", "older": "nâng cấp lên"}.get(compat.get("relation"))
+            if action:
+                return _error(request, f"9router v{compat['local']} khác bản vá "
+                                       f"(v{compat['target']}). Hãy {action} v{compat['target']} trước.")
     except Exception:
         pass                            # không dò được bản cài -> giữ hành vi cũ (cho apply)
     try:

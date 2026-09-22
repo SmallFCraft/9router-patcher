@@ -42,6 +42,21 @@ def test_check_and_apply_patches_skips_when_router_newer_than_target(monkeypatch
     assert calls == []  # guard chạy TRƯỚC write — chưa từng chạm disk
 
 
+def test_check_and_apply_patches_skips_when_router_older_than_target(monkeypatch):
+    """Hồi quy incident 2026-09-22: local 0.5.81 + target 0.5.85, guard cũ chỉ chặn
+    'newer' nên apply 0.5.85 patch lên build 0.5.81 → 8 dead-anchor, nothing written."""
+    import boot_doctor, engine, updater
+    monkeypatch.setattr(updater, "check_router_compatibility",
+                        lambda: {"compatible": False, "relation": "older",
+                                 "local": "0.5.81", "target": "0.5.85"})
+    calls = []
+    monkeypatch.setattr(engine, "apply", lambda *a, **k: calls.append(True))
+    ok, msg = boot_doctor.check_and_apply_patches()
+    assert ok is False
+    assert "cũ hơn bản vá" in msg and "0.5.85" in msg
+    assert calls == []  # guard chạy TRƯỚC write — chưa từng chạm disk
+
+
 def test_boot_logs_ring_buffer():
     boot_doctor.log_boot("Test line 1")
     logs = boot_doctor.get_boot_logs()

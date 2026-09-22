@@ -959,7 +959,24 @@ def test_apply_blocked_when_router_is_newer_than_target(web, monkeypatch):
                         lambda *a, **k: calls.append((a, k)) or [])
     r = web["client"].post("/apply", headers={"Origin": "http://127.0.0.1:20129"})
     assert r.status_code == 409
-    assert "mới hơn bản hỗ trợ" in r.text
+    assert "v0.5.81" in r.text and "hạ cấp" in r.text
+    assert web["apply"] == []
+    assert calls == []  # guard chạy TRƯỚC patch-write — spy không được gọi
+
+
+def test_apply_blocked_when_router_is_older_than_target(web, monkeypatch):
+    """Hồi quy incident 2026-09-22: local cũ + target mới, /apply tay vẫn lọt qua
+    guard cũ (chỉ chặn 'newer') → dead-anchor, nothing written."""
+    monkeypatch.setattr(main.updater, "check_router_compatibility",
+                        lambda *a, **k: {"compatible": False, "relation": "older",
+                                         "local": "0.5.81", "target": "0.5.85"})
+    import engine as engine_mod
+    calls = []
+    monkeypatch.setattr(engine_mod, "apply",
+                        lambda *a, **k: calls.append((a, k)) or [])
+    r = web["client"].post("/apply", headers={"Origin": "http://127.0.0.1:20129"})
+    assert r.status_code == 409
+    assert "v0.5.85" in r.text and "nâng cấp" in r.text
     assert web["apply"] == []
     assert calls == []  # guard chạy TRƯỚC patch-write — spy không được gọi
 
@@ -1040,31 +1057,37 @@ def test_base_template_has_self_update_modal(web):
 
 def test_index_disables_apply_and_shows_warning_when_router_newer(web, monkeypatch):
     import updater
-    newer = {"compatible": False, "relation": "newer", "local": "0.5.85", "target": "0.5.81"}
+    newer = {"compatible": False, "relation": "newer", "local": "0.5.86", "target": "0.5.85"}
     monkeypatch.setattr(updater, "check_router_compatibility", lambda *a, **k: newer)
     # the fixture swaps main.updater for a stub namespace — patch the object the route reads
     monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: newer)
     html = web["client"].get("/").text
-    assert "mới hơn bản hỗ trợ" in html
+    assert "mới hơn" in html
     assert "disabled" in html
     # not vacuous: every /apply submit button really carries the attribute; revert stays usable
     apply_forms = re.findall(r'<form method="post" action="/apply">.*?</form>', html, re.S)
     assert len(apply_forms) >= 7
     assert all("disabled" in f for f in apply_forms)
     assert 'action="/router/align-target"' in html
-    assert "0.5.81" in html and "0.5.85" in html
+    assert "0.5.85" in html and "0.5.86" in html
     assert re.search(r'action="/revert"', html)
 
 
-def test_index_keeps_apply_enabled_and_hints_upgrade_when_router_older(web, monkeypatch):
-    older = {"compatible": False, "relation": "older", "local": "0.5.70", "target": "0.5.81"}
+def test_index_blocks_apply_and_offers_align_when_router_older(web, monkeypatch):
+    """Hồi quy incident 2026-09-22: older mở apply + không có nút align → dead-anchor.
+    Giờ older khóa apply như newer, nút align-target hiện cả hai chiều."""
+    older = {"compatible": False, "relation": "older", "local": "0.5.70", "target": "0.5.85"}
     monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: older)
     html = web["client"].get("/").text
-    assert "cũ hơn bản hỗ trợ" in html
-    assert "0.5.81" in html
+    assert "cũ hơn" in html
+    assert "0.5.85" in html
+    # not vacuous: every /apply submit button really carries the attribute; revert stays usable
     apply_forms = re.findall(r'<form method="post" action="/apply">.*?</form>', html, re.S)
-    assert apply_forms and not any("disabled" in f for f in apply_forms)
-    assert 'action="/router/align-target"' not in html
+    assert len(apply_forms) >= 7
+    assert all("disabled" in f for f in apply_forms)
+    assert 'action="/router/align-target"' in html
+    assert "Cài đặt lại v0.5.85" in html
+    assert re.search(r'action="/revert"', html)
 
 
 def test_index_banner_shows_only_version_numbers(web, monkeypatch):

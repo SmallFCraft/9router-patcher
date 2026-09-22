@@ -58,6 +58,17 @@ def check_node() -> tuple[bool, str]:
         log_boot(f"ERROR: {msg}")
         return False, msg
 
+def current_compat() -> dict | None:
+    """Compat local↔target, None khi không dò được. Một chỗ duy nhất gọi
+    updater.check_router_compatibility — check_9router() và run_doctor() dùng chung."""
+    if not updater:
+        return None
+    try:
+        return updater.check_router_compatibility()
+    except Exception:
+        return None
+
+
 def check_9router() -> tuple[bool, str]:
     """9router toàn cục đã cài chưa, và có bản npm mới hơn không.
 
@@ -69,14 +80,7 @@ def check_9router() -> tuple[bool, str]:
         idir = engine.install_dir()
         ver = updater.current_version() if updater else "unknown"
         msg = f"9router v{ver} đã cài đặt tại {idir.name}"
-        compat = None
-        if updater:
-            check_compat = getattr(updater, "check_router_compatibility", None)
-            if check_compat:
-                try:
-                    compat = check_compat()
-                except Exception:
-                    compat = None
+        compat = current_compat()
         if compat:
             relation = compat.get("relation")
             target = compat.get("target", "")
@@ -141,18 +145,17 @@ def install_9router(on_output=None) -> tuple[bool, str]:
 
 def check_and_apply_patches(on_output=None) -> tuple[bool, str]:
     try:
-        if updater:
-            check_compat = getattr(updater, "check_router_compatibility", None)
-            if check_compat:
-                try:
-                    compat = check_compat()
-                except Exception:
-                    compat = None
-                if compat and compat.get("relation") == "newer":
-                    msg = (f"9router v{compat['local']} mới hơn bản vá "
-                           f"(v{compat['target']}) — bỏ qua apply để tránh lỗi")
-                    log_boot(f"WARN: {msg}")
-                    return False, msg
+        compat = current_compat()
+        relation = (compat or {}).get("relation")
+        if compat and relation in ("newer", "older"):
+            direction = "mới hơn" if relation == "newer" else "cũ hơn"
+            action = ("hạ cấp về" if relation == "newer"
+                      else "nâng cấp lên")
+            msg = (f"9router v{compat['local']} {direction} bản vá "
+                   f"(v{compat['target']}) — {action} v{compat['target']} "
+                   f"trước khi apply để tránh lỗi")
+            log_boot(f"WARN: {msg}")
+            return False, msg
         build_path = engine.build_dir()
         if not build_path.exists():
             return False, "Thư mục build 9router không tồn tại"
@@ -237,20 +240,21 @@ def run_doctor(interactive: bool = True) -> bool:
             input("Nhấn Enter để thoát...")
         return False
 
-    # 2. 9router toàn cục — thiếu thì hỏi cài (interactive) hoặc bỏ (non-interactive).
+    # 2. 9router toàn cục — thiếu thì hỏi cài; cũ hơn bản vá thì hỏi nâng cấp (interactive).
     console_ui.step_begin("[2/5]", "Kiểm tra 9router toàn cục")
     ok, msg = check_9router()
-    if ok:
-        console_ui.step_end("OK", "ok")
-    elif not interactive:
-        console_ui.step_end("THIẾU", "bad")
-        return False
-    else:
+    compat = current_compat()
+    relation = (compat or {}).get("relation")
+
+    if not ok:
+        if not interactive:
+            console_ui.step_end("THIẾU", "bad")
+            return False
         console_ui.step_end("CHƯA CÀI", "warn")
         print(f"\n  → {msg}", flush=True)
         ans = input("\n? 9router chưa được cài đặt. Cài đặt toàn cục qua npm? (Y/n) [Y]: ").strip().lower()
         if ans in ("", "y", "yes"):
-            target = getattr(engine, "target_version", lambda: "0.5.81")()
+            target = getattr(engine, "target_version", lambda: "0.5.85")()
             print(f"  > npm install -g 9router@{target}...")
             i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
             print()
@@ -258,9 +262,32 @@ def run_doctor(interactive: bool = True) -> bool:
                 print(f"  [!] {i_msg}")
                 input("Nhấn Enter để tiếp tục (chế độ xem)...")
             else:
-                print("  [ OK ] Cài đặt 9router hoàn tất!")
+                print(f"  [ OK ] Cài đặt 9router@{target} hoàn tất!")
         else:
             print("  Bỏ qua cài đặt 9router.")
+    elif relation == "older" and interactive:
+        target = compat.get("target", engine.target_version())
+        local_v = compat.get("local", "cũ")
+        console_ui.step_end("CẦN CẬP NHẬT", "warn", f"local v{local_v} < v{target}")
+        print(f"\n  → 9router v{local_v} cũ hơn bản hỗ trợ (v{target}).", flush=True)
+        ans = input(f"? Nâng cấp lên v{target} để áp dụng đầy đủ các patch? (Y/n) [Y]: ").strip().lower()
+        if ans in ("", "y", "yes"):
+            print(f"  > npm install -g 9router@{target}...")
+            i_ok, i_msg = install_9router(on_output=lambda line: print(f"    {line[:70]}", end="\r", flush=True))
+            print()
+            if not i_ok:
+                print(f"  [!] {i_msg}")
+                input("Nhấn Enter để tiếp tục (chế độ xem)...")
+            else:
+                print(f"  [ OK ] Cập nhật 9router@{target} hoàn tất!")
+        else:
+            print(f"  Giữ nguyên 9router v{local_v} (bỏ qua áp dụng patch).")
+    elif relation == "newer":
+        target = compat.get("target", engine.target_version())
+        local_v = compat.get("local", "")
+        console_ui.step_end("KHÁC VERSION", "warn", f"local v{local_v} > v{target}")
+    else:
+        console_ui.step_end("OK", "ok")
 
     # 3. Patches — lỗi chỉ cảnh báo, dashboard vẫn sửa được.
     console_ui.step_begin("[3/5]", "Kiểm tra patches tối ưu")
