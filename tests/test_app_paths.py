@@ -1,4 +1,5 @@
 """Tests for app_paths resolution across dev and frozen environments."""
+import os
 import sys
 from pathlib import Path
 import pytest
@@ -76,9 +77,14 @@ def test_headroom_cmd_falls_back_to_interpreter_dir(monkeypatch, tmp_path):
 
 
 def test_headroom_cmd_returns_none_without_pythonw(monkeypatch, tmp_path):
-    """No pythonw anywhere: report failure rather than falling back to the window-spawning shim."""
+    """No real pythonw anywhere: report failure rather than falling back to the window-spawning shim.
+
+    After the PATH-scan fix, "no pythonw" means neither a sibling nor any real
+    pythonw on PATH (WindowsApps stubs excluded) — so PATH is emptied here."""
     import updater
     monkeypatch.setattr(updater.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setattr(updater.shutil, "which", lambda n: None)
     assert updater._default_headroom_cmd() is None
 
 
@@ -95,3 +101,24 @@ def test_headroom_cmd_returns_none_when_headroom_not_installed(monkeypatch, tmp_
     assert st["installed"] is False
     assert "Chưa cài headroom" in st["reason"]
 
+
+
+def test_real_pythonw_finds_path_pythonw_when_frozen(monkeypatch, tmp_path):
+    """Regression frozen: exe cạnh dist/ không có pythonw → phải quét PATH (bỏ stub WindowsApps).
+
+    Bug 2026-09: chạy 9router-patch.exe, sys.executable = dist/9router-patch.exe,
+    sibling pythonw.exe không tồn tại -> _real_pythonw() trả None -> dashboard
+    báo 'CHƯA CÀI' dù headroom đang chạy và :8787 UP."""
+    import updater
+    fake_bin = tmp_path / "pybin"
+    fake_bin.mkdir()
+    fake_pyw = fake_bin / "pythonw.exe"
+    fake_pyw.write_bytes(b"MZ fake real pythonw")
+    fake_exe = tmp_path / "dist" / "9router-patch.exe"
+    fake_exe.parent.mkdir()
+    fake_exe.write_bytes(b"MZ fake frozen app")
+    assert not (fake_exe.parent / "pythonw.exe").exists()
+    monkeypatch.setattr(updater.sys, "executable", str(fake_exe))
+    monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ.get("PATH", ""))
+    got = updater._real_pythonw()
+    assert got == str(fake_pyw), f"expected PATH pythonw {fake_pyw}, got {got}"

@@ -1082,3 +1082,14 @@ def test_update_page_has_safe_target_install_option(web):
     html = web["client"].get("/update").text
     assert "0.5.81" in html
     assert "Cài đặt phiên bản tương thích" in html
+
+
+def test_probe_headroom_reports_installed_when_port_is_up_even_if_detection_failed(monkeypatch):
+    """Safety guard: nếu cổng :8787 đang UP (readyz trả 200), headroom CHẮC CHẮN đã cài
+    và đang chạy — tuyệt đối không để UI báo 'CHƯA CÀI' chỉ vì pythonw probe bị hụt."""
+    import main
+    monkeypatch.setattr(main, "_is_headroom_installed", lambda: False)
+    monkeypatch.setattr(main, "_get_json", lambda url, timeout=None: {"status": "ok"})
+    res = main.probe_headroom()
+    assert res["up"] is True
+    assert res["installed"] is True, "Phải tự suy luận installed=True khi readyz phản hồi thành công"

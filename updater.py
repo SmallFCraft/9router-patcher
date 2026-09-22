@@ -501,9 +501,22 @@ def _real_pythonw() -> str | None:
     Stub `%LOCALAPPDATA%\\Microsoft\\WindowsApps\\pythonw.exe` luôn tồn tại và luôn
     `is_file()`, nhưng chỉ mở Microsoft Store — spawn nó sinh cửa sổ Store và
     headroom không bao giờ chạy (đo 2026-09-22). Chỉ nhận path có thật cạnh
-    python.exe đang chạy."""
+    python.exe đang chạy; khi frozen (sys.executable là exe) thì quét PATH
+    bỏ qua thư mục WindowsApps (fix 2026-09-22: exe không có sibling pythonw)."""
+    import shutil
     cand = Path(sys.executable).parent / "pythonw.exe"
-    return str(cand) if cand.is_file() else None
+    if cand.is_file():
+        return str(cand)
+    for p in os.environ.get("PATH", "").split(os.pathsep):
+        if not p or "WindowsApps" in p:
+            continue
+        c = Path(p) / "pythonw.exe"
+        if c.is_file():
+            return str(c)
+    found = shutil.which("pythonw")
+    if found and "WindowsApps" not in found and Path(found).is_file():
+        return found
+    return None
 
 
 def _pythonw_has_headroom(pythonw: str) -> bool:

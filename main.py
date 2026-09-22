@@ -147,7 +147,9 @@ def probe_headroom() -> dict:
     installed = _is_headroom_installed()
     try:
         d = _get_json(HEADROOM_READYZ)
-        return {"up": True, "installed": installed,
+        # readyz trả lời nghĩa là headroom ĐANG CHẠY -> chắc chắn đã cài,
+        # dù probe pythonw có hụt (frozen exe không thấy sibling pythonw).
+        return {"up": True, "installed": True,
                 "detail": d.get("status", "ok") if isinstance(d, dict) else "ok"}
     except Exception:
         return {"up": False, "installed": installed,
