@@ -157,3 +157,48 @@ def test_download_and_swap_dev_mode_never_touches_files(tmp_path, monkeypatch):
     assert list(tmp_path.glob("*")) == []
 
 
+def test_worker_skips_when_disabled(monkeypatch):
+    """Khi auto_update=False: worker không gọi check_update."""
+    import self_update
+    import threading
+
+    stop = threading.Event()
+    called = []
+
+    def fake_enabled():
+        stop.set()      # cho worker chạy đúng 1 lượt rồi thoát
+        return False
+
+    monkeypatch.setattr(self_update, "is_enabled", fake_enabled)
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: called.append(True) or None)
+
+    self_update.run_worker(stop, interval=60.0)
+    assert len(called) == 0
+
+
+def test_worker_downloads_when_newer_found(monkeypatch):
+    """Khi có bản mới và auto_update=True: worker gọi download_and_swap."""
+    import self_update
+    import threading
+
+    stop = threading.Event()
+    meta = {"version": "2.1.0", "has_update": True,
+            "url": "https://example.com/files/app.exe", "sha256": ""}
+    swapped = []
+    monkeypatch.setattr(self_update, "is_enabled", lambda: True)
+    monkeypatch.setattr(self_update, "check_update", lambda url=None: meta)
+
+    def fake_swap(m):
+        swapped.append(m)
+        stop.set()      # thoát sau lượt đầu
+        return {"ok": True, "error": None}
+
+    monkeypatch.setattr(self_update, "download_and_swap", fake_swap)
+
+    self_update.run_worker(stop, interval=60.0)
+    assert len(swapped) == 1
+    assert swapped[0]["version"] == "2.1.0"
+
+
+

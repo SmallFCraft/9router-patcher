@@ -32,6 +32,8 @@ from fastapi.templating import Jinja2Templates
 import app_paths
 import boot_doctor
 import engine
+import self_update
+import version
 
 try:
     import updater                      # written in parallel; UI must boot without it
@@ -298,7 +300,13 @@ async def _lifespan(_app: FastAPI):
     """Uvicorn runtime only: TestClient without a `with` block never runs this, so the
     refresher thread (real npm/network I/O) never exists inside the test suite."""
     threading.Thread(target=_snap_worker, name="snap-refresh", daemon=True).start()
-    yield
+    self_update.cleanup_old_files()
+    threading.Thread(target=self_update.run_worker, args=(_UPDATE_STOP,),
+                     name="auto-update-worker", daemon=True).start()
+    try:
+        yield
+    finally:
+        _UPDATE_STOP.set()
 
 
 # No /docs, /redoc, /openapi.json: this app mutates node_modules and runs `npm i -g`;
@@ -306,6 +314,7 @@ async def _lifespan(_app: FastAPI):
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None,
               lifespan=_lifespan, dependencies=[Depends(check_host)])
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+templates.env.globals["app_version"] = version.APP_VERSION
 
 # 8-bit cartridge-style favicon: chunky green body, hard black border, square pixels.
 # viewBox 32x32 so it reads crisp at favicon sizes; no anti-aliased curves.
@@ -477,6 +486,7 @@ class OpSlot:
 
 
 OP_SLOT = OpSlot()
+_UPDATE_STOP = threading.Event()        # dừng auto-update worker lúc shutdown
 
 
 # ---------------------------------------------------------------- pages
@@ -830,16 +840,29 @@ def log_line_kind(line: str) -> str:
     return ""
 
 
-def _patch_search_terms() -> list[str]:
-    """Every distinct payload substring the logger should treat as secret."""
-    terms = []
-    seen = set()
+def _patch_search_terms() -> tuple[str, ...]:
+    """Every distinct payload substring the logger should treat as secret.
+
+    Cache theo mtime của file nguồn: mỗi request /logs gọi 1 lần, mà decrypt
+    AES-GCM + parse TOML mỗi lần là phí. load_patches() vẫn là source of truth.
+    """
+    src = engine.PATCHES_ENC_FILE if engine.PATCHES_ENC_FILE.is_file() else engine.PATCHES_FILE
+    try:
+        stamp = src.stat().st_mtime_ns
+    except OSError:
+        stamp = 0
+    return _terms_for(stamp)
+
+
+@lru_cache(maxsize=2)
+def _terms_for(_stamp: int) -> tuple[str, ...]:
+    terms, seen = [], set()
     for p in engine.load_patches():
         for piece in (p.find.splitlines() or [p.find]) + (p.replace.splitlines() or [p.replace]):
             if len(piece) >= 5 and piece not in seen:
                 seen.add(piece)
                 terms.append(piece)
-    return terms
+    return tuple(terms)
 
 
 def _log_files(log_dir: Path, per_kind_limit: int = 5) -> list[tuple[str, Path]]:
@@ -929,6 +952,9 @@ def get_log_config() -> dict:
     return {
         "version": 1,
         "disable_existing_loggers": False,
+        # Một FileHandler duy nhất cho cả uvicorn + uvicorn.access: hai handler
+        # cùng filename có offset riêng → dòng log xé lẫn nhau. AccessFormatter
+        # mặc định của uvicorn đã tự format request string, DefaultFormatter đủ.
         "formatters": {
             "default": {
                 "()": "uvicorn.logging.DefaultFormatter",
@@ -936,23 +962,15 @@ def get_log_config() -> dict:
                 "datefmt": "%d-%m-%Y %H:%M:%S",
                 "use_colors": False,    # Windows: tránh crash isatty() khi stream không phải tty
             },
-            "access": {
-                "()": "uvicorn.logging.AccessFormatter",
-                "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
-                "datefmt": "%d-%m-%Y %H:%M:%S",
-                "use_colors": False,
-            },
         },
         "handlers": {
             "default": {"class": "logging.FileHandler", "formatter": "default",
                         "filename": app_log},
-            "access": {"class": "logging.FileHandler", "formatter": "access",
-                       "filename": app_log},
         },
         "loggers": {
             "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
             "uvicorn.error": {"level": "INFO"},
-            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
         },
     }
 
