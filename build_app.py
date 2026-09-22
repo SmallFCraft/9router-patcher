@@ -122,6 +122,14 @@ def _release_dist_exe(exe: Path) -> None:
 
 
 def build(fast: bool = False) -> int:
+    # Console Windows mặc định cp1252/cp437: in tiếng Việt sẽ crash UnicodeEncodeError
+    # giữa lúc build. Ép UTF-8 một lần ở đây thay vì vá từng câu print.
+    try:
+        for stream in (sys.stdout, sys.stderr):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     dist = ROOT / "dist"
     dist.mkdir(parents=True, exist_ok=True)
     _release_dist_exe(dist / "9router-patch.exe")
@@ -164,7 +172,7 @@ def build(fast: bool = False) -> int:
             manifest = write_version_manifest(dist, versioned)
             print(f"Upload artifact: {versioned.name} ({vsize:.1f} MB)")
             print(f"SHA256:          {sha}")
-            print(f"Manifest:        {manifest.name} (upload cung thu muc hosting)")
+            print(f"Manifest:        {manifest.name} (upload cùng thư mục hosting)")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1
