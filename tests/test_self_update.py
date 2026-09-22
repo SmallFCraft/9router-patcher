@@ -305,3 +305,62 @@ def test_restart_self_noop_in_dev_mode(monkeypatch):
 
     monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: False)
     self_update.restart_self()  # không raise
+
+
+def test_download_and_swap_same_version_twice_no_second_accumulation(tmp_path, monkeypatch):
+    """TDD RED 2026-09: mô phỏng bug spam file .old mỗi 5 phút.
+
+    Worker chạy phiên bản cũ trong RAM (v2.2.0), hosting có v2.2.1 -> swap lần 1 OK.
+    Tiến trình vẫn chạy (user chưa restart), 5 phút sau worker tỉnh dậy,
+    thấy hosting v2.2.1 > local RAM v2.2.0 -> tải+swap LẦN 2 (bug: thêm 1 file
+    .old nữa thay vì nhận ra version này đã tải). Sau fix, lần 2 phải bị từ chối
+    ngay từ đầu, số file .old không tăng."""
+    import self_update
+    import hashlib
+
+    exe_file = tmp_path / "9router-patch.exe"
+    exe_file.write_bytes(b"OLD_VERSION_EXE")
+
+    new_content = b"NEW_VERSION_EXE_DATA_PAYLOAD"
+    _dummy_dl_monkeypatch(monkeypatch, self_update, new_content)
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    meta = {
+        "version": "2.2.1",
+        "url": "https://example.com/files/app.exe",
+        "sha256": hashlib.sha256(new_content).hexdigest(),
+    }
+
+    res1 = self_update.download_and_swap(meta, current_exe=exe_file)
+    assert res1["ok"] is True, res1
+    assert len(list(tmp_path.glob("9router-patch.old-*"))) == 1
+
+    # Lượt check thứ 2 (worker 5 phút sau): cùng version, tiến trình vẫn cũ.
+    res2 = self_update.download_and_swap(meta, current_exe=exe_file)
+    assert res2["ok"] is False, "Phải từ chối swap trùng version đã áp dụng"
+    assert "đã được tải" in (res2.get("error") or "")
+    assert len(list(tmp_path.glob("9router-patch.old-*"))) == 1, "Không được đẻ thêm file .old"
+
+
+def test_download_and_swap_second_version_clears_previous_old(tmp_path, monkeypatch):
+    """Sau fix: khi swap version MỚI HƠN (VD v2.2.2 sau v2.2.1), các file .old
+    còn sót từ lần trước phải bị xóa trước khi swap, tối đa còn lại 1 file .old
+    (chính file vừa bị thay)."""
+    import self_update
+    import hashlib
+
+    exe_file = tmp_path / "9router-patch.exe"
+    exe_file.write_bytes(b"V220_EXE")
+    # File .old sót lại từ lần swap trước
+    (tmp_path / "9router-patch.old-111").write_bytes(b"V219_EXE")
+
+    v221 = b"V221_PAYLOAD"
+    _dummy_dl_monkeypatch(monkeypatch, self_update, v221)
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+    # Reset applied_version giữa các test độc lập
+    self_update._set_state(applied_version=None)
+    meta1 = {"version": "2.2.1", "url": "https://x/a.exe",
+             "sha256": hashlib.sha256(v221).hexdigest()}
+    assert self_update.download_and_swap(meta1, current_exe=exe_file)["ok"] is True
+    assert len(list(tmp_path.glob("9router-patch.old-*"))) == 1, \
+        f"Sót file cũ: {list(tmp_path.glob('9router-patch.old-*'))}"

@@ -151,6 +151,23 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
         exe = current_exe or Path(sys.argv[0]).resolve()
         exe_dir = exe.parent
         new_file = exe_dir / "9router-patch.new"
+        # Fix 2026-09: worker 5 phút tỉnh dậy thấy hosting > local-trong-RAM (tiến trình
+        # cũ chưa restart) -> tải+swap trùng version đã áp dụng, đẻ .old mỗi 5 phút.
+        # Chặn ngay: version này đã tải trong phiên này thì không tải lại.
+        done_ver = state().get("applied_version")
+        if done_ver and done_ver == str(meta.get("version", "")).strip():
+            _set_state(has_update=False)
+            return {"ok": False, "error": f"Version {done_ver} đã được tải trong phiên này"}
+        # Dọn .old sót từ lần swap trước TRƯỚC khi swap: giữ tối đa 1 file sau swap.
+        # Tối ưu: xóa ngay các file cũ không bị lock, không đợi đến lần boot sau.
+        try:
+            for f in sorted(exe_dir.glob("9router-patch.old-*")):
+                try:
+                    f.unlink()
+                except (OSError, PermissionError):
+                    pass            # đang bị tiến trình khác giữ -> lần boot sau dọn tiếp
+        except OSError:
+            pass
         # Chuẩn hóa tên file trên máy user: luôn là 9router-patch.exe, không mang version.
         # Nếu user chạy file cũ tên 9router-patch-v2.1.2.exe thì sau update sẽ thành 9router-patch.exe.
         target_exe = exe_dir / "9router-patch.exe"
