@@ -31,12 +31,15 @@ def test_check_9router_present(monkeypatch):
     assert "0.5.81" in msg
 
 def test_check_and_apply_patches_skips_when_router_newer_than_target(monkeypatch):
-    import boot_doctor, updater
+    import boot_doctor, engine, updater
     monkeypatch.setattr(updater, "check_router_compatibility",
                         lambda: {"compatible": False, "relation": "newer", "local": "0.5.85", "target": "0.5.81"})
+    calls = []
+    monkeypatch.setattr(engine, "apply", lambda *a, **k: calls.append(True))
     ok, msg = boot_doctor.check_and_apply_patches()
     assert ok is False
     assert "mới hơn bản vá" in msg
+    assert calls == []  # guard chạy TRƯỚC write — chưa từng chạm disk
 
 
 def test_boot_logs_ring_buffer():

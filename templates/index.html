@@ -307,8 +307,13 @@
     }
     e.preventDefault();
     var b = s || e.target.querySelector("button");
-    toast(a.indexOf("stop") > 0 ? "Đang tắt… (~2–5s)" : "Đang bật… (10–30s, headroom lên sau)");
-    setStackButtonsDisabled(true);            // một action đụng cả stack: khóa nút 2 card
+    var isAlign = a.endsWith("/router/align-target");
+    if (isAlign) {
+      toast("Đang cài đặt phiên bản tương thích… (có thể mất 30–60s)");
+    } else {
+      toast(a.indexOf("stop") > 0 ? "Đang tắt… (~2–5s)" : "Đang bật… (10–30s, headroom lên sau)");
+      setStackButtonsDisabled(true);            // một action đụng cả stack: khóa nút 2 card
+    }
     if (b) { b.classList.add("is-loading"); b.setAttribute("aria-busy", "true"); }
     fetch(a, {method: "POST", credentials: "same-origin",
               headers: {"Accept": "application/json"}, body: new FormData(e.target)})
@@ -316,6 +321,16 @@
         return r.json().then(function(j){ return {status: r.status, body: j}; });
       })
       .then(function(res){
+        if (isAlign) {
+          if (res.status === 200 && (!res.body || res.body.ok !== false)) {
+            toast("Đã căn chỉnh 9router về phiên bản tương thích");
+            setTimeout(function(){ window.location.reload(); }, 1000);
+          } else {
+            toast((res.body && (res.body.error || res.body.message)) || ("Lỗi " + res.status), "bad");
+            if (b) { b.classList.remove("is-loading"); b.removeAttribute("aria-busy"); }
+          }
+          return;
+        }
         if (res.status === 202) {
           stopPoll();
           poll();
@@ -328,7 +343,7 @@
       })
       .catch(function(){
         toast("Không gọi được dashboard — thử lại", "bad");
-        setStackButtonsDisabled(false);
+        if (!isAlign) setStackButtonsDisabled(false);
         if (b) { b.classList.remove("is-loading"); b.removeAttribute("aria-busy"); }
       });
   }, true);

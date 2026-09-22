@@ -139,7 +139,12 @@ def install_target_router(on_output=None) -> tuple[bool, str]:
                 if c and on_output:
                     on_output(c)
             proc.stdout.close()
-        proc.wait(timeout=300)
+        try:
+            proc.wait(timeout=300)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            return False, "npm install quá thời gian (300s)"
         return proc.returncode == 0, f"Cài đặt 9router@{target} {'thành công' if proc.returncode == 0 else 'thất bại'}"
     except Exception as e:
         return False, str(e)
@@ -822,6 +827,8 @@ def run_update(emit=None, autostop=False, skip_gate=False, target_pin: str | Non
     Với autostop: process giữ lock được tắt trước npm và LUÔN được khởi động lại sau —
     kể cả khi npm fail (không bao giờ để lại máy thiếu proxy).
     skip_gate=True bỏ qua bước dry-run anchor (người dùng chấp nhận rủi ro anchor chết).
+    target_pin=X ghim npm về 9router@X thay vì @latest — /update mặc định truyền bản chuẩn,
+    skip_gate=True là override chọn latest → target_pin phải là None.
     """
     out = emit or (lambda ev: None)
     steps: list[Step] = []

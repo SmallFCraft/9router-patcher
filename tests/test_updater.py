@@ -261,6 +261,55 @@ def test_check_router_compatibility():
     assert res["relation"] == "newer"
 
 
+def test_install_target_router_invokes_npm_with_target_pin(monkeypatch):
+    calls = []
+    target_spec = f"9router@{engine.target_version()}"
+
+    class FakePopen:
+        def __init__(self, cmd, *a, **k):
+            calls.append(cmd)
+            self.stdout = None
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+
+    ok, msg = updater.install_target_router()
+    assert ok is True
+    assert len(calls) == 1
+    assert target_spec in calls[0]
+    assert "9router@latest" not in calls[0]
+    assert f"Cài đặt {target_spec} thành công" in msg
+
+
+def test_install_target_router_timeout_kills_process(monkeypatch):
+    killed = []
+
+    class FakePopen:
+        def __init__(self, cmd, *a, **k):
+            self.stdout = None
+            self.returncode = None
+
+        def wait(self, timeout=None):
+            if timeout:
+                raise subprocess.TimeoutExpired(cmd="npm", timeout=timeout)
+            return -9
+
+        def kill(self):
+            killed.append(True)
+
+    monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+
+    ok, msg = updater.install_target_router()
+    assert ok is False
+    assert len(killed) == 1
+    assert "quá thời gian" in msg
+
+
 # ---------- dryrun_anchors (gate trước npm) ----------
 
 # ---------- dryrun_anchors (gate trước npm) ----------

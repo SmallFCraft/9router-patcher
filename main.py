@@ -645,8 +645,10 @@ def update_run(request: Request, autostop: Annotated[str, Form()] = "",
         return JSONResponse({"ok": False, "error": "update/thao tác khác đang chạy"},
                             status_code=409)
     t0 = time.time()
+    skip = skip_gate == "1"
+    pin = None if skip else engine.target_version()
     try:
-        steps = updater.run_update(autostop=autostop == "1", skip_gate=skip_gate == "1")
+        steps = updater.run_update(autostop=autostop == "1", skip_gate=skip, target_pin=pin)
     except Exception as e:
         steps = [{"title": "update failed", "ok": False, "log": str(e)}]
     finally:
@@ -687,9 +689,11 @@ def update_start(request: Request, autostop: Annotated[str, Form()] = "",
 
     def run() -> None:
         global LAST_UPDATE_STEPS
+        skip = skip_gate == "1"
+        pin = None if skip else engine.target_version()
         try:
             steps = updater.run_update(emit=emit, autostop=autostop == "1",
-                                       skip_gate=skip_gate == "1")
+                                       skip_gate=skip, target_pin=pin)
             LAST_UPDATE_STEPS = steps
             _record_history(started_at, autostop == "1", steps)
             _forget_versions()          # npm vừa đổi version — dashboard không được hiện bản cũ

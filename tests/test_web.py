@@ -275,7 +275,7 @@ def test_get_update_probe_param_runs_probe(web):
 
 
 def test_update_start_runs_background_job_and_streams(web, monkeypatch):
-    def fake_run(emit=None, autostop=False, skip_gate=False):
+    def fake_run(emit=None, autostop=False, skip_gate=False, target_pin=None):
         assert autostop is True
         emit({"type": "step-start", "title": "t", "hint": ""})
         emit({"type": "line", "text": "hello"})
@@ -525,7 +525,7 @@ def test_dashboard_shows_toggle_buttons(web):
 
 
 def test_streamed_job_is_recorded_to_history(web, monkeypatch):
-    def fake_run(emit=None, autostop=False, skip_gate=False):
+    def fake_run(emit=None, autostop=False, skip_gate=False, target_pin=None):
         emit({"type": "line", "text": "hi"})
         return [SimpleNamespace(title="1. x", ok=True, log="done")]
     monkeypatch.setattr(main.updater, "run_update", fake_run)
@@ -954,10 +954,56 @@ def test_apply_blocked_when_router_is_newer_than_target(web, monkeypatch):
     monkeypatch.setattr(main.updater, "check_router_compatibility",
                         lambda *a, **k: {"compatible": False, "relation": "newer",
                                          "local": "0.5.85", "target": "0.5.81"})
+    import engine as engine_mod
+    calls = []
+    monkeypatch.setattr(engine_mod, "apply",
+                        lambda *a, **k: calls.append((a, k)) or [])
     r = web["client"].post("/apply", headers={"Origin": "http://127.0.0.1:20129"})
     assert r.status_code == 409
     assert "mới hơn bản hỗ trợ" in r.text
     assert web["apply"] == []
+    assert calls == []  # guard chạy TRƯỚC patch-write — spy không được gọi
+
+
+def test_update_routes_pass_target_pin_by_default(web, monkeypatch):
+    """Sync + async /update mặc định ghim về bản chuẩn; skip_gate=1 mới đi latest."""
+    seen = []
+
+    def fake_run_update(*a, **k):
+        seen.append(k)
+        return []
+
+    monkeypatch.setattr(main.updater, "run_update", fake_run_update)
+    targets_version = engine.target_version()
+
+    r = web["client"].post("/update", data={"autostop": "", "skip_gate": ""},
+                            headers={"Origin": OWN})
+    assert r.status_code == 200
+    assert seen and seen[-1].get("target_pin") == targets_version
+
+    seen.clear()
+    r = web["client"].post("/update/start",
+                            data={"autostop": "1", "skip_gate": ""},
+                            headers={"Origin": OWN})
+    assert r.status_code == 202
+    assert seen and seen[-1].get("target_pin") == targets_version
+
+
+def test_update_routes_skip_gate_goes_latest(web, monkeypatch):
+    """skip_gate=1 là override chọn latest → target_pin phải là None để npm đi latest."""
+    seen = []
+
+    def fake_run_update(*a, **k):
+        seen.append(k)
+        return []
+
+    monkeypatch.setattr(main.updater, "run_update", fake_run_update)
+
+    r = web["client"].post("/update", data={"autostop": "", "skip_gate": "1"},
+                            headers={"Origin": OWN})
+    assert r.status_code == 200
+    assert seen and seen[-1].get("target_pin") is None
+    assert seen[-1].get("skip_gate") is True
 
 
 def test_apply_force_bypasses_newer_router_block(web, monkeypatch):
@@ -978,6 +1024,12 @@ def test_router_align_target_calls_install_and_enforces_csrf(web, monkeypatch):
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert len(calls) == 1
+
+
+def test_index_script_handles_align_target_feedback(web):
+    html = web["client"].get("/").text
+    assert "Đã căn chỉnh 9router về phiên bản tương thích" in html
+    assert "/router/align-target" in html
 
 
 def test_base_template_has_self_update_modal(web):
