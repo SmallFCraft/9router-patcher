@@ -37,7 +37,8 @@ NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP = 1, 2, 4
 
 SW_HIDE, SW_SHOW, SW_RESTORE = 0, 5, 9
-GA_ROOT = 2
+GA_ROOTOWNER = 3
+SM_CXSMICON = 49
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
@@ -129,6 +130,29 @@ def _ensure_prototypes() -> None:
     ctypes.windll.shell32.Shell_NotifyIconW.argtypes = [
         wintypes.DWORD, ctypes.POINTER(_NOTIFYICONDATAW)]
     ctypes.windll.shell32.Shell_NotifyIconW.restype = wintypes.BOOL
+    # Handle 64-bit: thiếu prototype thì restype mặc định c_int cắt cụt HMODULE/HICON
+    # (đo được 0x5b320000 thay vì 0x7ff75b320000) -> RegisterClass/CreateWindow nhận
+    # handle rác, Shell_NotifyIcon nhận HICON rác.
+    k32 = ctypes.windll.kernel32
+    k32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    k32.GetModuleHandleW.restype = wintypes.HMODULE
+    u32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT,
+                               ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    u32.LoadImageW.restype = wintypes.HANDLE
+    u32.LoadIconW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR]
+    u32.LoadIconW.restype = wintypes.HANDLE
+    u32.GetSystemMetrics.argtypes = [ctypes.c_int]
+    u32.GetSystemMetrics.restype = ctypes.c_int
+    # GetConsoleWindow/GetAncestor trả HWND 64-bit: thiếu prototype ctypes ép về
+    # c_int cắt cụt handle. Get/SetWindowLongPtrW đọc/ghi LONG_PTR 64-bit.
+    k32.GetConsoleWindow.argtypes = []
+    k32.GetConsoleWindow.restype = wintypes.HWND
+    u32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+    u32.GetAncestor.restype = wintypes.HWND
+    u32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+    u32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+    u32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    u32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
     _PROTOTYPES_SET = True
 
 
@@ -146,25 +170,37 @@ def console_hwnd() -> int:
     if not _IS_WIN:
         return 0
     try:
+        _ensure_prototypes()
         return int(ctypes.windll.kernel32.GetConsoleWindow())
     except Exception:
         return 0
 
 
+def _owner(hwnd: int) -> int:
+    """HWND của cửa sổ gốc chứa console (GetAncestor GA_ROOTOWNER)."""
+    try:
+        _ensure_prototypes()
+        return int(ctypes.windll.user32.GetAncestor(hwnd, GA_ROOTOWNER))
+    except Exception:
+        return 0
+
+
 def _console_windows() -> list[int]:
-    """HWND console + cửa sổ gốc (GA_ROOT). Windows Terminal bọc console trong
-    một frame cha — chỉ ẩn PseudoConsoleWindow thì frame ngoài vẫn nằm taskbar."""
+    """HWND cần ẩn để console biến mất hẳn (taskbar + alt-tab).
+
+    - conhost cổ điển: GetConsoleWindow() chính là cửa sổ console; GA_ROOTOWNER
+      trả về chính nó, nên danh sách có một phần tử.
+    - Windows Terminal: GetConsoleWindow() là PseudoConsoleWindow (không phải
+      cửa sổ thật, ShowWindow lên nó không ảnh hưởng taskbar); GA_ROOTOWNER là
+      tab CASCADIA_HOSTING_WINDOW_CLASS — đo 2026-09-22: ẩn nó thì tab rời
+      taskbar, còn ẩn PseudoConsoleWindow trước rồi mới ẩn owner thì Windows
+      bỏ qua lệnh ẩn owner (owner_vis vẫn true), nên CHỈ trả owner khi có.
+    """
     hwnd = console_hwnd()
     if not hwnd:
         return []
-    wins = [hwnd]
-    try:
-        root = int(ctypes.windll.user32.GetAncestor(hwnd, GA_ROOT))
-        if root and root != hwnd:
-            wins.append(root)
-    except Exception:
-        pass
-    return wins
+    owner = _owner(hwnd)
+    return [owner] if owner and owner != hwnd else [hwnd]
 
 
 def set_console_title(title: str) -> bool:
@@ -179,18 +215,22 @@ def set_console_title(title: str) -> bool:
 
 def _set_exstyle(hwnd: int, on: bool) -> None:
     u = ctypes.windll.user32
-    get_l = getattr(u, "GetWindowLongPtrW", u.GetWindowLongW)
-    set_l = getattr(u, "SetWindowLongPtrW", u.SetWindowLongW)
-    cur = get_l(hwnd, GWL_EXSTYLE)
+    _ensure_prototypes()
+    cur = u.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
     if on:
         new = (cur | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
     else:
         new = (cur & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW
-    set_l(hwnd, GWL_EXSTYLE, new)
+    u.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new)
 
 
 def hide_console() -> bool:
-    """Ẩn HẲN mọi cửa sổ console (mất khỏi taskbar lẫn alt-tab)."""
+    """Ẩn hẳn cửa sổ console (mất khỏi taskbar lẫn alt-tab).
+
+    Ẩn đúng HWND mà _console_windows() trả về: conhost là chính console, Windows
+    Terminal là tab CASCADIA (đo 2026-09-22: ShowWindow(owner, 0) rời taskbar;
+    ẩn PseudoConsoleWindow trước làm Windows bỏ qua lệnh ẩn owner). Trả False
+    chỉ khi không có console nào để ẩn (pipe/test)."""
     wins = _console_windows()
     if not wins:
         return False
@@ -217,7 +257,7 @@ def show_console() -> bool:
             _set_exstyle(hwnd, on=False)
             u.ShowWindow(hwnd, SW_SHOW)
             u.ShowWindow(hwnd, SW_RESTORE)
-        u.SetForegroundWindow(wins[0])
+        u.SetForegroundWindow(wins[-1])
         return True
     except Exception:
         return False
@@ -261,9 +301,17 @@ class TrayIcon:
             target=self._thread_main, name="tray-loop", daemon=True)
         self._thread.start()
         self._ready.wait(timeout=5.0)
-        if not self._ok:
-            self._thread = None
-        return self._ok
+        if self._ok:
+            return True
+        # Thread chậm (AV/shell) có thể vẫn sống: chỉ drop reference khi nó đã chết,
+        # nếu không stop() sau này không join được -> orphaned message loop.
+        if self._thread.is_alive():
+            self._thread.join(timeout=10.0)
+            if self._ok:
+                return True
+            return False                # thread vẫn sống: giữ reference cho stop()
+        self._thread = None
+        return False
 
     def _thread_main(self) -> None:
         """Toàn bộ vòng đời tray (register → window → icon → loop → cleanup)."""
@@ -321,15 +369,20 @@ class TrayIcon:
         return self._added
 
     def _load_icon(self) -> int:
+        _ensure_prototypes()   # LoadImage/LoadIcon trả HICON 64-bit, phải có prototype
         u32 = ctypes.windll.user32
         if self.icon_path and self.icon_path.is_file():
-            h = u32.LoadImageW(None, str(self.icon_path), IMAGE_ICON, 0, 0,
-                               LR_LOADFROMFILE | LR_DEFAULTSIZE)
+            # Khớp đúng size khay (SM_CXSMICON=16): LR_DEFAULTSIZE xin 32x32 rồi
+            # Windows tự co về 16, nét pixel vỡ như ảnh user báo. Đo 2026-09-22:
+            # 32px có 3 màu phẳng, nhưng downscale còn 2px đen trên nền xanh.
+            cx = u32.GetSystemMetrics(SM_CXSMICON) or 16
+            h = u32.LoadImageW(None, str(self.icon_path), IMAGE_ICON,
+                               cx, cx, LR_LOADFROMFILE)
             if h:
-                return h
+                return int(h)
         # Fallback: icon mặc định của Windows, không cần file nào.
         try:
-            return u32.LoadIconW(None, ctypes.c_wchar_p(IDI_APPLICATION))
+            return int(u32.LoadIconW(None, ctypes.c_wchar_p(IDI_APPLICATION)) or 0)
         except Exception:
             return 0
 

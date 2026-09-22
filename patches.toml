@@ -423,3 +423,46 @@ why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream ch�
 find = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
 replace = 'let f=I(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
 
+# P35 — upstream openai-compatible trả SSE kiểu Claude (api.tntapi.io.vn).
+# Đo trực tiếp 2026-09-22: TỪNG request tới /v1/chat/completions → body kiểu
+# event: message_start / content_block_delta (tV parse OK, f5 đọc được usage) nhưng
+# Y8("openai","claude",p) mong p.choices[0].delta → emit 0 byte → P16 (peek) thấy
+# stream rỗng → 502 lock key 30s, dù upstream đã trừ token (requestDetails `success`).
+# Guard tại chính Y8 (ao): p đã là Claude event (message_*/content_block_*/ping lẻ)
+# và format đích là claude → trả [p] nguyên. Anchor duy nhất 1 bản ở chunks/8499.js,
+# phủ cả 4 vị trí gọi Y8 trong 8895.js.
+
+[[patch]]
+id = "upstream-claude-sse-passthrough"
+order = 35
+summary = "Upstream openai-compatible trả SSE kiểu Claude → passthrough thay vì drop (chống 502 rỗng)"
+why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_block_delta (không phải OpenAI choices[].delta); Y8 emit 0 byte → peek P16 thấy stream rỗng → 502 + khóa key dù upstream đã tính token"
+find = 'function ao(a,b,c,d){if(b===a)return[(0,i.F5)(c,d?.toolNameMap)];'
+replace = 'function ao(a,b,c,d){if(b===a)return[(0,i.F5)(c,d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
+
+# P36 — free-tier gate của OpenCode áp lên model muse-spark* đi qua relay
+# `anthropic-compatible` (gateway.agents.ai.vn, provider aa/). Đo trực tiếp 2026-09-22
+# trên /v1/messages của relay, cùng 1 body chỉ đổi tools:
+#   PascalCase (Bash/Read)                      -> 403 FreeTierError
+#   PascalCase + `bash` chữ thường              -> 403
+#   PascalCase + `read` chữ thường              -> 403
+#   PascalCase + `bash` + `read` (cả hai)       -> 200
+#   chỉ `bash` / chỉ `read`                     -> 403
+# Lưu ý QUAN TRỌNG: `deepseek-v4-flash` trên CÙNG provider đó chạy tốt 40+ lần liên tiếp
+# với 33 tool PascalCase, 0 tool chữ thường → gate CHỈ áp cho muse-spark*, nên patch gate
+# theo `a.model` khớp muse-spark chứ không theo provider.
+# Tại sao P32 (opencode-freetier-tool-signature) không cứu được: P32 cắm trong
+# OpenCodeProvider (chunks/318.js) và bơm `v=[{type:"function",name:"bash"...}]` — shape
+# tool KHÔNG có `input_schema`. Đường `anthropic-compatible` chạy hàm v() này (8499.js),
+# chuẩn hoá tool sang Claude shape `{name,input_schema}`; tool muse-spark cần đúng shape
+# Claude. Bơm SAU khối chuẩn hoá để không bị filter/map viết lại.
+# Anchor duy nhất 1 bản trong 8499.js (ngay sau khối tools của v(), trước nhánh claude/aa).
+
+[[patch]]
+id = "muse-spark-freetier-tool-signature"
+order = 36
+summary = "Bơm tool bash+read chữ thường cho muse-spark qua relay anthropic-compatible (vượt 403 FreeTierError)"
+why = "gateway.agents.ai.vn chuyển tiếp muse-spark* tới OpenCode free tier; OpenCode đòi tools array chứa CẢ `bash` VÀ `read` chữ thường, thiếu 1 trong 2 → 403 FreeTierError. deepseek-v4-flash cùng provider không bị gate nên chỉ áp cho muse-spark*"
+find = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)}if("claude"===b||b?.startsWith("anthropic-compatible")||'
+replace = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)};(function(){try{if("string"!=typeof a.model||a.model.indexOf("muse-spark")<0)return;if(!Array.isArray(a.tools))return;let $n=new Set(a.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)));for(let $t of[{name:"bash",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}},{name:"read",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}}])$n.has($t.name)||a.tools.push($t)}catch{}})();if("claude"===b||b?.startsWith("anthropic-compatible")||'
+

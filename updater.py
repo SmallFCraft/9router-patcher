@@ -8,6 +8,7 @@ how the EBUSY surprise happened.
 """
 from __future__ import annotations
 
+import ctypes
 import http.client
 import ipaddress
 import json
@@ -33,7 +34,15 @@ REGISTRY_HOST = "registry.npmjs.org"       # allowlist: the only outbound host t
 REGISTRY_PATH = "/9router/latest"
 NODE = shutil.which("node")
 NPM = shutil.which("npm.cmd") or shutil.which("npm")     # Windows: npm is a .cmd wrapper
-HANDLE64 = shutil.which("handle64") or r"E:\Apps\Tools\handle64.exe"
+# handle64.exe chỉ dùng khi có trên PATH hoặc file tồn tại thật; không hardcode đường dẫn chết.
+def _resolve_handle64() -> str | None:
+    found = shutil.which("handle64") or shutil.which("handle")
+    if found:
+        return found
+    fallback = r"E:\Apps\Tools\handle64.exe"
+    return fallback if os.path.isfile(fallback) else None
+
+HANDLE64 = _resolve_handle64()
 REGISTRY_TIMEOUT = 3
 # Measured 2026-09-05: 37.6s with an explicit path, 71.8s with cwd="." on a busy box —
 # keep generous headroom. Timeout stays mandatory: TimeoutExpired must raise, never read
@@ -198,11 +207,47 @@ def dryrun_anchors(emit=None) -> Step:
                     f"{type(e).__name__}: {e} — KHÔNG chạy npm (không dò được bản mới)")
 
 
+def _get_process_name(pid: int) -> str:
+    """Tên tiến trình từ PID bằng Win32 API native (QueryFullProcessImageNameW)."""
+    if sys.platform != "win32":
+        return "unknown"
+    try:
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)     # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return "unknown"
+        buf = (wintypes.WCHAR * 1024)()
+        size = wintypes.DWORD(1024)
+        k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size))
+        k32.CloseHandle(h)
+        return os.path.basename(buf.value) if buf.value else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _probe_stack_locks() -> list[Lock]:
+    """Dò process đang giữ 9router qua cổng mạng (20128 router, 8787 headroom).
+    Chạy native trong ~0.05s, không cần binary ngoài, hoạt động trên mọi máy Windows."""
+    locks = []
+    target = os.fspath(engine.install_dir() / "app")
+    for port, default_name in ((ROUTER_PORT, "node.exe"), (HEADROOM_PORT, "python.exe")):
+        pid = pid_on_port(port)
+        if pid:
+            name = _get_process_name(pid) or default_name
+            locks.append(Lock(pid=pid, name=name, path=target))
+    return locks
+
+
 def find_locks() -> list[Lock]:
     """Processes holding a handle under the global 9router install. Reports only - never kills.
-    The search root always comes from engine.install_dir() (runtime `npm root -g`), never from
-    callers — and it MUST be the argv target: cwd/"." makes handle64 dump every handle on the
-    system (measured 2026-09-05: 150+ irrelevant processes)."""
+    Thứ tự:
+    1. Nếu có handle64 -> chạy để dò toàn diện cả tiến trình ngoài stack (chậm ~37s).
+    2. Nếu không có handle64 -> fallback native: dò router (:20128) & headroom (:8787) qua port.
+    """
+    if not HANDLE64:
+        return _probe_stack_locks()
+
     import re
     argv = [HANDLE64, "-nobanner", os.fspath(engine.install_dir())]
     try:
@@ -504,7 +549,7 @@ def stop_headroom(emit) -> bool:
 def start_headroom(emit) -> bool:
     cmd = _stack_cmdlines().get("headroom_cmd") or _default_headroom_cmd()
     if not cmd:
-        emit({"type": "line", "text": "  Không tìm thấy headroom.exe (Scripts/) — bỏ qua"})
+        emit({"type": "line", "text": "  Không tìm thấy pythonw.exe để chạy headroom — bỏ qua"})
         return False
     cwd = HEADROOM_CWD if HEADROOM_CWD.is_dir() else None
     return _launch_port_cmd("headroom", HEADROOM_PORT, cmd, cwd, emit)

@@ -11,16 +11,16 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `engine.py` — Atomic find/replace engine, snapshots, `node --check`, rollback.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (33 patches, 2 multi-patch groups: `sse-hang` & `nonstream-sse-retry`).
+- `patches.toml` — Single source of truth (34 patches, 2 multi-patch groups: `sse-hang` & `nonstream-sse-retry`).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
-## Verified Baselines (2026-09-20)
+## Verified Baselines (2026-09-22)
 
-- Full test suite: `python -m pytest tests/ -q` → **280 passed, 3 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **281 passed, 4 skipped**.
   The skips: engine measurements version-locked to 0.5.65 (do not debug), test_e2e_binary (when port in use), tray non-Windows fallback tests.
-- Engine tests: `python -m pytest tests/test_engine.py -q` → **98 passed, 1 skipped**.
+- Engine tests: `python -m pytest tests/test_engine.py -q` → **100 passed, 1 skipped**.
 - App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **44 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 

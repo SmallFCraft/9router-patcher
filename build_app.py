@@ -44,6 +44,22 @@ def write_version_manifest(dist: Path, artifact: Path) -> Path:
     return out
 
 
+def prune_stale_artifacts(files_dir: Path, keep: set[str]) -> int:
+    """Xóa artifact cũ trong dist/files/ — chỉ giữ bản vừa build.
+
+    Không dọn trước khi build: build lỗi vẫn còn bản cũ để upload.
+    """
+    removed = 0
+    for f in files_dir.iterdir():
+        if f.is_file() and f.name not in keep:
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
+
+
 def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
     enc_source = ROOT / "assets" / "patches.enc"
     tpl_source = ROOT / "templates"

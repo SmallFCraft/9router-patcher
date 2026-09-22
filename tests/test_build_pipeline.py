@@ -8,7 +8,8 @@ def test_requirements_file_exists_and_contains_deps():
     req = Path("requirements.txt")
     assert req.is_file()
     text = req.read_text(encoding="utf-8")
-    for dep in ("nuitka", "fastapi", "uvicorn", "jinja2", "cryptography"):
+    for dep in ("nuitka", "fastapi", "uvicorn", "jinja2", "cryptography",
+                  "python-multipart"):  # Form() routes chết khi boot nếu thiếu (đo 2026-09-22)
         assert dep in text.lower()
 
 

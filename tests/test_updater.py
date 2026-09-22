@@ -80,10 +80,17 @@ def root_at(monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
 
 
+def with_handle64(monkeypatch, path: str | None = r"handle64.exe"):
+    """Pin the handle64 branch: HANDLE64 is resolved from the host at import, so a test that
+    exercises the external-binary path must not depend on whether this box has the tool."""
+    monkeypatch.setattr(updater, "HANDLE64", path)
+
+
 # ---------- find_locks: parsing ----------
 
 def test_parse_two_real_handle64_lines(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     run = Run((0, REAL_HANDLE_OUT, ""))
     monkeypatch.setattr(subprocess, "run", run)
     locks = find_locks()
@@ -99,6 +106,7 @@ def test_parse_two_real_handle64_lines(monkeypatch, tmp_path):
 
 def test_parse_process_name_with_spaces(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     output = r"Node Helper.exe  pid: 42  type: File  64: E:\Apps\9router" + "\n"
     monkeypatch.setattr(subprocess, "run", Run((0, output, "")))
     assert find_locks() == [Lock(pid=42, name="Node Helper.exe", path=r"E:\Apps\9router")]
@@ -106,12 +114,14 @@ def test_parse_process_name_with_spaces(monkeypatch, tmp_path):
 
 def test_exit_code_1_means_no_locks_not_an_error(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run", Run((1, "", "")))
     assert find_locks() == []
 
 
 def test_exit_zero_without_parsed_lock_raises_with_raw_output(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run", Run((0, BANNER_JUNK, "")))
     with pytest.raises(engine.PatchError) as exc:
         find_locks()
@@ -121,6 +131,7 @@ def test_exit_zero_without_parsed_lock_raises_with_raw_output(monkeypatch, tmp_p
 
 def test_garbage_mixed_with_one_real_line(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run",
                         Run((0, BANNER_JUNK + REAL_HANDLE_OUT.splitlines()[0] + "\n", "")))
     assert find_locks() == [Lock(pid=15168, name="node.exe", path=LOCKED_PATH)]
@@ -130,6 +141,7 @@ def test_garbage_mixed_with_one_real_line(monkeypatch, tmp_path):
 
 def test_missing_handle64_binary_raises(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run", raiser(FileNotFoundError(2, "not found")))
     with pytest.raises(engine.PatchError, match="handle64"):
         find_locks()
@@ -138,6 +150,7 @@ def test_missing_handle64_binary_raises(monkeypatch, tmp_path):
 def test_handle64_timeout_raises(monkeypatch, tmp_path):
     """A timed-out probe must never read as "no locks" - that is how the EBUSY surprise hid."""
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run",
                         raiser(subprocess.TimeoutExpired("handle64", updater.HANDLE_TIMEOUT)))
     with pytest.raises(engine.PatchError, match="handle64") as exc:
@@ -147,18 +160,39 @@ def test_handle64_timeout_raises(monkeypatch, tmp_path):
 
 def test_unexpected_exit_code_raises(monkeypatch, tmp_path):
     root_at(monkeypatch, tmp_path)
+    with_handle64(monkeypatch)
     monkeypatch.setattr(subprocess, "run", Run((2, "", "must be run as administrator")))
     with pytest.raises(engine.PatchError, match="administrator"):
         find_locks()
 
 
 def test_default_target_is_install_dir(monkeypatch):
+    with_handle64(monkeypatch)
     install = Path("E:/pkgs/node_modules/9router")
     monkeypatch.setattr(engine, "install_dir", lambda: install)
     run = Run((1, "", ""))
     monkeypatch.setattr(subprocess, "run", run)
     find_locks()
     assert run.calls[0][0][2] == str(install)
+
+
+def test_find_locks_without_handle64_probes_stack_ports(monkeypatch, tmp_path):
+    """Khi máy khác KHÔNG có handle64 (HANDLE64=None): dò qua port mà không văng lỗi."""
+    root_at(monkeypatch, tmp_path)
+    monkeypatch.setattr(updater, "HANDLE64", None)
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: 2076 if port == updater.ROUTER_PORT else (304 if port == updater.HEADROOM_PORT else None))
+    monkeypatch.setattr(updater, "_get_process_name", lambda pid: "node.exe" if pid == 2076 else "python.exe")
+    locks = find_locks()
+    assert len(locks) == 2
+    assert [(l.pid, l.name) for l in locks] == [(2076, "node.exe"), (304, "python.exe")]
+
+
+def test_find_locks_without_handle64_empty_when_ports_free(monkeypatch, tmp_path):
+    """Khi không có handle64 và stack không chạy: trả về [] êm, không báo lỗi."""
+    root_at(monkeypatch, tmp_path)
+    monkeypatch.setattr(updater, "HANDLE64", None)
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    assert find_locks() == []
 
 
 # ---------- versions ----------
