@@ -61,7 +61,8 @@ def test_build_app_copies_versioned_artifact(tmp_path, monkeypatch):
 
     # Tên artifact kỳ vọng khớp version.APP_VERSION
     expected = f"9router-patcher-v{version.APP_VERSION}.exe"
-    assert expected == "9router-patcher-v2.0.0.exe"
+    assert expected.startswith("9router-patcher-v")
+    assert expected.endswith(".exe")
 
     # build() phải tham chiếu tên này (kiểm tra qua source: không chạy build thật 160s)
     src = (build_app.ROOT / "build_app.py").read_text(encoding="utf-8")

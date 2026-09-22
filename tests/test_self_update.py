@@ -48,7 +48,7 @@ def test_check_update_parses_json_and_detects_newer_version(monkeypatch):
     """check_update đọc đúng version.json và bật has_update nếu bản remote mới hơn."""
     import self_update
 
-    sample_json = b'{"version": "2.1.0", "url": "https://example.com/files/app.exe", "sha256": "abcdef", "changelog": "test changelog"}'
+    sample_json = b'{"version": "9.9.9", "url": "https://example.com/files/app.exe", "sha256": "abcdef", "changelog": "test changelog"}'
 
     class DummyResponse:
         def __enter__(self): return self
@@ -59,7 +59,7 @@ def test_check_update_parses_json_and_detects_newer_version(monkeypatch):
 
     res = self_update.check_update()
     assert res is not None
-    assert res["version"] == "2.1.0"
+    assert res["version"] == "9.9.9"
     assert res["has_update"] is True
     assert res["url"] == "https://example.com/files/app.exe"
     assert res["sha256"] == "abcdef"

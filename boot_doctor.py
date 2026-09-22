@@ -11,6 +11,7 @@ from pathlib import Path
 
 import app_paths
 import engine
+import version
 try:
     import updater
 except ImportError:
@@ -42,8 +43,13 @@ def check_node() -> tuple[bool, str]:
         return False, msg
     try:
         r = subprocess.run([node, "--version"], capture_output=True, text=True,
-                           timeout=5, creationflags=SILENT_FLAGS)
+                           stdin=subprocess.DEVNULL, timeout=5,
+                           creationflags=SILENT_FLAGS)
         ver = r.stdout.strip()
+        if r.returncode != 0 or not ver:
+            msg = f"node --version lỗi (exit {r.returncode}) — cài lại Node.js LTS"
+            log_boot(f"ERROR: {msg}")
+            return False, msg
         msg = f"Node.js {ver} & npm sẵn sàng"
         log_boot(f"OK: {msg}")
         return True, msg
@@ -72,6 +78,7 @@ def install_9router(on_output=None) -> tuple[bool, str]:
     cmd = [npm, "install", "-g", "9router@latest"]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL,
                                 text=True, bufsize=1, creationflags=SILENT_FLAGS)
         if proc.stdout:
             for line in iter(proc.stdout.readline, ""):
@@ -117,7 +124,8 @@ def check_and_apply_patches(on_output=None) -> tuple[bool, str]:
         if on_output:
             on_output(f"Đang tự động áp dụng {len(unapplied)} patch...")
         changed = engine.apply(build_path, patches)
-        msg = f"Đã áp dụng thành công {len(patches)} patches ({len(changed)} files thay đổi)"
+        n = len(unapplied)
+        msg = f"Đã áp dụng thành công {n} patches ({len(changed)} files thay đổi)"
         log_boot(f"OK: {msg}")
         return True, msg
     except Exception as e:
@@ -147,11 +155,30 @@ def ensure_router_stack(on_output=None) -> tuple[bool, str]:
 
 def run_doctor(interactive: bool = True) -> bool:
     print("=" * 60)
-    print(" 9router Patcher Manager")
+    print(f" 9router Patcher Manager v{version.APP_VERSION}")
     print("=" * 60)
 
+    # 0. Kiểm tra bản cập nhật exe đồng bộ — có bản mới thì swap ngay, hiệu lực từ
+    # lần mở tới. Lỗi mạng/SHA256 chỉ in cảnh báo, không chặn boot doctor.
+    print("[0/5] Kiểm tra bản cập nhật exe...", end=" ", flush=True)
+    try:
+        import self_update
+        meta = self_update.check_update()
+        if meta is None:
+            print("[ BỎ QUA ] (không kết nối được máy chủ cập nhật)")
+        elif not meta["has_update"]:
+            print(f"[ MỚI NHẤT v{version.APP_VERSION} ]")
+        else:
+            res = self_update.download_and_swap(meta)
+            if res["ok"]:
+                print(f"[ ĐÃ TẢI v{meta['version']} — áp dụng từ lần mở tới ]")
+            else:
+                print(f"[ CẢNH BÁO ] ({res['error']})")
+    except Exception as e:
+        print(f"[ CẢNH BÁO ] ({e})")
+
     # 1. Node.js & npm
-    print("[1/4] Kiểm tra Node.js & npm...", end=" ", flush=True)
+    print("[1/5] Kiểm tra Node.js & npm...", end=" ", flush=True)
     ok, msg = check_node()
     if ok:
         print("[ OK ]")
@@ -163,7 +190,7 @@ def run_doctor(interactive: bool = True) -> bool:
         return False
 
     # 2. 9router global package
-    print("[2/4] Kiểm tra 9router toàn cục...", end=" ", flush=True)
+    print("[2/5] Kiểm tra 9router toàn cục...", end=" ", flush=True)
     ok, msg = check_9router()
     if ok:
         print("[ OK ]")
@@ -186,15 +213,15 @@ def run_doctor(interactive: bool = True) -> bool:
             return False
 
     # 3. Patch Status
-    print("[3/4] Kiểm tra patches tối ưu...", end=" ", flush=True)
+    print("[3/5] Kiểm tra patches tối ưu...", end=" ", flush=True)
     p_ok, p_msg = check_and_apply_patches()
     if p_ok:
         print("[ OK ]")
     else:
         print(f"[ CẢNH BÁO ] ({p_msg})")
 
-    # 4. Proxy Router Stack
-    print("[4/4] Khởi động Proxy Router Stack...", end=" ", flush=True)
+    # 5. Proxy Router Stack
+    print("[5/5] Khởi động Proxy Router Stack...", end=" ", flush=True)
     s_ok, s_msg = ensure_router_stack()
     if s_ok:
         print("[ OK ]")

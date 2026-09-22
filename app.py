@@ -229,11 +229,11 @@ def main(argv: list[str] | None = None) -> None:
     ).start()
 
     # 5. Giữ console tương tác trên main thread + tray icon khi ẩn
-    tray.set_console_title("9router Patcher Manager")
+    tray.set_console_title(f"9router Patcher Manager v{version.APP_VERSION}")
     _console_banner(url)
     tray_icon = None
     if tray.available():
-        tray_icon = tray.TrayIcon("9router Patcher Manager",
+        tray_icon = tray.TrayIcon(f"9router Patcher Manager v{version.APP_VERSION}",
                                   icon_path=(Path(__file__).parent / "assets" / "app.ico"))
         tray_icon.callbacks = {
             tray.ID_BROWSER: lambda: webbrowser.open(url),

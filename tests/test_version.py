@@ -8,7 +8,6 @@ def test_app_version_format():
     """APP_VERSION phải là chuỗi semver chuẩn (X.Y.Z)."""
     import version
     assert hasattr(version, "APP_VERSION")
-    assert version.APP_VERSION == "2.0.0"
     parts = version.APP_VERSION.split(".")
     assert len(parts) == 3
     assert all(p.isdigit() for p in parts)
@@ -71,7 +70,7 @@ def test_main_force_bypasses_port_busy_early_exit(monkeypatch):
 
 
 def test_web_header_renders_app_version(monkeypatch, tmp_path):
-    """Web UI hiển thị v2.0.0 trên header (brand)."""
+    """Web UI hiển thị APP_VERSION trên header (brand)."""
     from starlette.testclient import TestClient
     import main
     import version

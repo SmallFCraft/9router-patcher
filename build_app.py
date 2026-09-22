@@ -6,6 +6,8 @@ Quy trình:
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -13,9 +15,33 @@ import sys
 import time
 from pathlib import Path
 
+import config
 import version
 
 ROOT = Path(__file__).resolve().parent
+
+
+def sha256_file(path: Path) -> str:
+    """Băm SHA256 theo khối 1 MB — file ~18 MB, đọc một lần bằng read_bytes() cũng được
+    nhưng khối giữ RAM phẳng nếu sau này artifact phình to."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_version_manifest(dist: Path, artifact: Path) -> Path:
+    """Sinh `version.json` sẵn để upload — người dùng không phải tự chạy certutil."""
+    manifest = {
+        "version": version.APP_VERSION,
+        "url": f"{config.UPDATE_BASE_URL}/files/{artifact.name}",
+        "sha256": sha256_file(artifact),
+        "changelog": "",
+    }
+    out = dist / "version.json"
+    out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return out
 
 
 def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
@@ -134,7 +160,11 @@ def build(fast: bool = False) -> int:
         print(f"SUCCESS: Built {exe} ({size_mb:.1f} MB)")
         if versioned.is_file():
             vsize = versioned.stat().st_size / (1024 * 1024)
+            sha = sha256_file(versioned)
+            manifest = write_version_manifest(dist, versioned)
             print(f"Upload artifact: {versioned.name} ({vsize:.1f} MB)")
+            print(f"SHA256:          {sha}")
+            print(f"Manifest:        {manifest.name} (upload cùng thư mục hosting)")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1

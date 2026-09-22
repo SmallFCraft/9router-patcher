@@ -34,3 +34,47 @@ def test_boot_logs_ring_buffer():
     boot_doctor.log_boot("Test line 1")
     logs = boot_doctor.get_boot_logs()
     assert any("Test line 1" in l for l in logs)
+
+
+def test_run_doctor_banner_shows_app_version(capsys, monkeypatch):
+    """Boot header in đúng APP_VERSION hiện tại (2.1.2)."""
+    import boot_doctor
+    import version
+
+    monkeypatch.setattr(boot_doctor, "check_node", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_9router", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_and_apply_patches", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "self_update", None, raising=False)
+
+    boot_doctor.run_doctor(interactive=False)
+    out = capsys.readouterr().out
+    assert f"v{version.APP_VERSION}" in out
+
+
+def test_boot_check_update_step_reports_results(capsys, monkeypatch):
+    """Bước [0/5] kiểm tra exe: mới nhất / có bản mới / mất mạng."""
+    import boot_doctor
+    import self_update
+
+    monkeypatch.setattr(boot_doctor, "check_node", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_9router", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_and_apply_patches", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
+
+    # 1. Có bản mới -> swap -> báo đã tải
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: {"version": "9.9.9", "has_update": True,
+                                          "url": "https://x/y.exe", "sha256": ""})
+    monkeypatch.setattr(self_update, "download_and_swap",
+                        lambda meta: {"ok": True, "error": None})
+    boot_doctor.run_doctor(interactive=False)
+    out = capsys.readouterr().out
+    assert "[0/5]" in out
+    assert "9.9.9" in out
+
+    # 2. Mất mạng -> bỏ qua, vẫn boot tiếp
+    monkeypatch.setattr(self_update, "check_update", lambda url=None: None)
+    assert boot_doctor.run_doctor(interactive=False) is True
+    out = capsys.readouterr().out
+    assert "BỎ QUA" in out
