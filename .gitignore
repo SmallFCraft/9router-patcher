@@ -8,6 +8,7 @@ tests/__pycache__/
 # Engine output: copies of 9router's copyrighted minified build (never publish) + logs
 # with machine paths, tunnel URLs, error bodies
 backups/
+9router-backups/
 logs/
 logs/
 docs/*
