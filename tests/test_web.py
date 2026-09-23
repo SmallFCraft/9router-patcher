@@ -1133,6 +1133,30 @@ def test_update_page_has_safe_target_install_option(web):
     assert "Cài đặt phiên bản tương thích" in html
 
 
+def test_update_hides_install_button_when_local_already_target(web, monkeypatch):
+    """Local đã đúng bản chuẩn: nút align vô nghĩa (npm cài đè đúng phiên bản đang có).
+    Hiện trạng ok thay vì form — nút chỉ dành cho máy lệch bản."""
+    target = engine.target_version()
+    monkeypatch.setattr(main.updater, "current_version", lambda: target)
+    main._forget_versions()                 # fixture đã cache "0.5.65"
+    html = web["client"].get("/update").text
+    assert 'action="/router/align-target"' not in html
+    assert "không cần cài lại" in html
+
+
+def test_update_pinned_badge_when_npm_newer_than_target(web, monkeypatch):
+    """Policy target-pin: npm latest > target KHÔNG phải 'có bản mới' — badge phải
+    nói đúng 'ghim bản chuẩn', không mâu thuẫn cạnh badge 'khớp bản chuẩn'."""
+    target = engine.target_version()
+    monkeypatch.setattr(main.updater, "current_version", lambda: target)
+    monkeypatch.setattr(main.updater, "latest_version", lambda: "0.5.86")
+    main._forget_versions()
+    html = web["client"].get("/update").text
+    assert "khớp bản chuẩn" in html
+    assert "có bản mới" not in html
+    assert "ghim" in html
+
+
 def test_probe_headroom_reports_installed_when_port_is_up_even_if_detection_failed(monkeypatch):
     """Safety guard: nếu cổng :8787 đang UP (readyz trả 200), headroom CHẮC CHẮN đã cài
     và đang chạy — tuyệt đối không để UI báo 'CHƯA CÀI' chỉ vì pythonw probe bị hụt."""

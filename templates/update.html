@@ -27,7 +27,14 @@
     {% elif lv != "unknown" and tv != "—" %}
       <span class="badge warn">khác bản chuẩn v{{ tv }}</span>
     {% endif %}
-    {% if lv != "unknown" and la != "unknown" and lv == la %}
+    {#- Policy target-pin: npm latest chỉ có nghĩa khi không còn lệch target.
+          local đúng bản chuẩn mà latest cao hơn là chuyện thường (chưa kiểm thử),
+          báo "có bản mới" cạnh "khớp bản chuẩn" là mâu thuẫn nên bỏ. -#}
+    {% if lv != "unknown" and tv != "—" and lv == tv and la != "unknown" and lv != la %}
+      <span class="badge muted">ghim ở bản chuẩn v{{ tv }} (npm có {{ la }}, chưa kiểm thử)</span>
+    {% elif lv != "unknown" and tv != "—" and lv != tv and la != "unknown" and lv != la %}
+      <span class="badge info">có bản mới {{ la }} — vẫn ghim bản chuẩn v{{ tv }}</span>
+    {% elif lv != "unknown" and la != "unknown" and lv == la %}
       <span class="badge ok">đã mới nhất — update là no-op</span>
     {% elif lv != "unknown" and la != "unknown" %}
       <span class="badge info">có bản mới</span>
@@ -109,6 +116,14 @@
   {% endif %}
 </section>
 
+{% if lv != "unknown" and tv != "—" and lv == tv %}
+<section class="card panel" id="align-target-panel">
+  <div class="panel-head">
+    <h2>{{ icon('undo') }}Cài đặt phiên bản tương thích</h2>
+    <span class="badge ok">đang đúng v{{ tv }} — không cần cài lại</span>
+  </div>
+</section>
+{% else %}
 <section class="card panel" id="align-target-panel">
   <div class="panel-head">
     <h2>{{ icon('undo') }}Cài đặt phiên bản tương thích</h2>
@@ -124,6 +139,7 @@
     </div>
   </form>
 </section>
+{% endif %}
 
 <details class="card panel" data-key="latest-update">
   <summary class="small muted" style="cursor:pointer">Dành cho dev: thử npm latest (có thể mất anchor)</summary>
