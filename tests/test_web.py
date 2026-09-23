@@ -56,6 +56,7 @@ def web(monkeypatch, tmp_path):
         start_headroom=lambda emit: True,
         check_router_compatibility=lambda *a, **k: {"compatible": True, "relation": "match",
                                                     "local": "0.5.65", "target": "0.5.65"},
+        restart_router_stack_if_up=lambda emit=None: rec["router"].append("restart") or "ok",
         install_target_router=lambda *a, **k: (True, "ok"),
         headroom_status=lambda refresh=False: {"installed": True, "pythonw": "pyw.exe", "reason": ""},
     ))
@@ -232,6 +233,32 @@ def test_post_apply_patch_error_is_error_page_not_500(web, monkeypatch):
     r = web["client"].post("/apply", data={}, headers={"Origin": OWN})
     assert r.status_code < 500
     assert "node --check" in r.text
+
+
+def test_post_apply_restarts_router_when_files_changed(web, monkeypatch):
+    """Hồi quy 2026-09-23: /apply ghi file build mà không restart => router cũ chạy
+    trong RAM, patch chỉ nằm trên đĩa."""
+    monkeypatch.setattr(engine, "apply",
+                        lambda *a, **k: web["apply"].append((a, k)) or ["f0.js"])
+    r = web["client"].post("/apply", data={}, headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert web["router"] == ["restart"]
+
+
+def test_post_apply_does_not_restart_when_build_unchanged(web):
+    """apply trả [] -> không kill service, redirect về / như cũ."""
+    r = web["client"].post("/apply", data={}, headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert web["router"] == []
+
+
+def test_post_revert_restarts_router_when_files_changed(web, monkeypatch):
+    """Revert cũng ghi build — cùng bệnh với apply."""
+    monkeypatch.setattr(engine, "revert",
+                        lambda *a, **k: web["revert"].append((a, k)) or ["f0.js"])
+    r = web["client"].post("/revert", data={"group": "sse-hang"}, headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert web["router"] == ["restart"]
 
 
 # ---------- /update ----------

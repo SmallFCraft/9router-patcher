@@ -251,6 +251,14 @@ def check_and_apply_patches(on_output=None) -> tuple[bool, str]:
         n = len(unapplied)
         msg = f"Đã áp dụng thành công {n} patches ({len(changed)} files thay đổi)"
         log_boot(f"OK: {msg}")
+        if changed and updater:
+            # Router cũ còn nghe :20128 giữ build cũ trong RAM — bước [5/5] sẽ
+            # early-return vì cổng vẫn nghe, nên restart ngay tại đây.
+            restart_fn = getattr(updater, "restart_router_stack_if_up", None)
+            if callable(restart_fn):
+                rmsg = restart_fn(lambda ev: log_boot(str(ev.get("text", ""))))
+                log_boot(f"OK: {rmsg}")
+                msg = f"{msg}. {rmsg}"
         return True, msg
     except Exception as e:
         err = f"Lỗi khi kiểm tra/áp dụng patch: {e}"

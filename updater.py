@@ -672,6 +672,21 @@ def start_headroom(emit) -> bool:
     return _launch_port_cmd("headroom", HEADROOM_PORT, cmd, cwd, emit)
 
 
+def restart_router_stack_if_up(emit=None) -> str:
+    """Restart router sau khi build đổi nội dung (apply/revert/auto-apply).
+
+    9router đọc build vào RAM lúc boot: ghi file xong mà process cũ vẫn nghe :20128
+    thì patch chỉ nằm trên đĩa — vô dụng. Chỉ router chạy mới bị restart; headroom
+    (:8787) không đọc build nên không cần kill. Router tắt sẵn thì không bật hộ."""
+    out = emit or (lambda ev: None)
+    if pid_on_port(ROUTER_PORT) is None:
+        return "Router không chạy — không cần restart."
+    stop_router(out)
+    ok = start_router(out)
+    return ("Đã khởi động lại router — patch có hiệu lực ngay."
+            if ok else "Không khởi động lại được router — xem log trong logs/")
+
+
 def stop_router_stack(emit) -> bool:
     """Tắt LẦN LƯỢT: router trước (chờ cổng đóng), headroom sau — không song song."""
     ok = stop_router(emit)

@@ -870,9 +870,17 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
     except Exception:
         pass                            # không dò được bản cài -> giữ hành vi cũ (cho apply)
     try:
-        engine.apply(engine.build_dir(), engine.load_patches(), ids=ids or None)
+        changed = engine.apply(engine.build_dir(), engine.load_patches(), ids=ids or None)
     except Exception as e:              # PatchError, but also EBUSY/PermissionError on
         return _error(request, str(e))  # node_modules and a corrupt patches.toml
+    if changed:
+        # Build đổi mà router cũ vẫn chạy trong RAM => patch vô dụng (đo 2026-09-23).
+        try:
+            restart_fn = getattr(updater, "restart_router_stack_if_up", None)
+            if callable(restart_fn):
+                restart_fn()
+        except Exception:
+            pass                        # apply đã xong — restart lỗi không được 500
     _snap_refresh(scan=True)            # build vừa đổi — dashboard không được render state cũ
     return RedirectResponse("/", status_code=303)
 
@@ -881,9 +889,17 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
 def revert(request: Request, group: Annotated[str, Form()]):
     """Group only: reverting p6 alone while p8 stays breaks the runtime gauge."""
     try:
-        engine.revert(engine.build_dir(), engine.load_patches(), group=group)
+        changed = engine.revert(engine.build_dir(), engine.load_patches(), group=group)
     except Exception as e:
         return _error(request, str(e))
+    if changed:
+        # Revert cũng ghi build — cùng bệnh với apply.
+        try:
+            restart_fn = getattr(updater, "restart_router_stack_if_up", None)
+            if callable(restart_fn):
+                restart_fn()
+        except Exception:
+            pass                        # revert đã xong — restart lỗi không được 500
     _snap_refresh(scan=True)            # build vừa đổi — dashboard không được render state cũ
     return RedirectResponse("/", status_code=303)
 

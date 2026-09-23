@@ -277,3 +277,52 @@ def test_run_doctor_non_interactive_never_asks(monkeypatch):
     monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
     boot_doctor.run_doctor(interactive=False)
     assert called == []
+
+
+def test_check_and_apply_patches_restarts_router_when_changed(monkeypatch, tmp_path):
+    """Hồi quy 2026-09-23: bước [4/5] auto-apply (sau npm update ở [3/5]) ghi file xong
+    mà [5/5] early-return vì cổng vẫn nghe => router chạy build cũ trong RAM, patch vô dụng.
+    changed khác rỗng là bắt buộc restart."""
+    from types import SimpleNamespace
+    import boot_doctor, engine, updater
+    monkeypatch.setattr(updater, "check_router_compatibility",
+                        lambda: {"compatible": True, "relation": "match",
+                                 "local": "0.5.85", "target": "0.5.85"})
+    build = tmp_path / "build"
+    build.mkdir()
+    monkeypatch.setattr(engine, "build_dir", lambda: build)
+    monkeypatch.setattr(engine, "load_patches", lambda: [])
+    monkeypatch.setattr(engine, "scan",
+                        lambda b, p, **k: [engine.PatchState(
+                            patch=SimpleNamespace(id="p1"), state="clean",
+                            applied_files=[], clean_files=[])])
+    monkeypatch.setattr(engine, "apply", lambda *a, **k: ["server/x.js"])
+    restarted = []
+    monkeypatch.setattr(updater, "restart_router_stack_if_up",
+                        lambda emit=None: restarted.append(True) or "đã khởi động lại router")
+    ok, msg = boot_doctor.check_and_apply_patches()
+    assert ok is True
+    assert restarted == [True]
+    assert "khởi động lại" in msg
+
+
+def test_check_and_apply_patches_no_restart_when_build_unchanged(monkeypatch, tmp_path):
+    """apply trả [] (không file nào đổi) thì không được kill router — restart vô ích."""
+    from types import SimpleNamespace
+    import boot_doctor, engine, updater
+    monkeypatch.setattr(updater, "check_router_compatibility",
+                        lambda: {"compatible": True, "relation": "match",
+                                 "local": "0.5.85", "target": "0.5.85"})
+    build = tmp_path / "build"
+    build.mkdir()
+    monkeypatch.setattr(engine, "build_dir", lambda: build)
+    monkeypatch.setattr(engine, "load_patches", lambda: [])
+    monkeypatch.setattr(engine, "scan",
+                        lambda b, p, **k: [engine.PatchState(
+                            patch=SimpleNamespace(id="p1"), state="clean",
+                            applied_files=[], clean_files=[])])
+    monkeypatch.setattr(engine, "apply", lambda *a, **k: [])
+    monkeypatch.setattr(updater, "restart_router_stack_if_up",
+                        lambda emit=None: (_ for _ in ()).throw(AssertionError("must not restart")))
+    ok, msg = boot_doctor.check_and_apply_patches()
+    assert ok is True

@@ -791,6 +791,32 @@ def test_run_update_without_autostop_never_touches_the_stack(pipeline, monkeypat
     assert len(steps) == 6 and all(s.ok for s in steps)
 
 
+def test_restart_router_stack_if_up_restarts_running_router(monkeypatch):
+    """Hồi quy 2026-09-23: auto-apply ghi file build xong mà router không restart =>
+    process giữ code cũ trong RAM, patch vô dụng (đặc biệt sau npm update lúc boot)."""
+    import updater
+    log = []
+    monkeypatch.setattr(updater, "pid_on_port",
+                        lambda port: 111 if port == updater.ROUTER_PORT else None)
+    for name in ("stop_router", "start_router"):
+        monkeypatch.setattr(updater, name, lambda emit, _n=name: log.append(_n) or True)
+    msg = updater.restart_router_stack_if_up()
+    assert log == ["stop_router", "start_router"]
+    assert "khởi động lại" in msg
+
+
+def test_restart_router_stack_if_up_noop_when_router_down(monkeypatch):
+    """Router tắt sẵn: apply KHÔNG được tự bật service người dùng đã tắt."""
+    import updater
+    log = []
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    for name in ("stop_router", "start_router"):
+        monkeypatch.setattr(updater, name, lambda emit, _n=name: log.append(_n) or True)
+    msg = updater.restart_router_stack_if_up()
+    assert log == []
+    assert "không cần" in msg
+
+
 # ---------- stop_locks / restart_processes ----------
 
 def test_stop_locks_skips_when_cmdline_missing(monkeypatch, tmp_path):
