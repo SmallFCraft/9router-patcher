@@ -458,7 +458,8 @@ def pid_on_port(port: int) -> int | None:
 
 STACK_STATE_FILE = RESTART_LOG_DIR / "router-stack.json"
 HEADROOM_CWD = Path(os.environ.get("APPDATA", "")) / "9router" / "headroom"
-STACK_PORT_WAIT = 25           # 9router bind ~2s, headroom ~10-15s sau launch
+STACK_PORT_WAIT = 60           # router bind ~2s; headroom cold-start sau npm (import python
+                               # + build runtime) đo >25s — 2026-09-23: 25s báo "CHƯA lên" giả
 
 
 def _runtime_node_modules() -> Path:
@@ -785,6 +786,8 @@ def _npm_stream(emit, target_pin: str | None = None) -> Step:
     try:
         for raw in p.stdout:                    # type: ignore[union-attr]
             line = raw.rstrip()
+            if "npm warn deprecated" in line:    # vendor boilerplate — không noise console/log
+                continue
             lines.append(line)
             if line:
                 emit({"type": "line", "text": line})
@@ -819,7 +822,12 @@ def restore_sqlite(emit) -> str:
     except (OSError, subprocess.SubprocessError) as e:
         return Step("deps", False, f"{' '.join(cmd)}\n{type(e).__name__}: {e}")
     ok = r.returncode == 0 and binary.is_file()
-    log = "\n".join(x.strip() for x in (r.stdout, r.stderr) if x and x.strip())
+    # Lọc theo DÒNG: stdout là một blob nhiều dòng — substring-trên-blob sẽ vứt sạch log
+    # chỉ vì một warn deprecated.
+    raw_lines = [ln.strip() for x in (r.stdout, r.stderr) or [] if x
+                 for ln in x.splitlines()]
+    log = "\n".join(ln for ln in raw_lines
+                    if ln and "npm warn deprecated" not in ln)
     return Step("deps", ok, (log or f"exit {r.returncode}")[-2000:])
 
 
@@ -834,9 +842,15 @@ def _reapply(restarting: bool) -> str:
     build = engine.build_dir()
     patches = engine.load_patches()
     changed = engine.apply(build, patches)
-    lines = [f"Áp patch: {len(changed)} file được cập nhật" if changed else "Áp patch: không đổi (đã patch sẵn)"]
+    states = engine.scan(build, patches)
+    n_ok = sum(1 for s in states if s.state == "applied")
+    head = (f"Áp patch: {len(changed)} file được cập nhật" if changed
+            else "Áp patch: không đổi (đã patch sẵn)")
+    lines = [f"{head} — {n_ok}/{len(states)} applied"]
+    # Xanh thì một dòng đủ (log update 2026-09-23: 33 dòng applied lấn hết console);
+    # chỉ liệt kê cái KHÔNG applied — đó mới là thứ operator cần đọc.
     lines += [f"  {s.patch.id}: {s.state} ({len(s.applied_files)} file)"
-              for s in engine.scan(build, patches)]
+              for s in states if s.state != "applied"]
     lines.append("Process sẽ được khởi động lại ở bước kế tiếp."
                  if restarting else
                  "Không tự restart 9router. Tự tắt process 9router cũ rồi chạy lại `9router` "

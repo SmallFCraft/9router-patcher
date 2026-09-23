@@ -1131,6 +1131,7 @@ def test_update_page_has_safe_target_install_option(web):
     html = web["client"].get("/update").text
     assert engine.target_version() in html
     assert "Cài đặt phiên bản tương thích" in html
+    assert "Bản chuẩn (target)" in html     # cột ghim phải tự gọi tên là target
 
 
 def test_update_hides_install_button_when_local_already_target(web, monkeypatch):
@@ -1149,7 +1150,7 @@ def test_update_pinned_badge_when_npm_newer_than_target(web, monkeypatch):
     nói đúng 'ghim bản chuẩn', không mâu thuẫn cạnh badge 'khớp bản chuẩn'."""
     target = engine.target_version()
     monkeypatch.setattr(main.updater, "current_version", lambda: target)
-    monkeypatch.setattr(main.updater, "latest_version", lambda: "0.5.86")
+    monkeypatch.setattr(main.updater, "latest_version", lambda: "0.5.99")  # > target
     main._forget_versions()
     html = web["client"].get("/update").text
     assert "khớp bản chuẩn" in html

@@ -244,9 +244,10 @@ def test_current_version_reads_install_package_json(monkeypatch, tmp_path):
 
 
 def test_check_router_compatibility():
+    import engine
     import updater
-    # Match
-    res = updater.check_router_compatibility("0.5.85")
+    target = engine.target_version()          # không hardcode: target đổi theo upstream
+    res = updater.check_router_compatibility(target)
     assert res["compatible"] is True
     assert res["relation"] == "match"
 
@@ -256,7 +257,7 @@ def test_check_router_compatibility():
     assert res["relation"] == "older"
 
     # Newer
-    res = updater.check_router_compatibility("0.5.86")
+    res = updater.check_router_compatibility("0.5.99")
     assert res["compatible"] is False
     assert res["relation"] == "newer"
 
@@ -687,7 +688,9 @@ class FakeProc:
     """Minimal Popen double: two stdout lines, nonzero exit."""
 
     def __init__(self):
-        self.stdout = iter(["npm line\n", "second\n"])
+        self.stdout = iter(["npm line\n",
+                            "npm warn deprecated eslint@9.39.5\n",
+                            "second\n"])
 
     def wait(self):
         return 1
@@ -697,6 +700,56 @@ class FakeProc:
 
 
 # ---------- run_update: autostop (stop -> npm -> restart) ----------
+
+def test_reapply_collapses_to_summary_when_all_applied(monkeypatch):
+    """Hồi quy log update 2026-09-23: 33 dòng 'id: applied' lấn hết console.
+    Xanh thì vài dòng đủ; chỉ liệt kê patch KHÔNG phải applied."""
+    from types import SimpleNamespace
+    import engine
+
+    states = [SimpleNamespace(patch=SimpleNamespace(id=f"p{i}"), state="applied",
+                               applied_files=["a.js"], clean_files=[])
+              for i in range(33)]
+    states.append(SimpleNamespace(patch=SimpleNamespace(id="dead"), state="dead-anchor",
+                                  applied_files=[], clean_files=[]))
+    monkeypatch.setattr(engine, "build_dir", lambda: "/b")
+    monkeypatch.setattr(engine, "load_patches", lambda: [])
+    monkeypatch.setattr(engine, "apply", lambda b, p: ["f1.js", "f2.js"])
+    monkeypatch.setattr(engine, "scan", lambda b, p: states)
+    msg = updater._reapply(restarting=True)
+    assert "2 file được cập nhật" in msg
+    assert "33/34" in msg
+    assert "dead: dead-anchor" in msg
+    assert "p0: applied" not in msg          # applied xanh không liệt kê
+    assert "Process sẽ được khởi động lại" in msg
+
+
+def test_stack_port_wait_covers_slow_headroom():
+    """Hồi quy log update 2026-09-23: headroom cold-start sau npm > 25s bị báo
+    'CHƯA lên' giả trong khi nó lên vài giây sau đó."""
+    assert updater.STACK_PORT_WAIT >= 60
+
+
+def test_restore_sqlite_log_strips_npm_warn_deprecated(monkeypatch, tmp_path):
+    """Bước 6 log 2026-09-23 dính 'npm warn deprecated eslint/prebuild-install' —
+    lọc theo DÒNG, không được vứt luôn các dòng npm thật trong cùng blob."""
+    import engine
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)   # binary không có -> chạy npm
+    monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
+
+    class R:
+        returncode = 0
+        stdout = ("added 567 packages in 50s\n"
+                  "npm warn deprecated eslint@9.39.5: No longer maintained.\n"
+                  "npm warn deprecated prebuild-install@7.1.3: No longer maintained.\n")
+        stderr = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: R())
+    st = updater.restore_sqlite(lambda e: None)
+    assert "added 567 packages" in st.log
+    assert "npm warn deprecated" not in st.log
+
+
 
 @pytest.fixture
 def stack(monkeypatch):
@@ -972,6 +1025,9 @@ def test_npm_stream_pushes_lines_and_reports_failure(monkeypatch):
     s = updater._npm_stream(events.append)
     assert s.ok is False and "npm line" in s.log
     assert {"npm line", "second"} <= {e["text"] for e in events}
+    # warn deprecated (vendor boilerplate) không được lọt vào log/console
+    assert "npm warn deprecated" not in s.log
+    assert "npm warn deprecated" not in {e["text"] for e in events}
 
 
 # ---------- router stack on/off ----------

@@ -566,7 +566,7 @@ def update_page(request: Request, probe: str = ""):
     local, latest = _fresh_versions()
     ctx = {
         "local_version": local, "latest_version": latest,
-        "target_version": getattr(engine, "target_version", lambda: "0.5.81")(),
+        "target_version": engine.target_version(),
         "locks": LOCK_CACHE["locks"],
         "steps": LAST_UPDATE_STEPS,
         "history": _load_history(),
@@ -664,6 +664,7 @@ def update_run(request: Request, autostop: Annotated[str, Form()] = "",
         versions = SNAP["versions"]
     return templates.TemplateResponse(request, "update.html", {
         "local_version": versions["local"], "latest_version": versions["latest"],
+        "target_version": engine.target_version(),
         "locks": [], "steps": steps,
     })
 

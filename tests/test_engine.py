@@ -1954,8 +1954,8 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
 def test_target_version_configured_and_matches_patches_toml():
     import config, engine
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.85"
-    assert engine.target_version() == "0.5.85"
+    assert config.TARGET_9ROUTER_VERSION == "0.5.86"
+    assert engine.target_version() == "0.5.86"
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):
