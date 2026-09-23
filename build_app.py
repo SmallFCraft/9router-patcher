@@ -142,11 +142,16 @@ def _release_dist_exe(exe: Path) -> None:
         return
     subprocess.run(["taskkill", "/F", "/T", "/IM", exe.name],
                    shell=False, capture_output=True, text=True)
-    if not _exe_locked(exe):
-        print(f"  đã tắt {exe.name} còn chạy (đang giữ file để build)")
-    else:
-        print(f"  CẢNH BÁO: {exe.name} vẫn bị giữ — build sẽ lỗi WinError 5. "
-              f"Đóng app rồi chạy lại.")
+    # onefile parent+child giải phóng handle KHÔNG đồng bộ: taskkill xong mà file vẫn
+    # "locked" thêm vài chục ms (repro build 2.2.6: probe ngay -> vẫn giữ -> copy fail
+    # -> prune xoá artifact cũ, files/ giữ bản lỗi). Chờ rồi mới phán quyết.
+    for _ in range(20):                  # tổng ~2s
+        if not _exe_locked(exe):
+            print(f"  đã tắt {exe.name} còn chạy (đang giữ file để build)")
+            return
+        time.sleep(0.1)
+    print(f"  CẢNH BÁO: {exe.name} vẫn bị giữ — build sẽ lỗi WinError 5. "
+          f"Đóng app rồi chạy lại.")
 
 
 def build(fast: bool = False) -> int:
