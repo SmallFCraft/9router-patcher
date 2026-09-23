@@ -117,6 +117,9 @@ def get_nuitka_cmd(output_dir: Path, fast: bool = False) -> list[str]:
         cmd.append("--onefile-no-compression")
     if ico_source.is_file():
         cmd.append(f"--windows-icon-from-ico={ico_source}")
+        # Icon tray đọc từ file lúc chạy (tray._load_icon): không đóng gói thì
+        # frozen mode tìm không thấy assets/app.ico → tray hiện icon Windows mặc định.
+        cmd.append(f"--include-data-files={ico_source}=assets/app.ico")
     cmd.append("app.py")
     return cmd
 
@@ -131,9 +134,10 @@ def _exe_locked(exe: Path) -> bool:
 
 
 def _release_dist_exe(exe: Path) -> None:
-    """Exe của lần build trước còn chạy sẽ giữ file, Nuitka onefile bootstrap unlink fail
-    WinError 5. Kill theo ĐÚNG image name — KHÔNG dùng /FI "WINDOWTITLE ..." (nó khớp cả
-    cửa sổ File Explorer và kill luôn explorer.exe, đã xảy ra thật 2026-09-21)."""
+    """Exe của lần build trước còn chạy sẽ giữ file: Nuitka onefile bootstrap unlink fail
+    WinError 5 ở dist/, copy staging Permission denied ở files/. Kill theo ĐÚNG image
+    name — KHÔNG dùng /FI "WINDOWTITLE ..." (nó khớp cả cửa sổ File Explorer và kill
+    luôn explorer.exe, đã xảy ra thật 2026-09-21)."""
     if not exe.is_file() or not _exe_locked(exe):
         return
     subprocess.run(["taskkill", "/F", "/T", "/IM", exe.name],
@@ -185,6 +189,8 @@ def build(fast: bool = False) -> int:
         standard = files_dir / "9router-patch.exe"
 
         try:
+            _release_dist_exe(versioned)      # cùng trick như dist/: app đang chạy trong
+            _release_dist_exe(standard)       # files/ giữ file y hệt image name nên cũng lock
             shutil.copyfile(exe, versioned)
             shutil.copyfile(exe, standard)
         except OSError as e:

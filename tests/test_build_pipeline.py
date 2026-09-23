@@ -25,6 +25,16 @@ def test_build_app_command_assembly():
     assert cmd[-1] == "app.py"
 
 
+def test_build_app_bundles_tray_icon_into_onefile():
+    """Hồi quy 2026-09-23: exe build xong tray hiện icon Windows mặc định vì
+    assets/app.ico không được đóng gói — _load_icon fallback IDI_APPLICATION."""
+    cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"))
+    assert any(
+        arg.startswith("--include-data-files=") and arg.endswith("assets/app.ico")
+        for arg in cmd
+    ), "app.ico phải được include-data-files vào bundle, không thì frozen mode tìm không thấy file"
+
+
 def test_build_app_skips_heavy_unused_deps():
     """pygments (321 C files, 47% compile) + rich phải bị loại khỏi build."""
     cmd = build_app.get_nuitka_cmd(output_dir=Path("dist"))
