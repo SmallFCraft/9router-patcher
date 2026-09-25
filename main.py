@@ -888,9 +888,11 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
 
 @app.post("/revert", dependencies=CSRF)
 def revert(request: Request, group: Annotated[str, Form()]):
-    """Group only: reverting p6 alone while p8 stays breaks the runtime gauge."""
+    """Group only (group="all" reverts every group atomically): reverting p6 alone
+    while p8 stays breaks the runtime gauge."""
     try:
-        changed = engine.revert(engine.build_dir(), engine.load_patches(), group=group)
+        changed = engine.revert(engine.build_dir(), engine.load_patches(),
+                                group=None if group == "all" else group)
     except Exception as e:
         return _error(request, str(e))
     if changed:

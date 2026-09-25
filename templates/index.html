@@ -96,6 +96,11 @@
       <button class="btn btn-primary" type="submit">{{ icon('play') }}Apply tất cả</button>
       {% endif %}
     </form>
+    <form id="revert-all-form" method="post" action="/revert">
+      <input type="hidden" name="group" value="all">
+    </form>
+    <button class="btn btn-danger" type="submit" form="revert-all-form"
+            data-confirm="Revert TẤT CẢ? Sẽ gỡ toàn bộ {{ patch_count }} patch khỏi build (1 backup chung).">{{ icon('undo') }}Revert tất cả</button>
     <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
     <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
     <span class="meta">{{ icon('clock') }}quét {{ scan_seconds }}s · <span data-epoch="{{ now_epoch }}">vừa xong</span></span>

@@ -424,16 +424,31 @@ def apply(build: str | Path, patches: list[Patch], ids: list[str] | None = None,
         return _commit(b, new, check)
 
 
-def revert(build: str | Path, patches: list[Patch], group: str,
+def revert(build: str | Path, patches: list[Patch], group: str | None,
            check: Callable[[Path], None] | None = None) -> list[str]:
-    """Revert a whole group (sse-hang p6-p9 must move together). Returns changed relpaths."""
+    """Revert a whole group (sse-hang p6-p9 must move together); group=None reverts all.
+
+    One group at a time is the rule because reverting p6 alone while p8 stays breaks the
+    runtime gauge; "all" is therefore one atomic operation — one backup, one node --check
+    round — not a loop of per-group reverts. Returns changed relpaths."""
     b = _build(build)
-    members = sorted((p for p in patches if p.group == group), key=lambda p: p.order)
-    if not members:
+    if group is not None and not any(p.group == group for p in patches):
         raise PatchError(f"unknown group: {group}")
     check = check or node_check
     with LOCK:
         texts = {f: _read(f) for f in _js_files(b)}
+        # When reverting all, filter to groups whose replacements actually exist in the build.
+        # Otherwise an unapplied patch whose chunk is absent (e.g. 318.js in 0.5.86, or a dead
+        # anchor) would fail preflight and block reverting what IS applied.
+        if group is None:
+            active_groups = {p.group for p in patches
+                             if any(p.replace in t for t in texts.values())}
+            members = sorted((p for p in patches if p.group in active_groups),
+                             key=lambda p: p.order)
+        else:
+            members = sorted((p for p in patches if p.group == group), key=lambda p: p.order)
+        if not members:
+            return []                           # nothing applied in the target scope -> no-op
         _preflight(b, texts, members)
         new = {}
         for f, t in texts.items():

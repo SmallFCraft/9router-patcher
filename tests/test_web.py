@@ -155,7 +155,9 @@ def test_sse_group_has_exactly_one_action(web):
     assert html.count('name="group" value="sse-hang"') == 1
     # group count = number of patch groups (was 31 with opencode-freetier-tool-signature,
     # now one less after 0.5.85 native-fix removal); derive instead of hardcode.
-    assert html.count('name="group" value=') == len(engine.groups(REAL_PATCHES))
+    # Count inside the grid only: the toolbar's revert-all hidden input is not a group control.
+    grid = html.split('<section class="ggrid">')[1]
+    assert grid.count('name="group" value=') == len(engine.groups(REAL_PATCHES))
 
 
 def test_index_has_apply_all_form(web):
@@ -215,6 +217,16 @@ def test_post_revert_group_own_origin(web):
     assert r.status_code == 303
     assert r.headers["location"] == "/"
     assert web["revert"][0][1]["group"] == "sse-hang"
+
+
+def test_post_revert_all_maps_to_group_none(web):
+    """UI 'Revert tất cả' posts group=all; the route translates ONLY that sentinel to
+    revert's group=None. Empty POST still 422s — it must never wipe the build."""
+    r = web["client"].post("/revert", data={"group": "all"}, headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert web["revert"][0][1]["group"] is None
+    r = web["client"].get("/")
+    assert 'value="all"' in r.text and "Revert tất cả" in r.text
 
 
 def test_post_revert_patch_error_is_error_page_not_500(web, monkeypatch):
