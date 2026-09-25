@@ -1,13 +1,20 @@
+[MODE: <MODE_NAME>] prefix every response. Read-only until `[MODE: EXECUTE]`; during EXECUTE, any divergence from the approved plan → STOP, state the smallest necessary adjustment, re-plan, then continue. Verify current/external/environment-dependent facts with a tool before relying on them — never invent them.
+
+**Strictly prohibited: do not create summary files or Markdown files without the user's permission.**
+**When the project runs on localhost, use the project's configured development account; never invent or expose credentials.**
+Generate clean production code. Comment only where logic is genuinely non-obvious.
+
+## External checks
+
+- Search/fetch docs and APIs: `mcp__exa__web_search_exa`, `mcp__exa__web_fetch_exa`.
+- Check a live page: `mcp__plugin_playwright_playwright__browser_navigate`, then `browser_snapshot` (text/structure) or `browser_take_screenshot`.
+- Fallback when MCP is not loaded here — test with `ToolSearch "+exa"` (empty result = absent): use native `WebSearch` / `WebFetch`.
+- Never print keys or secrets; never commit them.
+
 # 9router Patch Manager — Environment & Operating Rules
 
 Management dashboard and patch engine for the globally-installed `9router` npm package.
 This repo manages the local proxy copy; it does not contain the proxy source.
-
-## Output Rules
-
-- Do not create summary files or `.md` files without the user's permission.
-- Generate clean production code. No comments except where logic is genuinely non-obvious. No line-by-line narration of obvious code.
-- On localhost, use the project's configured development account. Never invent or expose credentials.
 
 ## Stack & Architecture
 
@@ -19,7 +26,7 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
 - `patches.toml` — Single source of truth (35 patches, 31 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
-- Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`). Installed: **0.5.86**.
+- Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
 ## Verified Baselines (2026-09-25, re-verified live)
@@ -34,8 +41,8 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ```bat
 pip install -r requirements.txt
-python build_app.py          # publish build, ~18 MB (measured 17.7 MB), zstd-compressed
-python build_app.py --fast   # dev loop, skips zstd compression
+python build_app.py          # publish build, ~18 MB, zstd-compressed
+python build_app.py --fast   # dev loop (~97 MB, skips zstd compression)
 ```
 
 Output: `dist\9router-patch.exe` (Nuitka onefile executable).
@@ -43,15 +50,13 @@ Output: `dist\9router-patch.exe` (Nuitka onefile executable).
 - Runs with dedicated console window (`--windows-console-mode=force` in `build_app.py`; interactive prompt + boot doctor). Console hides to system tray on `[H]`.
 - Auto-opens `http://127.0.0.1:20129` on launch.
 - Web UI provides shutdown button (power icon) to terminate process and release port `:20129`.
-- `--jobs=<N-2>` computed from `os.cpu_count()` in `build_app.py` (=14 here, 16 cores) + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,wsproto,yaml,rich,pygments`. `rich` & `pygments` (321 C source files, 47% of total C files) dropped — pydantic lazy import in debug schema, app does not use them.
+- `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,wsproto,yaml,rich,pygments`. `rich` & `pygments` (321 C source files, 47% tổng số C files) bị loại — pydantic lazy import in debug schema, app không dùng.
 - Use `--fast` for anything that is not a release build — do not burn minutes re-verifying UI changes.
-- **Nuitka traps**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
+- **Cạm bẫy Nuitka**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
 
 ## GitNexus — Code Intelligence
 
-Indexed as **9router-patcher** — **2116 symbols, 6770 relationships, 188 execution flows** (verified 2026-09-25 via `gitnexus list`).
-
-**Index is behind HEAD.** Indexed at commit `2960e2c`/`a7fd698`; HEAD is `10cd914`. Run `analyze` before trusting impact results on recent changes.
+Indexed as **9router-patcher** (2116 symbols, 6770 relationships, 188 execution flows; verify live with `list`).
 
 ### MCP tools (bare names work, `gitnexus_*` prefixed names FAIL schema validation)
 
@@ -74,8 +79,8 @@ CLI syntax: `impact` uses `-r/--repo` and `-d/--direction`; top-level commands l
 
 ### CLI version drift — verified
 
-- PATH `gitnexus.CMD`: **1.6.4-rc.48** (stale). `.gitnexus/run.cjs`: **1.6.4-rc.48** (stale).
-- Global `E:\Apps\npm-global\node_modules\gitnexus`: **1.6.10** (current).
+- PATH `gitnexus.CMD`: **1.6.4-rc.48** (stale). `.gitnexus/run.cjs` resolves PATH `gitnexus` first, so it hits the same stale build.
+- Global `E:\Apps\npm-global\node_modules\gitnexus`: **1.6.10** (current — this is what the MCP server runs).
 - Use `node E:\Apps\npm-global\node_modules\gitnexus\dist\cli\index.js <cmd>` or `npx gitnexus <cmd>`. Do NOT rely on PATH `gitnexus` or `.gitnexus/run.cjs` — version drift bites when commands touch the index schema.
 
 ### Rules
@@ -96,11 +101,6 @@ CLI syntax: `impact` uses `-r/--repo` and `-d/--direction`; top-level commands l
 - When re-anchoring to a new upstream build, `find` and `replace` must be remapped together.
 - Standalone patches have their own group. Grouped patches apply/revert atomically; `defines` marks the base patch that must apply first.
 - If modifying `patches.toml`, run `python tools\make_patches_blob.py` to keep `assets\patches.enc` in sync for binary packaging.
-
-## Instruction File Layout
-
-- `AGENTS.md` is a pointer only. `.claude/` is git-ignored (`.gitignore:25`), so repo skills under `.claude/skills/` are untracked — they rot silently with no diff to show it.
-- Only `CLAUDE.md` is read natively. Claude Code does not auto-load `AGENTS.md`.
 
 ## Local Storage & Cache Paths
 
