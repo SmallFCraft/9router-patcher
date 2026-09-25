@@ -459,6 +459,32 @@ find = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)}if("claude"===
 replace = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)};(function(){try{if("string"!=typeof a.model||a.model.indexOf("muse-spark")<0)return;if(!Array.isArray(a.tools))return;let $n=new Set(a.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)));for(let $t of[{name:"bash",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}},{name:"read",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}}])$n.has($t.name)||a.tools.push($t)}catch{}})();if("claude"===b||b?.startsWith("anthropic-compatible")||'
 
 
+# P38 — nhánh cuối của classifier `hk/e()` coi MỌI 4xx (trừ 401/402/403/429) là lỗi
+# phía client → `shouldFallback:!1`. Combo loop 8910.js `if(!i)return b` trả thẳng
+# response 400 cho client → Claude Code báo "Invalid request ... Status: 400" và HỦY
+# session giữa chừng, không xoay model nào. Nhưng 400 của MỘT model provider là lỗi
+# riêng của model đó, đúng loại mà combo sinh ra để xoay — bằng chứng: 403 "Model is
+# disabled" (54 lần trong requestDetails) xoay bình thường vì 403 nằm ngoài nhánh đó.
+# Ca thật 2026-09-25 14:39 (requestDetails, provider anthropic-compatible-0dbcb62c,
+# model deepseek-v4-flash:free, có 1 image block): TokenHarbor trả 400
+# `Model 'deepseek-v4-flash' does not accept image input. Use 'deepseek-v4.1-flash'
+# instead` — không khớp cờ nào của P13 (service_error/content-blocked/high risk/…)
+# nên rơi xuống nhánh cuối → shouldFallback:!1 → combo "harbor" con chết, combo cha
+# "claude-opus-5" chết theo, Claude Code hủy tiến trình.
+# Sửa: 4xx nào cũng fallback, cooldown 5s (đủ skip burst retry, không khoá model 30s).
+# KHÔNG đụng nhánh 5xx/`d.wf` — lỗi hạ tầng vẫn khoá dài như cũ.
+# Anchor: câu `return` cuối hàm e(), đúng 1 bản trong mỗi file, 8 file (3 chunks +
+# 5 route bundle) — cùng tập file với P13, hai anchor không chồng nhau (P13 ở đầu hàm).
+# Payload KHÔNG bị sửa: không strip image, không rewrite body — chỉ đổi quyết định xoay.
+
+[[patch]]
+id = "4xx-rotate-instead-of-abort"
+order = 38
+summary = "Classifier: 4xx (400/404/406…) → fallback 5s thay vì trả thẳng lỗi cho client"
+why = "nhánh cuối e() coi 4xx là lỗi client nên shouldFallback:!1; combo loop trả raw 400 → Claude Code cancel session. 400 của 1 model là lỗi model-specific, phải xoay model kế tiếp trong combo (403 'Model is disabled' vốn đã xoay được vì nằm ngoài nhánh này). Ca thật: TokenHarbor 400 'does not accept image input' (deepseek-v4-flash:free) giết cả combo harbor lẫn claude-opus-5"
+find = 'return a>=400&&a<500&&401!==a&&402!==a&&403!==a&&429!==a?{shouldFallback:!1,cooldownMs:0}:{shouldFallback:!0,cooldownMs:d.wf}}'
+replace = 'return a>=400&&a<500?{shouldFallback:!0,cooldownMs:5e3}:{shouldFallback:!0,cooldownMs:d.wf}}'
+
 # P37 — topology đọc số request thật. P13 sửa combos; patch này sửa dashboard.
 # Đo 2026-09-25: 3 session Claude song song cùng provider `anthropic-compatible` → topology vẽ
 # ĐÚNG 1 đường, badge router = 1. Nguyên nhân: `g()` gom `activeRequests` thành

@@ -116,7 +116,7 @@ def unlink_dir(link: Path) -> None:
 
 def test_load_patches_real_file(patches):
     # P32 opencode-freetier-tool-signature removed 2026-09-22 (upstream 0.5.85 native Ke fix)
-    assert len(patches) == 35
+    assert len(patches) == 36
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -131,7 +131,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 31  # 25 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests
+    assert len(grouped) == 32  # 26 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests + 4xx-rotate-instead-of-abort
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -549,6 +549,40 @@ def test_revert_sse_hang_group_all_and_idempotent(patches, tmp_path):
     assert revert(b, patches, group="sse-hang", check=ok_check()) == []
     assert read(b / "8895.js") == t
     assert patched != t
+
+
+def test_revert_all_reverts_every_group_atomically(patches, tmp_path):
+    """group=None (the backend of UI 'Revert tất cả') undoes every applied patch across
+    all files in ONE atomic pass, returns all files to stock, and is idempotent on repeat."""
+    b = tmp_path / "build"
+    b.mkdir()
+    # 4 distinct files spanning multiple groups (single + multi-patch sse-hang)
+    p1 = by_id(patches, "connect-timeout-180s")
+    p2 = by_id(patches, "ua-messages")
+    p5 = by_id(patches, "tools-strip-custom")
+    sse_ps = sse(patches)
+    orig_x = f"// header\nconst t = '{p1.find}';\n"
+    orig_318 = f"A{p2.find}B{p5.find}C"
+    orig_sse = "".join(f"L{i}{p.find}L{i}!" for i, p in enumerate(sse_ps))
+    write(b, "x.js", orig_x)
+    write(b, "318.js", orig_318)
+    write(b, "8895.js", orig_sse)
+
+    applied_ids = [p1.id, p2.id, p5.id, "sse-hang"]
+    apply(b, patches, ids=applied_ids, check=ok_check())
+    assert p1.replace in read(b / "x.js")
+    assert p2.replace in read(b / "318.js") and p5.replace in read(b / "318.js")
+    for p in sse_ps:
+        assert p.replace in read(b / "8895.js")
+
+    changed = revert(b, patches, group=None, check=ok_check())
+    assert sorted(changed) == ["318.js", "8895.js", "x.js"]
+    assert read(b / "x.js") == orig_x
+    assert read(b / "318.js") == orig_318
+    assert read(b / "8895.js") == orig_sse
+    assert all(s.state == "clean" for s in scan(b, [p1, p2, p5, *sse_ps]))
+    # second revert-all is an idempotent no-op
+    assert revert(b, patches, group=None, check=ok_check()) == []
 
 
 # ---------- backup + verify ----------
@@ -1771,14 +1805,14 @@ def test_p13_content_blocked_and_safety_checks_trigger_fallback(patches):
     assert "content-blocked" in p.replace and "high risk" in p.replace
     # `replace` is only the function head + guard; the tail (`for(let b of d.t2)` loop and
     # the final 400-status return) stays in the upstream file. Re-assemble the full body so
-    # the guard is exercised the way it runs in production.
+    # the guard is exercised the way it runs in production. The final return comes from P38
+    # (not hardcoded) so the two patches cannot drift apart here.
     tail = ('if(b.text&&f&&f.includes(b.text)||b.status&&b.status===a){'
             'if(b.backoff){let a=Math.min(c+1,d.EQ.maxLevel);'
             'return{shouldFallback:!0,cooldownMs:function(a=0){let b=Math.max(0,a-1);'
             'return Math.min(d.EQ.base*Math.pow(2,b),d.EQ.max)}(a),newBackoffLevel:a}}'
             'return{shouldFallback:!0,cooldownMs:b.cooldownMs}}'
-            'return a>=400&&a<500&&401!==a&&402!==a&&403!==a&&429!==a'
-            '?{shouldFallback:!1,cooldownMs:0}:{shouldFallback:!0,cooldownMs:d.wf}}')
+            + by_id(patches, "4xx-rotate-instead-of-abort").replace)
     script = """
 const d = {
   t2: [
@@ -1797,15 +1831,22 @@ const cases = [
   [400, "model has cyber security policy block", true, 5000],
   [400, "service_error", true, 5000],
   [400, "upstream non-sse: 200", true, 5000],
-  [400, "random syntax error in user prompt", false, 0],
-  [404, "model_not_found", false, 0],
-  [400, "rate limit exceeded", true, 6000],
+  // 2026-09-25 14:39 incident: TokenHarbor 400 on deepseek-v4-flash:free
+  // (image block in body) killed combos "harbor" + "claude-opus-5" via the
+  // no-fallback branch. P38 makes every 4xx rotate with 5s cooldown.
+  [400, "Model 'deepseek-v4-flash' does not accept image input. Use 'deepseek-v4.1-flash' instead, or send text only.", true, 5000],
+  [400, "random syntax error in user prompt", true, 5000],
+  [401, "invalid api key", true, 120000],
+  [404, "model_not_found", true, 5000],
+  [429, "rate limit", true, 2000],
+  [400, "rate limit exceeded", true, 2000],
+  [503, "service unavailable", true, 30000],
 ];
 
 for (const [st, msg, expFb, expCd] of cases) {
   const r = e(st, msg);
-  if (!r || r.shouldFallback !== expFb || (expFb && expCd === 5000 && r.cooldownMs !== 5000)) {
-    throw new Error(`st=${st} msg=${msg} -> ${JSON.stringify(r)} (want fallback=${expFb})`);
+  if (!r || r.shouldFallback !== expFb || r.cooldownMs !== expCd) {
+    throw new Error(`st=${st} msg=${msg} -> ${JSON.stringify(r)} (want fallback=${expFb} cd=${expCd})`);
   }
 }
 console.log("P13-CONTENT-BLOCK-OK");
@@ -1814,6 +1855,19 @@ console.log("P13-CONTENT-BLOCK-OK");
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0 and "P13-CONTENT-BLOCK-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_p38_anchor_hits_real_build(patches):
+    """P38 anchor = the final `return` of classifier e(); byte-measured on 0.5.86 as
+    exactly 1 occurrence in each of 8 files (3 chunks + 5 route bundles). find/replace
+    share no substring, so a re-apply stays a no-op and never recurses."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    p = by_id(patches, "4xx-rotate-instead-of-abort")
+    assert p.find not in p.replace and p.replace not in p.find
+    places = _anchor_placements(Path(engine.build_dir()), p)
+    assert sum(places.values()) == 8, places
+    assert all(v == 1 for v in places.values()), places
 
 
 # ---------- p37: topology-parallel-requests ----------
