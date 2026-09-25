@@ -37,8 +37,11 @@ def web(monkeypatch, tmp_path):
     rec = {"apply": [], "revert": [], "locks": [], "steps": [], "router": []}
     monkeypatch.setattr(engine, "build_dir", lambda: Path("D:/hermetic/build"))
     monkeypatch.setattr(engine, "load_patches", lambda: REAL_PATCHES)
+    # Mixed by default: p1 clean, phần còn lại applied — toolbar render cả Apply tất cả
+    # lẫn Revert tất cả, nên guard 409 của route không chặn oan các test apply/revert.
     monkeypatch.setattr(engine, "scan",
-                        lambda build, patches, **kw: [_state(p, "applied") for p in patches])
+                        lambda build, patches, **kw: [_state(p, "clean" if i == 0 else "applied")
+                                                      for i, p in enumerate(patches)])
     monkeypatch.setattr(engine, "apply",
                         lambda *a, **k: rec["apply"].append((a, k)) or [])
     monkeypatch.setattr(engine, "revert",
@@ -227,6 +230,58 @@ def test_post_revert_all_maps_to_group_none(web):
     assert web["revert"][0][1]["group"] is None
     r = web["client"].get("/")
     assert 'value="all"' in r.text and "Revert tất cả" in r.text
+
+
+def test_toolbar_hides_revert_when_nothing_applied(web, monkeypatch):
+    """Chưa apply patch nào (toàn clean): toolbar chỉ hiện Apply tất cả."""
+    set_scan(monkeypatch, {p.id: "clean" for p in REAL_PATCHES})
+    html = web["client"].get("/").text
+    assert "Apply tất cả" in html
+    assert "Revert tất cả" not in html
+
+
+def test_toolbar_hides_apply_all_when_all_applied(web, monkeypatch):
+    """Đã apply hết: toolbar chỉ hiện Revert tất cả."""
+    set_scan(monkeypatch, {p.id: "applied" for p in REAL_PATCHES})
+    html = web["client"].get("/").text
+    assert "Revert tất cả" in html
+    assert "Apply tất cả" not in html
+
+
+def test_post_apply_all_noop_when_all_applied_409(web, monkeypatch):
+    """F12 hiện lại Apply-all khi đã apply hết: route 409, engine.apply không chạy."""
+    set_scan(monkeypatch, {p.id: "applied" for p in REAL_PATCHES})
+    r = web["client"].post("/apply", data={}, headers={"Origin": OWN})
+    assert r.status_code == 409
+    assert "Không còn patch clean" in r.text
+    assert web["apply"] == []
+
+
+def test_post_revert_all_noop_when_nothing_applied_409(web, monkeypatch):
+    """F12 gửi revert-all khi chưa apply gì: route 409, engine.revert không chạy."""
+    set_scan(monkeypatch, {p.id: "clean" for p in REAL_PATCHES})
+    r = web["client"].post("/revert", data={"group": "all"}, headers={"Origin": OWN})
+    assert r.status_code == 409
+    assert "Không còn patch applied" in r.text
+    assert web["revert"] == []
+
+
+def test_post_apply_selected_still_works_when_all_applied(web):
+    """Guard chỉ chặn apply-all (ids rỗng); apply per-group vẫn gọi engine như cũ."""
+    r = web["client"].post("/apply", data={"ids": ["sse-hang"]}, headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert web["apply"][0][1]["ids"] == ["sse-hang"]
+
+
+def test_post_apply_all_scan_failure_falls_through_to_engine(web, monkeypatch):
+    """Không quét được build (no npm): guard nhường, engine tự báo lỗi như cũ."""
+    monkeypatch.setattr(engine, "scan", boom)
+    def bad(*a, **k):
+        raise engine.PatchError("no build")
+    monkeypatch.setattr(engine, "apply", bad)
+    r = web["client"].post("/apply", data={}, headers={"Origin": OWN})
+    assert r.status_code == 409
+    assert "no build" in r.text
 
 
 def test_post_revert_patch_error_is_error_page_not_500(web, monkeypatch):

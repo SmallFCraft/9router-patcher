@@ -89,6 +89,7 @@
   </div>
   <div class="meter" role="img" aria-label="{{ counts.applied }} trên {{ patch_count }} patch đã áp"><i style="width: {{ pct }}%"></i></div>
   <div class="toolbar">
+    {% if counts.clean or counts.partial %}
     <form method="post" action="/apply">
       {% if compat and compat.get("relation") in ("newer", "older") %}
       <button class="btn btn-primary" type="submit" disabled title="9router v{{ compat.local }} khác bản vá (v{{ compat.target }}) — cài lại bản hỗ trợ trước khi apply">{{ icon('play') }}Apply tất cả</button>
@@ -96,11 +97,14 @@
       <button class="btn btn-primary" type="submit">{{ icon('play') }}Apply tất cả</button>
       {% endif %}
     </form>
+    {% endif %}
+    {% if counts.applied %}
     <form id="revert-all-form" method="post" action="/revert">
       <input type="hidden" name="group" value="all">
     </form>
     <button class="btn btn-danger" type="submit" form="revert-all-form"
             data-confirm="Revert TẤT CẢ? Sẽ gỡ toàn bộ {{ patch_count }} patch khỏi build (1 backup chung).">{{ icon('undo') }}Revert tất cả</button>
+    {% endif %}
     <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
     <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
     <span class="meta">{{ icon('clock') }}quét {{ scan_seconds }}s · <span data-epoch="{{ now_epoch }}">vừa xong</span></span>

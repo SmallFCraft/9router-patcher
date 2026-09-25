@@ -857,6 +857,15 @@ def router_align_target(request: Request):
     return JSONResponse({"ok": ok, "message": msg})
 
 
+def _states_or_none() -> list | None:
+    """Scan rồi trả states, None nếu không quét được (no build / npm / toml hỏng):
+    route phải giữ hành vi cũ thay vì chặn oan."""
+    try:
+        return engine.scan(engine.build_dir(), engine.load_patches())
+    except Exception:
+        return None
+
+
 @app.post("/apply", dependencies=CSRF)
 def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
     """No ids -> apply everything. An id or group name pulls in its whole group (engine)."""
@@ -870,6 +879,12 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
                                        f"(v{compat['target']}). Hãy {action} v{compat['target']} trước.")
     except Exception:
         pass                            # không dò được bản cài -> giữ hành vi cũ (cho apply)
+    if not ids:
+        # Apply-all gửi từ F12 sau khi đã apply hết: từ chối sớm, không đụng build.
+        # partial vẫn còn file clean để apply -> cho qua (engine apply idempotent).
+        states = _states_or_none()
+        if states is not None and not any(s.state in ("clean", "partial") for s in states):
+            return _error(request, "Không còn patch clean nào để apply.")
     try:
         changed = engine.apply(engine.build_dir(), engine.load_patches(), ids=ids or None)
     except Exception as e:              # PatchError, but also EBUSY/PermissionError on
@@ -890,6 +905,12 @@ def apply(request: Request, ids: Annotated[list[str] | None, Form()] = None):
 def revert(request: Request, group: Annotated[str, Form()]):
     """Group only (group="all" reverts every group atomically): reverting p6 alone
     while p8 stays breaks the runtime gauge."""
+    if group == "all":
+        # Revert-all gửi từ F12 khi chưa apply gì: từ chối sớm, không đụng build.
+        # partial vẫn có file đã replace -> còn gì đó để revert.
+        states = _states_or_none()
+        if states is not None and not any(s.state in ("applied", "partial") for s in states):
+            return _error(request, "Không còn patch applied nào để revert.")
     try:
         changed = engine.revert(engine.build_dir(), engine.load_patches(),
                                 group=None if group == "all" else group)
