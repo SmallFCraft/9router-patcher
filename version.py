@@ -1,2 +1,2 @@
 """Single source of truth for 9router Patch Manager application version."""
-APP_VERSION = "2.2.7"  # Cập nhật phiên bản ứng dụng tại đây
+APP_VERSION = "2.2.8"  # Cập nhật phiên bản ứng dụng tại đây

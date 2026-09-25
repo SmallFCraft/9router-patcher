@@ -13,7 +13,7 @@ See [CLAUDE.md](CLAUDE.md) for full architecture, verified test baselines, and o
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **9router-patcher** (1696 symbols, 5346 relationships, 151 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **9router-patcher** (2116 symbols, 6770 relationships, 188 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

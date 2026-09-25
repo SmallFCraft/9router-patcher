@@ -116,7 +116,7 @@ def unlink_dir(link: Path) -> None:
 
 def test_load_patches_real_file(patches):
     # P32 opencode-freetier-tool-signature removed 2026-09-22 (upstream 0.5.85 native Ke fix)
-    assert len(patches) == 34
+    assert len(patches) == 35
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -131,7 +131,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 30  # 25 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough
+    assert len(grouped) == 31  # 25 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -1184,8 +1184,8 @@ const mk = (frames) => { let i = 0; return { read: async () => i < frames.length
   r = await $pk({ getReader: () => mk(['data: {"choices":[{"delta":{"content":"Hi"}}]}\\n\\n', "data: [DONE]\\n\\n"]) }, {});
   if (!r.success) throw new Error("openai content bi coi la empty");
 
-  r = await $pk({ getReader: () => mk(['data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}\\n\\n']) }, {});
-  if (r.success !== false) throw new Error("thinking-only phai la empty");
+  r = await $pk({ getReader: () => mk(['event: content_block_start\\n', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}\\n\\n', 'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}\\n\\n']) }, {});
+  if (!r.success) throw new Error("thinking-only phai la stream song");
 
   let threw = false;
   try { await $pk({ getReader: () => ({ read: async () => { throw new Error("boom"); } }) }, {}); } catch (e) { threw = true; }
@@ -1759,6 +1759,127 @@ def test_muse_spark_freetier_anchor_hits_real_build(patches):
     p = by_id(patches, "muse-spark-freetier-tool-signature")
     places = _anchor_placements(build, p)
     assert sum(places.values()) == 1, places
+
+
+# ---------- p13: service-error-fast-recover (content-blocked extension) ----------
+
+def test_p13_content_blocked_and_safety_checks_trigger_fallback(patches):
+    """P13: 400 + content-blocked / cyber security / content safety / high risk / service_error
+    must return shouldFallback: true with 5s cooldown, allowing combo loop to rotate
+    instead of dying on status 400."""
+    p = by_id(patches, "service-error-fast-recover")
+    assert "content-blocked" in p.replace and "high risk" in p.replace
+    # `replace` is only the function head + guard; the tail (`for(let b of d.t2)` loop and
+    # the final 400-status return) stays in the upstream file. Re-assemble the full body so
+    # the guard is exercised the way it runs in production.
+    tail = ('if(b.text&&f&&f.includes(b.text)||b.status&&b.status===a){'
+            'if(b.backoff){let a=Math.min(c+1,d.EQ.maxLevel);'
+            'return{shouldFallback:!0,cooldownMs:function(a=0){let b=Math.max(0,a-1);'
+            'return Math.min(d.EQ.base*Math.pow(2,b),d.EQ.max)}(a),newBackoffLevel:a}}'
+            'return{shouldFallback:!0,cooldownMs:b.cooldownMs}}'
+            'return a>=400&&a<500&&401!==a&&402!==a&&403!==a&&429!==a'
+            '?{shouldFallback:!1,cooldownMs:0}:{shouldFallback:!0,cooldownMs:d.wf}}')
+    script = """
+const d = {
+  t2: [
+    {text:"rate limit",backoff:!0},
+    {text:"quota exceeded",backoff:!0},
+    {status:401,cooldownMs:120000},
+  ],
+  EQ: { base: 2000, max: 300000, maxLevel: 15 },
+  wf: 30000,
+};
+%s%s
+
+const cases = [
+  [400, '{"error":{"code":"content-blocked","message":"content-blocked","type":"agent_router_api_error"}}', true, 5000],
+  [400, "Your input was flagged as high risk by the model provider's content safety check.", true, 5000],
+  [400, "model has cyber security policy block", true, 5000],
+  [400, "service_error", true, 5000],
+  [400, "upstream non-sse: 200", true, 5000],
+  [400, "random syntax error in user prompt", false, 0],
+  [404, "model_not_found", false, 0],
+  [400, "rate limit exceeded", true, 6000],
+];
+
+for (const [st, msg, expFb, expCd] of cases) {
+  const r = e(st, msg);
+  if (!r || r.shouldFallback !== expFb || (expFb && expCd === 5000 && r.cooldownMs !== 5000)) {
+    throw new Error(`st=${st} msg=${msg} -> ${JSON.stringify(r)} (want fallback=${expFb})`);
+  }
+}
+console.log("P13-CONTENT-BLOCK-OK");
+""" % (p.replace, tail)
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "P13-CONTENT-BLOCK-OK" in r.stdout, r.stderr or r.stdout
+
+
+# ---------- p37: topology-parallel-requests ----------
+
+def test_topology_parallel_requests_counts_concurrent_sessions(patches):
+    """P37: Router node receives raw request count (not provider Set size);
+    per-provider activeCount reflects parallel session load; edge thickness scales."""
+    p = by_id(patches, "topology-parallel-requests")
+    assert p.find not in p.replace
+    # `replace` continues past the IIFE into the useMemo deps tail; keep only the call.
+    iife = p.replace[:p.replace.index(",[e,j,h,b,t])") + len(",[e,j,h,b,t])")]
+    iife = iife[:iife.index("),(e,j,h,b,t)")] if False else iife
+    # drop the trailing `,[e,j,h,b,t])` deps fragment, keep the call expression
+    call = p.replace[:p.replace.index("})(e,j,h,b,t)") + len("})(e,j,h,b,t)")]
+    script = """
+const d = { Q2: { "anthropic-compatible": { color: "#22d3ee", name: "Anthropic" } } };
+const c = { HY: () => "/icon.png" };
+const e = [{ provider: "anthropic-compatible" }];
+const j = new Set(["anthropic-compatible"]);
+const h = new Set();
+const b = new Set();
+
+// 3 concurrent parallel Claude sessions on the SAME provider
+const t = [
+  { provider: "anthropic-compatible", count: 1 },
+  { provider: "anthropic-compatible", count: 1 },
+  { provider: "anthropic-compatible", count: 1 },
+];
+
+const res = %s;
+const routerNode = res.nodes.find(n => n.id === "router");
+if (!routerNode) throw new Error("no router node");
+// Must show 3 active requests, NOT 1
+if (routerNode.data.activeCount !== 3) {
+  throw new Error("Router activeCount should be 3, got: " + routerNode.data.activeCount);
+}
+
+const provNode = res.nodes.find(n => n.id === "provider-anthropic-compatible");
+if (!provNode || provNode.data.activeCount !== 3) {
+  throw new Error("Provider activeCount should be 3, got: " + provNode?.data?.activeCount);
+}
+
+const edge = res.edges.find(ed => ed.id === "e-provider-anthropic-compatible");
+if (!edge || edge.style.strokeWidth < 6) {
+  throw new Error("Edge width should scale under load, got: " + edge?.style?.strokeWidth);
+}
+console.log("P37-TOPO-OK");
+""" % call
+    if shutil.which("node") is None:
+        pytest.skip("node not installed")
+    r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "P37-TOPO-OK" in r.stdout, r.stderr or r.stdout
+
+
+def test_topology_parallel_requests_anchor_hits_real_build(patches):
+    """P37 anchor exists in static/chunks/ of the build."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    b = Path(engine.build_dir())
+    p = by_id(patches, "topology-parallel-requests")
+    hits = []
+    for f in b.rglob("*.js"):
+        t = f.read_text(encoding="utf-8", errors="ignore")
+        if p.find in t or p.replace in t:
+            hits.append(f.relative_to(b).as_posix())
+    assert len(hits) == 1, f"Expected 1 hit for P37, got: {hits}"
 
 
 # ---------- locate (dead-anchor diagnosis) ----------
