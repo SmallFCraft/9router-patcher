@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import app_paths
@@ -285,7 +286,8 @@ def ensure_router_stack(on_output=None) -> tuple[bool, str]:
         log_boot(f"ERROR: {err}")
         return False, err
 
-def run_doctor(interactive: bool = True) -> bool:
+def run_doctor(interactive: bool = True,
+               on_interactive_needed: Callable[[], None] | None = None) -> bool:
     """Doctor lúc khởi động: 5 bước, mỗi bước một dòng `nhãn ... badge`.
 
     Chặn boot chỉ ở bước 1 (thiếu node) và bước 2 (thiếu 9router, non-interactive);
@@ -294,12 +296,22 @@ def run_doctor(interactive: bool = True) -> bool:
     Quy tắc prompt: câu hỏi đổi bản cài toàn cục chỉ hiện khi stdin là TTY.
     stdin đóng (task scheduler, pipe, detached) → coi như non-interactive,
     KHÔNG tự npm khi không có người xác nhận (đo 2026-09-23).
+
+    `on_interactive_needed`: callback gọi một lần trước khi hỏi user (dùng khi chạy
+    --tray mà console đang bị ẩn — hiện lại cửa sổ để user thấy câu hỏi).
     """
     import console_ui
     console_ui.enable_vt()
     console_ui.header("9router Patch Manager", f"v{version.APP_VERSION}")
     g = console_ui.glyphs()
     can_ask = interactive and _stdin_is_tty()
+
+    def _prepare_prompt() -> None:
+        if on_interactive_needed:
+            try:
+                on_interactive_needed()
+            except Exception:
+                pass
 
     # 1. Tự cập nhật exe (đồng bộ) — có bản mới thì swap + restart ngay.
     console_ui.step_begin("[1/5]", "Kiểm tra bản cập nhật")
@@ -333,6 +345,7 @@ def run_doctor(interactive: bool = True) -> bool:
         console_ui.step_end("Thiếu", "bad")
         console_ui.detail(g["warn"], msg)
         if can_ask:
+            _prepare_prompt()
             input("  Nhấn Enter để thoát...")
         return False
 
@@ -346,6 +359,7 @@ def run_doctor(interactive: bool = True) -> bool:
         if not can_ask:
             console_ui.step_end("Thiếu", "bad")
             return False
+        _prepare_prompt()
         console_ui.step_end("Chưa cài", "warn")
         console_ui.detail(g["info"], msg)
         if _ask_yn("9router chưa được cài đặt. Cài toàn cục qua npm?", default=True):
@@ -354,6 +368,7 @@ def run_doctor(interactive: bool = True) -> bool:
         else:
             console_ui.detail(g["skip"], "Bỏ qua cài đặt 9router.")
     elif relation == "older" and can_ask:
+        _prepare_prompt()
         target = compat.get("target", engine.target_version())
         local_v = compat.get("local", "cũ")
         console_ui.step_end("Cần cập nhật", "warn")

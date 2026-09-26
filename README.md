@@ -190,7 +190,7 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-401 passed, 5 skipped; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction. Some cases skip by design: the end-to-end binary test needs port `20129` free, engine measurements are version-locked to the build they were taken on, and `test_tray` no-ops off Windows.
+408 passed, 5 skipped; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction. Some cases skip by design: the end-to-end binary test needs port `20129` free, engine measurements are version-locked to the build they were taken on, and `test_tray` no-ops off Windows.
 
 ## Distribution (Standalone Executable)
 

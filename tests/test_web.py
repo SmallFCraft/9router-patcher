@@ -1262,13 +1262,15 @@ def test_probe_headroom_reports_installed_when_port_is_up_even_if_detection_fail
 
 
 def test_update_page_renders_auto_start_toggle(web, monkeypatch):
-    """Trang /update phải render switch auto-start."""
+    """Trang /update phải render switch auto-start, và tick checked khi đang bật."""
     import autostart
     monkeypatch.setattr(autostart, "is_enabled", lambda: True)
     monkeypatch.setattr(autostart, "is_supported", lambda: True)
     html = web["client"].get("/update").text
     assert 'id="auto-start-toggle"' in html
     assert "Khởi động cùng Windows" in html
+    # is_enabled()==True -> thẻ input phải mang thuộc tính checked (không chỉ có id)
+    assert re.search(r'<input\b[^>]*\bid="auto-start-toggle"[^>]*\bchecked\b', html) is not None
 
 
 def test_update_page_disables_auto_start_on_unfrozen_install(web, monkeypatch):

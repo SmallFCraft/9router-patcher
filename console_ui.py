@@ -218,6 +218,12 @@ def prompt(icon: str, question: str) -> str:
         return ""
 
 
+def _spinner_frames() -> list[str]:
+    """Bảng khung spinner dùng chung: braille khi terminal hỗ trợ unicode, ASCII fallback."""
+    return (["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if unicode_ok()
+            else ["-", "\\", "|", "/"])
+
+
 def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") -> tuple[bool, str]:
     """Chạy npm cài 9router@target: spinner 1 dòng + kết quả gọn trong khung step.
 
@@ -226,9 +232,8 @@ def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") 
     """
     import sys as _sys
     p, g = palette(), glyphs()
-    live = _sys.stdout.isatty() if hasattr(_sys.stdout, "isatty") else False
-    frames = (["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if unicode_ok()
-              else ["-", "\\", "|", "/"])
+    live = _is_live()
+    frames = _spinner_frames()
     print(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{label} 9router@{target}{p.reset}", flush=True)
     i, last = [0], [""]
 
@@ -248,7 +253,7 @@ def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") 
 
     ok, msg = installer(on_output=tick)
     if live:
-        _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+        _clear_line()
     if not ok:
         if log_fn:
             log_fn(f"ERROR: {msg}")
@@ -261,6 +266,18 @@ def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") 
     return ok, msg
 
 
+def _is_live() -> bool:
+    """True khi stdout là console thật — pipe/redirect phải giữ log sạch, không escape."""
+    import sys as _sys
+    return _sys.stdout.isatty() if hasattr(_sys.stdout, "isatty") else False
+
+
+def _clear_line() -> None:
+    """Xóa dòng spinner đang vẽ bằng \\r (chỉ có tác dụng trên console thật)."""
+    import sys as _sys
+    _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+
+
 def download_run(label: str, downloader, log_fn=None) -> dict:
     """Progress bar + spinner 1 dòng khi tải file (exe mới), trả nguyên kết quả downloader.
 
@@ -270,9 +287,8 @@ def download_run(label: str, downloader, log_fn=None) -> dict:
     """
     import sys as _sys
     p, g = palette(), glyphs()
-    live = _sys.stdout.isatty() if hasattr(_sys.stdout, "isatty") else False
-    frames = (["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if unicode_ok()
-              else ["-", "\\", "|", "/"])
+    live = _is_live()
+    frames = _spinner_frames()
     print(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{label}...{p.reset}", flush=True)
 
     i = [0]
@@ -282,7 +298,9 @@ def download_run(label: str, downloader, log_fn=None) -> dict:
         i[0] += 1
         done_mb = done / (1024 * 1024)
         if total > 0:
-            pct = int(done / total * 100)
+            # Content-Length có thể báo thiếu/thừa (CDN, gzip) — clamp để không vẽ
+            # "125%" hay bar 19 ký tự tràn khỏi width().
+            pct = min(100, int(done / total * 100))
             total_mb = total / (1024 * 1024)
             if not live:
                 ms = pct // 25
@@ -291,7 +309,7 @@ def download_run(label: str, downloader, log_fn=None) -> dict:
                     print(f"  {p.gray}{g['v']}{p.reset} {p.gray}Đã tải {pct}% "
                           f"({done_mb:.1f}/{total_mb:.1f} MB){p.reset}", flush=True)
                 return
-            filled = int(16 * done / total)
+            filled = min(16, int(16 * done / total))
             bar = "=" * filled + (">" if filled < 16 else "") + " " * max(0, 15 - filled)
             line = (f"\r  {p.gray}{g['v']}{p.reset} {p.cyan}{frames[i[0] % len(frames)]}{p.reset} "
                     f"[{bar}] {pct}% ({done_mb:.1f}/{total_mb:.1f} MB)")
@@ -305,9 +323,13 @@ def download_run(label: str, downloader, log_fn=None) -> dict:
         _sys.stdout.write(line + " " * max(1, width() - 2 - _vis(line)))
         _sys.stdout.flush()
 
-    res = downloader(on_progress=on_prog)
-    if live:
-        _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+    try:
+        res = downloader(on_progress=on_prog)
+    finally:
+        # try/finally: downloader ném (KeyError url, lỗi mạng) thì dòng \r đang vẽ vẫn
+        # phải được xóa — không thì console còn sót escape + frame cũ.
+        if live:
+            _clear_line()
 
     err = res.get("error")
     if not res.get("ok"):

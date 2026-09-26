@@ -495,7 +495,7 @@
       var skipGate = form.querySelector("input[name='skip_gate']");
       var skip = skipGate && skipGate.checked ? "1" : "0";
       startUpdateJob(btn, autostop, skip,
-                     "Job update đã start (autostop=" + autostop + (skip ? ", skip_gate=1" : "") + ").");
+                     "Job update đã start (autostop=" + autostop + (skip === "1" ? ", skip_gate=1" : "") + ").");
     });
   }
 })();

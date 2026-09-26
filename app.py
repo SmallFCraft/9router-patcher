@@ -215,8 +215,18 @@ def main(argv: list[str] | None = None) -> None:
     # 2. Chạy preflight startup doctor trước khi server khởi động.
     # Chỉ interactive khi stdin là TTY (console thật): stdin đóng/pipe mà vẫn True
     # thì prompt (Y/n) mặc định đồng ý sẽ tự npm install -g khi không có người.
+    # --tray: ẩn console ngay đầu để logon không hiện cửa sổ suôt quá trình doctor;
+    # doctor chỉ gọi show_console một lần khi thật sự cần hỏi (thiếu Node/9router).
+    if args.tray:
+        _hide_console()
     try:
-        ok = boot_doctor.run_doctor(interactive=bool(sys.stdin and sys.stdin.isatty()))
+        kwargs = {"interactive": bool(sys.stdin and sys.stdin.isatty())}
+        if args.tray:
+            def _show_for_prompt() -> None:
+                if tray.available():
+                    tray.show_console()
+            kwargs["on_interactive_needed"] = _show_for_prompt
+        ok = boot_doctor.run_doctor(**kwargs)
         if not ok:
             return
     except Exception as e:

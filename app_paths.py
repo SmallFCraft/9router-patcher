@@ -50,10 +50,14 @@ def get_stack_state_file() -> Path:
     return get_log_dir() / "router-stack.json"
 
 
+def get_current_exe() -> Path:
+    """Đường dẫn tuyệt đối của binary đang chạy (sys.argv[0] là path thật của .exe trên đĩa)."""
+    return Path(sys.argv[0]).resolve()
+
+
 def get_backup_root() -> Path:
     """Backups directory. Sits outside the repo / outside the exe directory."""
     if is_frozen():
         # sys.argv[0] is the true path to 9router-patch.exe on disk
-        exe_dir = Path(sys.argv[0]).resolve().parent
-        return exe_dir.parent / "9router-backups"
+        return get_current_exe().parent.parent / "9router-backups"
     return get_bundle_dir().parent / "9router-backups"

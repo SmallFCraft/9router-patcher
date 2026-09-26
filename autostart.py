@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import app_paths
 
@@ -22,7 +21,7 @@ def is_supported() -> bool:
 
 def _get_target_cmd() -> str:
     """Đường dẫn thực thi chuẩn của exe kèm flag --tray."""
-    exe = Path(sys.argv[0]).resolve()
+    exe = app_paths.get_current_exe()
     # Nếu đang chạy file versioned cũ, chuẩn hóa về 9router-patch.exe
     target = exe.parent / "9router-patch.exe"
     run_exe = target if target.is_file() else exe
@@ -36,7 +35,9 @@ def is_enabled() -> bool:
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_SUBKEY, 0, winreg.KEY_READ) as key:
             val, _ = winreg.QueryValueEx(key, REG_NAME)
-            return bool(val and ("--tray" in str(val) or Path(sys.argv[0]).stem in str(val)))
+            # So exact với chính lệnh sẽ ghi: khớp lỏng bằng substring (stem, "--tray" rơi vãi)
+            # dễ báo ON oan cho entry trỏ tới binary cũ không có flag.
+            return str(val).strip() == _get_target_cmd()
     except (FileNotFoundError, OSError):
         return False
 

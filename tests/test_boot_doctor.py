@@ -290,6 +290,28 @@ def test_ask_yn_accepts_only_explicit_yes(monkeypatch):
         assert boot_doctor._ask_yn("Q?", default=True) is expect, ans
 
 
+def test_run_doctor_calls_on_interactive_needed_before_prompt(monkeypatch):
+    """Khi cần hỏi user (can_ask=True), on_interactive_needed phải được gọi trước prompt (để hiện lại console khi chạy --tray)."""
+    import boot_doctor
+    import console_ui, updater
+    events = []
+    monkeypatch.setattr(boot_doctor, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(console_ui, "prompt", lambda *a, **k: events.append("prompt") or "n")
+    monkeypatch.setattr(boot_doctor, "check_node", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "check_9router", lambda: (True, "ok"))
+    monkeypatch.setattr(updater, "check_router_compatibility",
+                        lambda: {"compatible": False, "relation": "older",
+                                 "local": "0.5.81", "target": "0.5.85"})
+    monkeypatch.setattr(boot_doctor, "check_and_apply_patches", lambda: (True, "ok"))
+    monkeypatch.setattr(boot_doctor, "ensure_router_stack", lambda: (True, "ok"))
+
+    boot_doctor.run_doctor(
+        interactive=True,
+        on_interactive_needed=lambda: events.append("show_console"),
+    )
+    assert events == ["show_console", "prompt"]
+
+
 def test_run_doctor_non_interactive_never_asks(monkeypatch):
     """interactive=False (stdin không phải TTY) không được gọi prompt nào."""
     import boot_doctor

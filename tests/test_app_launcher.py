@@ -75,3 +75,23 @@ def test_main_tray_stays_silent_when_port_busy(monkeypatch):
 
     app.main([])
     assert len(opened) == 1
+
+
+def test_main_tray_skips_browser_and_hides_console_on_free_port(monkeypatch):
+    """--tray khi port rảnh: ẩn console NGAY TRƯỚC doctor, bỏ qua browser-launcher."""
+    import app
+    monkeypatch.setattr(app, "_port_busy", lambda host, port: False)
+    hidden = []
+    doctor_called = []
+    monkeypatch.setattr(app, "_hide_console", lambda: hidden.append("hidden"))
+    def fake_doctor(**kwargs):
+        doctor_called.append(len(hidden))
+        return False
+    monkeypatch.setattr(app.boot_doctor, "run_doctor", fake_doctor)
+    opened = []
+    monkeypatch.setattr(app.webbrowser, "open", lambda url: opened.append(url))
+
+    app.main(["--tray"])
+    assert opened == []
+    # _hide_console phải được gọi TRƯỚC KHI run_doctor chạy (để che suốt thời gian boot)
+    assert doctor_called == [1]

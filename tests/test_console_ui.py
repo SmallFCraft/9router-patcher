@@ -212,3 +212,37 @@ def test_download_run_handles_failure(capsys, monkeypatch):
     assert "Mất kết nối server" in out
     assert "✗" in out or "x" in out
     console_ui._VT = None
+
+
+def test_download_run_renders_live_bar_and_clamps_overflow(capsys, monkeypatch):
+    """TTY thật: vẽ thanh 1 dòng bằng \\r; download vượt Content-Length không tràn bar/pct."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: True)
+    console_ui._VT = None
+
+    def fake_dl(on_progress=None):
+        on_progress(50, 100)     # giữa chừng
+        on_progress(120, 100)    # vượt total: phải clamp về 100% / bar 16 ký tự
+        return {"ok": True, "error": None}
+
+    console_ui.download_run("Tải exe mới", fake_dl)
+    out = capsys.readouterr().out
+    assert "\r" in out
+    assert "125%" not in out
+    bar = out.rsplit("[", 1)[1].split("]", 1)[0]
+    assert len(bar) == 16, bar
+    console_ui._VT = None
+
+
+def test_download_run_clears_line_when_downloader_raises(capsys, monkeypatch):
+    """Downloader ném exception: dòng \\r vẫn phải được xóa (try/finally)."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: True)
+    console_ui._VT = None
+
+    def boom(on_progress=None):
+        raise KeyError("url")
+
+    with pytest.raises(KeyError):
+        console_ui.download_run("Tải exe mới", boom)
+    out = capsys.readouterr().out
+    assert out.endswith("\r"), repr(out[-40:])
+    console_ui._VT = None

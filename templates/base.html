@@ -534,7 +534,11 @@ document.documentElement.dataset.theme=t;})();
       suDesc.appendChild(document.createTextNode(mode === "ready"
         ? " đã tải xong, sẵn sàng áp dụng." : ". Mở trang cập nhật để áp dụng."));
     }
-    if(suRestart) suRestart.style.display = mode === "ready" ? "" : "none";
+    if(suRestart){
+      suRestart.style.display = mode === "ready" ? "" : "none";
+      suRestart.disabled = false;
+      suRestart.textContent = "Khởi động lại ngay";
+    }
     if(suOpen) suOpen.style.display = mode === "ready" ? "none" : "";
     suModal.style.display = "flex";
   }
