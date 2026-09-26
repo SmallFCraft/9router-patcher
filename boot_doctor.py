@@ -311,12 +311,16 @@ def run_doctor(interactive: bool = True) -> bool:
         elif not meta["has_update"]:
             console_ui.step_end("Mới nhất", "info")
         else:
-            res = self_update.download_and_swap(meta)
+            res = console_ui.download_run(
+                f"Tải bản cập nhật v{meta['version']}",
+                lambda on_progress=None: self_update.download_and_swap(meta, on_progress=on_progress),
+                log_boot,
+            )
             if res["ok"]:
                 console_ui.step_end(f"Đã cập nhật v{meta['version']}", "info", "khởi động lại...")
                 self_update.restart_self()
             else:
-                console_ui.step_end("Cảnh báo", "warn", res["error"][:60])
+                console_ui.step_end("Cảnh báo", "warn", (res.get("error") or "")[:60])
     except Exception as e:              # noqa: BLE001 - cập nhật lỗi không được chặn boot
         console_ui.step_end("Cảnh báo", "warn", f"{type(e).__name__}: {e}"[:60])
 

@@ -206,11 +206,12 @@ def test_boot_check_update_step_reports_results(capsys, monkeypatch):
                         lambda url=None: {"version": "9.9.9", "has_update": True,
                                           "url": "https://x/y.exe", "sha256": ""})
     monkeypatch.setattr(self_update, "download_and_swap",
-                        lambda meta: {"ok": True, "error": None})
+                        lambda meta, on_progress=None: {"ok": True, "error": None})
     boot_doctor.run_doctor(interactive=False)
     out = capsys.readouterr().out
     assert "[1/5]" in out
     assert "9.9.9" in out
+    assert "Đã cập nhật v9.9.9" in out
 
     # 2. Mất mạng -> bỏ qua, vẫn boot tiếp
     monkeypatch.setattr(self_update, "check_update", lambda url=None: None)
@@ -232,7 +233,7 @@ def test_boot_restarts_after_successful_self_update(capsys, monkeypatch):
                         lambda url=None: {"version": "9.9.9", "has_update": True,
                                           "url": "https://x/y.exe", "sha256": ""})
     monkeypatch.setattr(self_update, "download_and_swap",
-                        lambda meta: {"ok": True, "error": None})
+                        lambda meta, on_progress=None: {"ok": True, "error": None})
 
     with pytest.raises(SystemExit):
         boot_doctor.run_doctor(interactive=False)
@@ -241,6 +242,33 @@ def test_boot_restarts_after_successful_self_update(capsys, monkeypatch):
     assert "Đã cập nhật v9.9.9" in out
     assert "khởi động lại" in out
     assert len(restarted) == 1
+
+
+def test_boot_doctor_invokes_download_run_when_update_available(monkeypatch, capsys):
+    """Bước [1/5] tải exe qua console_ui.download_run (progress bar + spinner)."""
+    import boot_doctor
+    import console_ui
+    import self_update
+
+    called = []
+
+    def fake_download_run(label, fn, log_fn=None):
+        called.append(label)
+        return fn(on_progress=None)
+
+    monkeypatch.setattr(console_ui, "download_run", fake_download_run)
+    monkeypatch.setattr(self_update, "check_update",
+                        lambda url=None: {"version": "3.0.0", "has_update": True,
+                                          "url": "https://x/y.exe", "sha256": ""})
+    monkeypatch.setattr(self_update, "download_and_swap",
+                        lambda meta, on_progress=None: {"ok": True, "error": None})
+    monkeypatch.setattr(self_update, "restart_self",
+                        lambda: (_ for _ in ()).throw(SystemExit(0)))
+
+    with pytest.raises(SystemExit):
+        boot_doctor.run_doctor(interactive=False)
+
+    assert any("3.0.0" in c for c in called)
 
 
 def test_ask_yn_defaults_no_on_eof(monkeypatch):
