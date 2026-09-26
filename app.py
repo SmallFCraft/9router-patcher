@@ -201,9 +201,14 @@ def main(argv: list[str] | None = None) -> None:
     # --force bỏ qua nhánh này (dùng khi bản cũ đang chạy và muốn chạy bản mới).
     if _port_busy(HOST, PORT):
         if not args.force:
-            print(f"Port {PORT} đã được sử dụng. Mở dashboard trong trình duyệt...")
-            print("(Dùng --force để chạy lại doctor + server bất chấp port đang bận.)")
-            webbrowser.open(url)
+            # --tray: lần bật thứ hai từ HKCU Run lúc Windows logon, app đã chạy sẵn trong
+            # khay — mở browser ở đây đúng thứ cờ này sinh ra để tránh.
+            if args.tray:
+                log_boot("Port bận — instance đang chạy, giữ im lặng (--tray).")
+            else:
+                print(f"Port {PORT} đã được sử dụng. Mở dashboard trong trình duyệt...")
+                print("(Dùng --force để chạy lại doctor + server bất chấp port đang bận.)")
+                webbrowser.open(url)
             return
         print(f"Port {PORT} đang bận nhưng --force được bật — chạy doctor rồi thử khởi động.")
 

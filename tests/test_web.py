@@ -1278,7 +1278,8 @@ def test_update_page_disables_auto_start_on_unfrozen_install(web, monkeypatch):
     monkeypatch.setattr(autostart, "is_supported", lambda: False)
     html = web["client"].get("/update").text
     assert 'id="auto-start-toggle"' in html
-    assert "disabled" in html
+    # Siết chặt: thuộc tính disabled phải nằm trên chính thẻ switch auto-start
+    assert re.search(r'<input\b[^>]*\bid="auto-start-toggle"[^>]*\bdisabled\b', html) is not None
 
 
 def test_settings_auto_start_toggle_endpoint(web, monkeypatch):

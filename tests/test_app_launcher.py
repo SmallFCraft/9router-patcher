@@ -60,3 +60,18 @@ def test_parse_args_supports_tray():
     assert args.tray is True
     args_default = app._parse_args([])
     assert args_default.tray is False
+
+
+def test_main_tray_stays_silent_when_port_busy(monkeypatch):
+    """Hồi quy 2026-09-26: lần bật thứ hai từ HKCU Run (app đã chạy trong khay)
+    không được mở browser — chính thứ cờ --tray sinh ra để tránh."""
+    import app
+    monkeypatch.setattr(app, "_port_busy", lambda host, port: True)
+    opened = []
+    monkeypatch.setattr(app.webbrowser, "open", lambda url: opened.append(url))
+
+    app.main(["--tray"])
+    assert opened == []
+
+    app.main([])
+    assert len(opened) == 1
