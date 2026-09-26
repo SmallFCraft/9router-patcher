@@ -58,6 +58,8 @@ From the UI you can:
 - inspect the installed build, patch states (applied / clean / dead-anchor) and the diff of every patch
 - apply or revert patches — individually or as atomic groups
 - run the update job (`version probe → lock → stop → npm install → re-apply → restart`) while watching the live SSE console
+- toggle **Khởi động cùng Windows** on the `/update` page — persists an `HKCU\…\Run` entry that boots the app with `--tray` straight into the system tray without opening the browser (exe build only)
+- watch boot step `[1/5]` download a new exe through `console_ui.download_run` — live braille spinner + progress bar (`%` + MB) instead of a frozen console
 
 ### Applying patches from the CLI
 
@@ -188,7 +190,7 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-388 passed, 5 skipped; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction. Some cases skip by design: the end-to-end binary test needs port `20129` free, engine measurements are version-locked to the build they were taken on, and `test_tray` no-ops off Windows.
+401 passed, 5 skipped; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction. Some cases skip by design: the end-to-end binary test needs port `20129` free, engine measurements are version-locked to the build they were taken on, and `test_tray` no-ops off Windows.
 
 ## Distribution (Standalone Executable)
 
