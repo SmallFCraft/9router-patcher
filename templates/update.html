@@ -332,39 +332,8 @@
     });
   }
 
-  var alignForm = document.getElementById("align-target-form");
-  if (alignForm) {
-    alignForm.addEventListener("submit", function(e){
-      var btn = e.submitter || alignForm.querySelector("button[type='submit']");
-      e._9rHandled = true;
-      if (btn && btn.hasAttribute("data-confirm") && !window.confirm(btn.getAttribute("data-confirm"))) {
-        e.preventDefault();
-        return;
-      }
-      e.preventDefault();
-      if (btn) { btn.disabled = true; btn.classList.add("is-loading"); }
-      window.toast("Đang cài đặt phiên bản tương thích… (có thể mất 30–60s)");
-      fetch("/router/align-target", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {"Accept": "application/json"}
-      }).then(function(r){ return r.json(); })
-        .then(function(j){
-          if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
-          if (j.ok) {
-            window.toast(j.message || "Cài đặt thành công! Đang tải lại…");
-            setTimeout(function(){ location.reload(); }, 1200);
-          } else {
-            window.toast(j.error || j.message || "Cài đặt thất bại", "bad");
-          }
-        }).catch(function(){
-          if (btn) { btn.disabled = false; btn.classList.remove("is-loading"); }
-          window.toast("Lỗi kết nối khi cài đặt", "bad");
-        });
-    }, true);
-  }
-
   var form = document.getElementById("update-form");
+  var alignForm = document.getElementById("align-target-form");
   var panelBox = document.getElementById("console-panel");
   var con = document.getElementById("console");
   var statusEl = document.getElementById("con-status");
@@ -396,28 +365,27 @@
     }, 500);
   }
 
-  if (!form) return;
-  form.addEventListener("submit", function(e){
-    e.preventDefault();
-    var btn = form.querySelector("button[type='submit']");
-    var autostop = form.querySelector("input[name='autostop']").checked ? "1" : "0";
-    var skipGate = form.querySelector("input[name='skip_gate']");
-    var skip = skipGate && skipGate.checked ? "1" : "0";
+  function startUpdateJob(btn, autostop, skipGate, startMsg){
     btn.disabled = true; btn.classList.add("is-loading");
     var label = btn.querySelector(".btn-label");
+    var origText = label ? label.textContent : "";
     if (label) label.textContent = "Đang khởi động job…";
+    function resetBtn(){
+      btn.disabled = false; btn.classList.remove("is-loading");
+      if (label) label.textContent = origText;
+    }
+
     fetch("/update/start", {
       method: "POST",
       credentials: "same-origin",
       headers: {"Content-Type": "application/x-www-form-urlencoded"},
-      body: "autostop=" + autostop + "&skip_gate=" + skip
+      body: "autostop=" + autostop + "&skip_gate=" + skipGate
     }).then(function(r){
       return r.json().then(function(j){ return {status: r.status, j: j}; });
     }).then(function(res){
       if (!res.j || res.j.ok !== true) {
         window.toast(res.j && res.j.error || "Không start được job", "bad");
-        btn.disabled = false; btn.classList.remove("is-loading");
-        if (label) label.textContent = "npm i -g 9router@latest rồi apply lại patch";
+        resetBtn();
         return;
       }
       panelBox.hidden = false;
@@ -425,7 +393,9 @@
       if (copyBtn) copyBtn.hidden = false;
       statusEl.textContent = "đang chạy"; statusEl.className = "badge warn";
       startClock();
-      addLine("Job update đã start (autostop=" + autostop + (skip ? ", skip_gate=1" : "") + ").", "c-step");
+      addLine(startMsg, "c-step");
+      panelBox.scrollIntoView({behavior: "smooth", block: "nearest"});
+
       var es = new EventSource("/update/stream");
       es.onmessage = function(m){
         var ev;
@@ -449,8 +419,7 @@
             statusEl.textContent = "có bước FAIL"; statusEl.className = "badge bad";
             addLine("✘ Pipeline kết thúc với bước FAIL — xem log bên trên.", "c-fail");
             reloadBtn.hidden = false;
-            btn.disabled = false; btn.classList.remove("is-loading");
-            if (label) label.textContent = "npm i -g 9router@latest rồi apply lại patch";
+            resetBtn();
           }
         }
       };
@@ -462,9 +431,37 @@
       };
     }).catch(function(){
       window.toast("Lỗi mạng khi start job", "bad");
-      btn.disabled = false; btn.classList.remove("is-loading");
+      resetBtn();
     });
-  });
+  }
+
+  if (alignForm) {
+    alignForm.addEventListener("submit", function(e){
+      var btn = e.submitter || alignForm.querySelector("button[type='submit']");
+      e._9rHandled = true;
+      if (btn && btn.hasAttribute("data-confirm") && !window.confirm(btn.getAttribute("data-confirm"))) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      // Cài bản chuẩn: /update/start với skip_gate=0 mặc định ghim npm về engine.target_version()
+      // — đúng việc align-target làm, nhưng chạy nền + SSE nên console hiện tiến trình thật.
+      startUpdateJob(btn, "1", "0",
+                     "Bắt đầu cài đặt phiên bản tương thích (ghim bản chuẩn, tự tắt/bật lại process).");
+    }, true);
+  }
+
+  if (form) {
+    form.addEventListener("submit", function(e){
+      e.preventDefault();
+      var btn = form.querySelector("button[type='submit']");
+      var autostop = form.querySelector("input[name='autostop']").checked ? "1" : "0";
+      var skipGate = form.querySelector("input[name='skip_gate']");
+      var skip = skipGate && skipGate.checked ? "1" : "0";
+      startUpdateJob(btn, autostop, skip,
+                     "Job update đã start (autostop=" + autostop + (skip ? ", skip_gate=1" : "") + ").");
+    });
+  }
 })();
 </script>
 {% endblock %}

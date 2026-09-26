@@ -93,7 +93,7 @@ CLI syntax: `impact` uses `-r/--repo` and `-d/--direction`; top-level commands l
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **9router-patcher** (2137 symbols, 6828 relationships, 190 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **9router-patcher** (2157 symbols, 6886 relationships, 192 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

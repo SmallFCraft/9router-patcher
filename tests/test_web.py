@@ -1201,6 +1201,31 @@ def test_update_page_has_safe_target_install_option(web):
     assert "Bản chuẩn (target)" in html     # cột ghim phải tự gọi tên là target
 
 
+def test_update_align_target_streams_into_console(web):
+    """Incident 2026-09-26: bấm «Cài đặt phiên bản tương thích» chỉ hiện toast 3s rồi
+    im — user không biết npm đang chạy hay đã xong. Nút phải chạy qua /update/start
+    (job nền + SSE) và đổ log vào #console-panel, không phải một fetch chớp nhoáng."""
+    html = web["client"].get("/update").text
+    assert 'id="align-target-form"' in html
+    # both forms go through the shared runner that opens the console + EventSource
+    assert html.count("startUpdateJob(") >= 3        # 1 def + 2 call sites
+    assert 'new EventSource("/update/stream")' in html
+    assert 'panelBox.hidden = false' in html
+    # the old blind one-shot fetch straight to /router/align-target must be gone
+    assert 'fetch("/router/align-target"' not in html
+    # align must NOT skip the dry-run gate: skip_gate="0" is the second argument
+    assert 'startUpdateJob(btn, "1", "0",' in html
+
+
+def test_base_modal_shows_available_update_globally(web, monkeypatch):
+    """Server có bản mới nhưng phase chưa "ready": popup toàn cục vẫn phải hiện
+    (trước đây chỉ hiện khi phase==="ready" nên user không biết có bản mới)."""
+    html = web["client"].get("/").text
+    assert 'id="btn-self-update-open"' in html
+    assert 'suShow(mode, ver)' in html
+    assert 's.has_update && s.remote_version' in html
+
+
 def test_update_hides_install_button_when_local_already_target(web, monkeypatch):
     """Local đã đúng bản chuẩn: nút align vô nghĩa (npm cài đè đúng phiên bản đang có).
     Hiện trạng ok thay vì form — nút chỉ dành cho máy lệch bản."""

@@ -7,7 +7,7 @@ This repo does **not** contain the proxy itself. It manages a locally installed 
 - **`main.py`** — FastAPI dashboard (binds `127.0.0.1:20129`): provider/key/combo overview, live usage stats, patch apply/revert buttons, and an update job with an SSE console.
 - **`updater.py`** — update pipeline: version probe → lock probe → dry-run anchor gate → stop stack → `npm install` → re-apply patches → restart. Owns the port-based lifecycle of the managed stack (router `:20128`, headroom `:8787`).
 - **`engine.py`** — the patch engine: loads `patches.toml`, scans the installed build, applies/reverts find-and-replace patches atomically with per-operation backups, `node --check` verification and automatic rollback. Pure data + filesystem — no HTTP.
-- **`patches.toml`** — the single source of truth for all patches (currently 33), each measured byte-exact against a specific build of `9router`.
+- **`patches.toml`** — the single source of truth for all patches (currently 36), each measured byte-exact against a specific build of `9router`.
 
 ```
 ┌──────────────┐   manages    ┌─────────────────────────────┐
@@ -142,7 +142,7 @@ Conventions that keep this sane on minified bundles:
 - When the upstream package updates, identifier remaps must change `find` and `replace` **together** — a remapped `find` with an old `replace` passes `node --check` and still breaks at runtime.
 - Patch state is version-locked: measurements taken on one build are re-verified by the test suite against the live install.
 
-## Current patch set (31)
+## Current patch set (36)
 
 | # | id | what it does |
 |---|----|--------------|
@@ -167,7 +167,12 @@ Conventions that keep this sane on minified bundles:
 | 29 | accept-text-plain-as-sse | MIME guard lets `text/plain` through — some providers send valid SSE bodies as text/plain |
 | 30 | errbody-html-title | base `parseError` collapses an HTML error body to its `<title>` instead of dumping the whole page into logs |
 | 31 | responses-thinking-history-400 | `openai-responses` body + tool history with no thinking intent → inject `thinking:{type:"disabled"}` for `anthropic-compatible` upstreams (AgentRouter DeepSeek 400 "`content[].thinking` must be passed back") |
-| 32 | opencode-freetier-tool-signature | always append the `bash`+`read` tool signature to outgoing opencode requests — opencode.ai's free tier rejects any request whose `tools` array lacks both lowercase names with 403 `FreeTierError` (Claude Code sends capitalised `Bash`/`Read`, so its 77-tool payload always failed) |
+| 33 | opencode-responses-maxtokens-floor | floor `max_output_tokens` at 16 on the `opencode` responses route — upstream emits 0 for probes and gets a 400 |
+| 34 | opencode-responses-noeffort-minimal | map `reasoning.effort` `none`/`disabled` to `minimal` for `muse-spark-*` — upstream only accepts `[minimal,low,medium,high,xhigh,max]` and passes `none` straight through to a 400 |
+| 35 | upstream-claude-sse-passthrough | let native Claude-shaped SSE frames (`message_start` / `content_block_*` / `ping`) pass through un-translated when an upstream speaks Anthropic dialect on `/v1/chat/completions` |
+| 37 | topology-parallel-requests | topology counts parallel REQUESTS, not providers — the router badge summed distinct providers to 1 no matter how many sessions ran |
+| 38 | 4xx-rotate-instead-of-abort | the classifier's last branch treated every 4xx (bar 401/402/403/429) as fatal → combo loop aborted the whole request with a raw 400; now the model rotates |
+| 39 | claude-tool-prefix-strip | strip a namespace prefix (`default.Grep` → `Grep`) from `tool_use.name` in history when the bare name exists in `tools[]` — Bedrock validates `tool_use.name ∈ tools[]` and rejects the whole request otherwise |
 
 ## Environment variables
 
@@ -183,7 +188,7 @@ Conventions that keep this sane on minified bundles:
 python -m pytest tests/ -q
 ```
 
-241 tests; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction.
+388 passed, 5 skipped; full suite includes updater pipeline, dashboard routes, encrypted loader, and path abstraction. Some cases skip by design: the end-to-end binary test needs port `20129` free, engine measurements are version-locked to the build they were taken on, and `test_tray` no-ops off Windows.
 
 ## Distribution (Standalone Executable)
 
@@ -198,7 +203,7 @@ The output is written to `dist/9router-patch.exe` (~15–25 MB):
 
 - **Zero install for recipients**: double-click the `.exe` → boots FastAPI on `127.0.0.1:20129` and opens the default browser automatically.
 - **Requirements on target machine**: Node.js + `npm i -g 9router` + `headroom` must already be installed. The `.exe` manages the stack; it does not bundle Node or 9router itself.
-- **Source protection**: all 31 patches from `patches.toml` are AES-256-GCM encrypted into the binary at build time and decrypted in RAM only. Plaintext `patches.toml` is never unpacked to `%TEMP%`.
+- **Source protection**: all 36 patches from `patches.toml` are AES-256-GCM encrypted into the binary at build time and decrypted in RAM only. Plaintext `patches.toml` is never unpacked to `%TEMP%`.
 - **Runtime storage**: logs and stack state resolve to `%APPDATA%\9router-patch\logs\` when running from the binary; backups sit in `9router-backups\` alongside the folder containing the `.exe`.
 - **SmartScreen**: because the binary is not code-signed, Windows SmartScreen may show an unknown publisher warning on first launch (click *More info* → *Run anyway*).
 
@@ -211,7 +216,7 @@ app_paths.py    path abstraction (repo dev vs %APPDATA% frozen)
 main.py         FastAPI dashboard (127.0.0.1:20129)
 updater.py      update pipeline + stack lifecycle (ports 20128 / 8787)
 engine.py       patch engine: scan / apply / revert, backups, node --check
-patches.toml    the 31 patches (single source of truth)
+patches.toml    the 36 patches (single source of truth)
 templates/      dashboard pages (Jinja2, 8-bit cartoon theme)
 tests/          pytest suite
 tools/          make_patches_blob.py (AES-256-GCM encrypter)
