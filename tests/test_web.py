@@ -1259,3 +1259,66 @@ def test_probe_headroom_reports_installed_when_port_is_up_even_if_detection_fail
     res = main.probe_headroom()
     assert res["up"] is True
     assert res["installed"] is True, "Phải tự suy luận installed=True khi readyz phản hồi thành công"
+
+
+def test_update_page_renders_auto_start_toggle(web, monkeypatch):
+    """Trang /update phải render switch auto-start."""
+    import autostart
+    monkeypatch.setattr(autostart, "is_enabled", lambda: True)
+    monkeypatch.setattr(autostart, "is_supported", lambda: True)
+    html = web["client"].get("/update").text
+    assert 'id="auto-start-toggle"' in html
+    assert "Khởi động cùng Windows" in html
+
+
+def test_update_page_disables_auto_start_on_unfrozen_install(web, monkeypatch):
+    """Chạy bản .py: bản ghi khởi động chỉ đặt được từ exe -> switch phải disabled."""
+    import autostart
+    monkeypatch.setattr(autostart, "is_enabled", lambda: False)
+    monkeypatch.setattr(autostart, "is_supported", lambda: False)
+    html = web["client"].get("/update").text
+    assert 'id="auto-start-toggle"' in html
+    assert "disabled" in html
+
+
+def test_settings_auto_start_toggle_endpoint(web, monkeypatch):
+    """POST /settings/auto-start thay đổi trạng thái thành công."""
+    import autostart
+    calls = []
+    monkeypatch.setattr(autostart, "set_enabled", lambda on: calls.append(on) or (True, None))
+    monkeypatch.setattr(autostart, "is_supported", lambda: True)
+    monkeypatch.setattr(autostart, "is_enabled", lambda: calls[-1] if calls else False)
+
+    resp = web["client"].post("/settings/auto-start", data={"enabled": "1"}, headers={"Origin": OWN})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["auto_start"] is True
+    assert calls == [True]
+
+    resp = web["client"].post("/settings/auto-start", data={"enabled": "0"}, headers={"Origin": OWN})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["auto_start"] is False
+    assert calls == [True, False]
+
+
+def test_settings_auto_start_reports_error_and_real_state(web, monkeypatch):
+    """set_enabled fail (vd không phải exe): ok=False, error trả về, auto_start = trạng thái thật."""
+    import autostart
+    monkeypatch.setattr(autostart, "set_enabled", lambda on: (False, "Chỉ khả dụng trên bản build exe (.exe)"))
+    monkeypatch.setattr(autostart, "is_supported", lambda: False)
+    monkeypatch.setattr(autostart, "is_enabled", lambda: False)
+
+    resp = web["client"].post("/settings/auto-start", data={"enabled": "1"}, headers={"Origin": OWN})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["auto_start"] is False
+    assert body["supported"] is False
+    assert "exe" in body["error"]
+
+
+def test_settings_auto_start_rejects_foreign_origin(web):
+    """Endpoint đổi registry phải giữ đúng guard Origin như sibling /settings/auto-update."""
+    resp = web["client"].post("/settings/auto-start", data={"enabled": "1"}, headers={"Origin": EVIL})
+    assert resp.status_code == 403

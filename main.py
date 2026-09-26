@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response, Streamin
 from fastapi.templating import Jinja2Templates
 
 import app_paths
+import autostart
 import boot_doctor
 import engine
 import self_update
@@ -573,6 +574,8 @@ def update_page(request: Request, probe: str = ""):
         "probed_at": LOCK_CACHE["probed_at"] or None,
         "self_update": self_update.state(),
         "auto_update_enabled": self_update.is_enabled(),
+        "auto_start_enabled": autostart.is_enabled(),
+        "auto_start_supported": autostart.is_supported(),
     }
     if LOCK_CACHE["error"] is not None:
         ctx["lock_error"] = LOCK_CACHE["error"]
@@ -596,6 +599,19 @@ def set_auto_update(request: Request, enabled: Annotated[str, Form()] = "1"):
     on = enabled in ("1", "true", "True")
     self_update.set_enabled(on)
     return JSONResponse({"ok": True, "auto_update": on})
+
+
+@app.post("/settings/auto-start", dependencies=CSRF)
+def set_auto_start(request: Request, enabled: Annotated[str, Form()] = "1"):
+    """Bật/tắt khởi động cùng Windows (chạy ẩn vào tray)."""
+    on = enabled in ("1", "true", "True")
+    ok, err = autostart.set_enabled(on)
+    return JSONResponse({
+        "ok": ok,
+        "auto_start": on if ok else autostart.is_enabled(),
+        "supported": autostart.is_supported(),
+        "error": err,
+    })
 
 
 @app.post("/update/self", dependencies=CSRF)

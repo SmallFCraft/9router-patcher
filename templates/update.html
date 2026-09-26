@@ -73,6 +73,17 @@
       Tự động kiểm tra &amp; tải bản mới mỗi 5 phút (chạy nền)
     </label>
   </div>
+  <div style="margin-bottom:.8rem">
+    <label class="switch">
+      <input type="checkbox" id="auto-start-toggle"
+             {% if auto_start_enabled %}checked{% endif %}
+             {% if not auto_start_supported %}disabled{% endif %}>
+      Khởi động cùng Windows (chạy ẩn khay hệ thống)
+    </label>
+    {% if not auto_start_supported %}
+      <span class="small muted" style="margin-left:.4rem">(Chỉ hỗ trợ trên bản exe)</span>
+    {% endif %}
+  </div>
   <div style="display:flex; gap:.6rem; align-items:center; flex-wrap:wrap">
     <button type="button" class="btn btn-ghost btn-sm" id="self-update-btn">
       <span class="btn-label">{{ icon('refresh') }}Kiểm tra &amp; Cập nhật exe ngay</span>
@@ -302,6 +313,31 @@
                                      : "Đã tắt tự động cập nhật nền");
         })
         .catch(function(){ window.toast("Lỗi lưu cài đặt", "bad"); });
+    });
+  }
+
+  // Auto-start cùng Windows: ghi HKCU Run (chỉ hoạt động trên bản exe).
+  var autoStartToggle = document.getElementById("auto-start-toggle");
+  if (autoStartToggle) {
+    autoStartToggle.addEventListener("change", function(){
+      fetch("/settings/auto-start", {
+        method: "POST", credentials: "same-origin",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "enabled=" + (autoStartToggle.checked ? "1" : "0")
+      }).then(function(r){ return r.json(); })
+        .then(function(j){
+          if (j.ok) {
+            window.toast(j.auto_start ? "Đã bật khởi động cùng Windows"
+                                      : "Đã tắt khởi động cùng Windows");
+          } else {
+            autoStartToggle.checked = !autoStartToggle.checked;
+            window.toast(j.error || "Lỗi lưu cài đặt khởi động", "bad");
+          }
+        })
+        .catch(function(){
+          autoStartToggle.checked = !autoStartToggle.checked;
+          window.toast("Lỗi mạng khi lưu cài đặt", "bad");
+        });
     });
   }
 
