@@ -173,3 +173,42 @@ def test_status_line_never_exceeds_width(capsys, monkeypatch):
     out = capsys.readouterr().out.rstrip("\n")
     assert len(out) <= console_ui.width() - 2, out
     console_ui._VT = None
+
+
+def test_download_run_renders_progress_non_tty(capsys, monkeypatch):
+    """Môi trường non-TTY (pipe/log file): in mốc sạch 25/50/75/100%, không escape \\r."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    def fake_dl(on_progress=None):
+        if on_progress:
+            on_progress(25, 100)
+            on_progress(50, 100)
+            on_progress(75, 100)
+            on_progress(100, 100)
+        return {"ok": True, "error": None}
+
+    res = console_ui.download_run("Tải exe mới", fake_dl)
+    assert res["ok"] is True
+    out = capsys.readouterr().out
+    assert "Tải exe mới" in out
+    assert "50%" in out
+    assert "100%" in out
+    assert "\r" not in out
+    console_ui._VT = None
+
+
+def test_download_run_handles_failure(capsys, monkeypatch):
+    """Khi download thất bại: in ✗ đỏ và trả nguyên kết quả lỗi."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    def fail_dl(on_progress=None):
+        return {"ok": False, "error": "Mất kết nối server"}
+
+    res = console_ui.download_run("Tải exe mới", fail_dl)
+    assert res["ok"] is False
+    out = capsys.readouterr().out
+    assert "Mất kết nối server" in out
+    assert "✗" in out or "x" in out
+    console_ui._VT = None

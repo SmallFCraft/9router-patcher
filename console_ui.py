@@ -259,3 +259,63 @@ def npm_run(target: str, installer, log_fn=None, label: str = "npm install -g") 
         print(f"  {p.gray}{g['v']}{p.reset} {p.green}✓{p.reset} 9router@{target} đã sẵn sàng",
               flush=True)
     return ok, msg
+
+
+def download_run(label: str, downloader, log_fn=None) -> dict:
+    """Progress bar + spinner 1 dòng khi tải file (exe mới), trả nguyên kết quả downloader.
+
+    `downloader` là callable(on_progress=None) -> {"ok": bool, "error": str | None};
+    `on_progress(done_bytes, total_bytes)` khớp chữ ký `self_update.download_and_swap`.
+    Non-TTY: không có `\\r` — in mốc 25/50/75/100% thành dòng thuần cho log file.
+    """
+    import sys as _sys
+    p, g = palette(), glyphs()
+    live = _sys.stdout.isatty() if hasattr(_sys.stdout, "isatty") else False
+    frames = (["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] if unicode_ok()
+              else ["-", "\\", "|", "/"])
+    print(f"  {p.gray}{g['v']}{p.reset} {p.cyan}{label}...{p.reset}", flush=True)
+
+    i = [0]
+    last_ms = [-1]                      # mốc 25% đã in ở non-TTY, tránh lặp cùng dòng
+
+    def on_prog(done: int, total: int) -> None:
+        i[0] += 1
+        done_mb = done / (1024 * 1024)
+        if total > 0:
+            pct = int(done / total * 100)
+            total_mb = total / (1024 * 1024)
+            if not live:
+                ms = pct // 25
+                if ms > last_ms[0]:
+                    last_ms[0] = ms
+                    print(f"  {p.gray}{g['v']}{p.reset} {p.gray}Đã tải {pct}% "
+                          f"({done_mb:.1f}/{total_mb:.1f} MB){p.reset}", flush=True)
+                return
+            filled = int(16 * done / total)
+            bar = "=" * filled + (">" if filled < 16 else "") + " " * max(0, 15 - filled)
+            line = (f"\r  {p.gray}{g['v']}{p.reset} {p.cyan}{frames[i[0] % len(frames)]}{p.reset} "
+                    f"[{bar}] {pct}% ({done_mb:.1f}/{total_mb:.1f} MB)")
+        else:
+            if not live:                # không biết total → pipe log im lặng, console vẽ spinner
+                return
+            line = (f"\r  {p.gray}{g['v']}{p.reset} {p.cyan}{frames[i[0] % len(frames)]}{p.reset} "
+                    f"Đang tải ({done_mb:.1f} MB)...")
+
+        # đệm theo độ dài HIỂN THỊ: len() đếm cả escape code → tô thiếu, dư glyph khung cũ
+        _sys.stdout.write(line + " " * max(1, width() - 2 - _vis(line)))
+        _sys.stdout.flush()
+
+    res = downloader(on_progress=on_prog)
+    if live:
+        _sys.stdout.write("\r" + " " * (width() - 2) + "\r")
+
+    err = res.get("error")
+    if not res.get("ok"):
+        if log_fn:
+            log_fn(f"ERROR: {label} thất bại: {err}")
+        print(f"  {p.gray}{g['v']}{p.reset} {p.red}{g['cross']}{p.reset} {err or 'Tải file thất bại'}",
+              flush=True)
+    else:
+        print(f"  {p.gray}{g['v']}{p.reset} {p.green}{g['check']}{p.reset} {label} hoàn tất",
+              flush=True)
+    return res
