@@ -432,33 +432,6 @@ why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_
 find = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];'
 replace = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
 
-# P36 — free-tier gate của OpenCode áp lên model muse-spark* đi qua relay
-# `anthropic-compatible` (gateway.agents.ai.vn, provider aa/). Đo trực tiếp 2026-09-22
-# trên /v1/messages của relay, cùng 1 body chỉ đổi tools:
-#   PascalCase (Bash/Read)                      -> 403 FreeTierError
-#   PascalCase + `bash` chữ thường              -> 403
-#   PascalCase + `read` chữ thường              -> 403
-#   PascalCase + `bash` + `read` (cả hai)       -> 200
-#   chỉ `bash` / chỉ `read`                     -> 403
-# Lưu ý QUAN TRỌNG: `deepseek-v4-flash` trên CÙNG provider đó chạy tốt 40+ lần liên tiếp
-# với 33 tool PascalCase, 0 tool chữ thường → gate CHỈ áp cho muse-spark*, nên patch gate
-# theo `a.model` khớp muse-spark chứ không theo provider.
-# Tại sao P32 (opencode-freetier-tool-signature) không cứu được: P32 cắm trong
-# OpenCodeProvider (chunks/318.js) và bơm `v=[{type:"function",name:"bash"...}]` — shape
-# tool KHÔNG có `input_schema`. Đường `anthropic-compatible` chạy hàm v() này (8499.js),
-# chuẩn hoá tool sang Claude shape `{name,input_schema}`; tool muse-spark cần đúng shape
-# Claude. Bơm SAU khối chuẩn hoá để không bị filter/map viết lại.
-# Anchor duy nhất 1 bản trong 8499.js (ngay sau khối tools của v(), trước nhánh claude/aa).
-
-[[patch]]
-id = "muse-spark-freetier-tool-signature"
-order = 36
-summary = "Bơm tool bash+read chữ thường cho muse-spark qua relay anthropic-compatible (vượt 403 FreeTierError)"
-why = "gateway.agents.ai.vn chuyển tiếp muse-spark* tới OpenCode free tier; OpenCode đòi tools array chứa CẢ `bash` VÀ `read` chữ thường, thiếu 1 trong 2 → 403 FreeTierError. deepseek-v4-flash cùng provider không bị gate nên chỉ áp cho muse-spark*"
-find = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)}if("claude"===b||b?.startsWith("anthropic-compatible")||'
-replace = '0===a.tools.length&&(delete a.tools,delete a.tool_choice)};(function(){try{if("string"!=typeof a.model||a.model.indexOf("muse-spark")<0)return;if(!Array.isArray(a.tools))return;let $n=new Set(a.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)));for(let $t of[{name:"bash",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}},{name:"read",description:"This tool is currently unavailable and must not be used.",input_schema:{type:"object",properties:{}}}])$n.has($t.name)||a.tools.push($t)}catch{}})();if("claude"===b||b?.startsWith("anthropic-compatible")||'
-
-
 # P38 — nhánh cuối của classifier `hk/e()` coi MỌI 4xx (trừ 401/402/403/429) là lỗi
 # phía client → `shouldFallback:!1`. Combo loop 8910.js `if(!i)return b` trả thẳng
 # response 400 cho client → Claude Code báo "Invalid request ... Status: 400" và HỦY
@@ -504,3 +477,24 @@ summary = "Topology đếm số REQUEST song song (không phải số provider) 
 why = "`g()` gom activeRequests thành Set(provider) nên N session song song cùng provider bị vẽ thành 1 đường và badge router luôn = 1; đếm bằng `count` của từng entry activeRequests thì router badge = tổng request thật, cạnh provider dày theo tải"
 find = '(function(e,t,r,o){let s=e.length,a=Math.max(320,204*s/(2*Math.PI)),i=Math.max(200,.55*a);if(0===s)return{nodes:[{id:"router",type:"router",position:{x:0,y:0},data:{activeCount:0},draggable:!1}],edges:[]};let n=[],l=[];return n.push({id:"router",type:"router",position:{x:-60,y:-22},data:{activeCount:t.size},draggable:!1}),e.forEach((e,p)=>{var u,h;let m,f,g=(u=e.provider,d.Q2[u]||{color:"#6b7280",name:u}),b=t.has(e.provider?.toLowerCase()),y=!b&&r.has(e.provider?.toLowerCase()),x=!b&&o.has(e.provider?.toLowerCase()),v=`provider-${e.provider}`,j={label:(g.name!==e.provider?g.name:null)||e.nodeName||e.name||e.provider,color:g.color||"#6b7280",imageUrl:(h=e.provider,(0,c.HY)(h)),textIcon:g.textIcon||(e.provider||"?").slice(0,2).toUpperCase(),active:b},w=-Math.PI/2+2*Math.PI*p/s,N=a*Math.cos(w),k=i*Math.sin(w);Math.abs(w+Math.PI/2)<Math.PI/4||Math.abs(w-3*Math.PI/2)<Math.PI/4?(m="top",f="bottom"):Math.abs(w-Math.PI/2)<Math.PI/4?(m="bottom",f="top"):N>0?(m="right",f="left"):(m="left",f="right"),n.push({id:v,type:"provider",position:{x:N-90,y:k-15},data:j,draggable:!1}),l.push({id:`e-${v}`,type:"topology",source:"router",sourceHandle:m,target:v,targetHandle:f,animated:!1,data:{active:b},style:x?{stroke:"#ef4444",strokeWidth:2.5,opacity:.9}:b?{stroke:"#22d3ee",strokeWidth:3.5,opacity:1}:y?{stroke:"#f59e0b",strokeWidth:2,opacity:.7}:{stroke:"var(--color-border)",strokeWidth:1,opacity:.3}})}),{nodes:n,edges:l}})(e,j,h,b),[e,j,h,b])'
 replace = '(function(e,t,r,o,$rq){let s=e.length,a=Math.max(320,204*s/(2*Math.PI)),i=Math.max(200,.55*a);if(0===s)return{nodes:[{id:"router",type:"router",position:{x:0,y:0},data:{activeCount:0},draggable:!1}],edges:[]};let n=[],l=[],$tot=Array.isArray($rq)?$rq.reduce(($a,$x)=>$a+(+$x.count||1),0):t.size;return n.push({id:"router",type:"router",position:{x:-60,y:-22},data:{activeCount:$tot},draggable:!1}),e.forEach((e,p)=>{var u,h;let $pk=e.provider?.toLowerCase(),$pc=Array.isArray($rq)?$rq.filter($x=>$x.provider?.toLowerCase()===$pk).reduce(($a,$x)=>$a+(+$x.count||1),0):0,m,f,g=(u=e.provider,d.Q2[u]||{color:"#6b7280",name:u}),b=$pc>0||t.has($pk),y=!b&&r.has($pk),x=!b&&o.has($pk),v=`provider-${e.provider}`,j={label:(g.name!==e.provider?g.name:null)||e.nodeName||e.name||e.provider,color:g.color||"#6b7280",imageUrl:(h=e.provider,(0,c.HY)(h)),textIcon:g.textIcon||(e.provider||"?").slice(0,2).toUpperCase(),active:b,activeCount:$pc},w=-Math.PI/2+2*Math.PI*p/s,N=a*Math.cos(w),k=i*Math.sin(w);Math.abs(w+Math.PI/2)<Math.PI/4||Math.abs(w-3*Math.PI/2)<Math.PI/4?(m="top",f="bottom"):Math.abs(w-Math.PI/2)<Math.PI/4?(m="bottom",f="top"):N>0?(m="right",f="left"):(m="left",f="right"),n.push({id:v,type:"provider",position:{x:N-90,y:k-15},data:j,draggable:!1}),l.push({id:`e-${v}`,type:"topology",source:"router",sourceHandle:m,target:v,targetHandle:f,animated:!1,data:{active:b},style:x?{stroke:"#ef4444",strokeWidth:2.5,opacity:.9}:b?{stroke:"#22d3ee",strokeWidth:Math.min(7,3+1.2*Math.max(1,$pc)),opacity:1}:y?{stroke:"#f59e0b",strokeWidth:2,opacity:.7}:{stroke:"var(--color-border)",strokeWidth:1,opacity:.3}})}),{nodes:n,edges:l}})(e,j,h,b,t),[e,j,h,b,t])'
+
+# P39 — chuẩn hoá tool_use.name trong history khi client/harness vô tình gắn namespace
+# prefix (ví dụ: `default.Grep`, `default.Bash`). Upstream Bedrock validate khắt khe:
+# `tool_use.name` trong history BẮT BUỘC phải tồn tại trong khai báo `tools[]` hiện tại
+# (dù là turn trước đó). Nếu có prefix `namespace.tool` mà tên sau dấu chấm khớp với 1 tool
+# thật trong `tools[]` thì tự động strip prefix về tên chuẩn, cứu request khỏi 400
+# "ValidationException: Invalid tool use format" (ghi nhận 16 lần trên jw/claude-opus-4-8).
+# Nếu strip xong vẫn không thuộc `tools[]` thì giữ nguyên để upstream báo lỗi đúng như cũ.
+#
+# RE-ANCHOR 2026-09-26: cắm tại điểm dispatch chung trong 8895.js ngay trước `let a0=(0,j.jd)`:
+# SAU mọi normalizer/headroom/caveman/ponytail/pxpipe/THINK-CAP, NGAY TRƯỚC `a$.execute()` —
+# 100% request passthrough hay translation đều đi qua. Biến body ở đây là `ai`. Duy nhất 1 bản toàn build.
+
+[[patch]]
+id = "claude-tool-prefix-strip"
+order = 39
+summary = "Strip namespace prefix (vd default.Grep -> Grep) khỏi tool_use name nếu khớp tools[] thật"
+why = "Harness client vô tình ghi tool_use name có namespace (default.Grep/default.Bash/default.Read) vào history; Bedrock validate tool_use.name ∈ tools[] rất gắt và trả 400 Invalid tool use format trên mọi retry. Strip về tên chuẩn nếu tên sau dấu chấm có trong tools[]. Anchor tại điểm dispatch chung 8895.js vì nhánh passthrough KHÔNG đi qua normalizer 8499.js"
+find = 'let a0=(0,j.jd)({onDisconnect:a=>'
+replace = ';(function(){try{if(!ai||!Array.isArray(ai.tools)||!Array.isArray(ai.messages))return;let $T=new Set(ai.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of ai.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&"tool_use"===$b.type&&"string"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(".");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a0=(0,j.jd)({onDisconnect:a=>'
+

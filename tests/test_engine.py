@@ -116,6 +116,8 @@ def unlink_dir(link: Path) -> None:
 
 def test_load_patches_real_file(patches):
     # P32 opencode-freetier-tool-signature removed 2026-09-22 (upstream 0.5.85 native Ke fix)
+    # P36 muse-spark-freetier-tool-signature removed 2026-09-26 (poisoned tools[] -> default.Bash/Read InputValidationError)
+    # P39 claude-tool-prefix-strip added 2026-09-25
     assert len(patches) == 36
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
@@ -131,7 +133,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 32  # 26 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests + 4xx-rotate-instead-of-abort
+    assert len(grouped) == 32  # 26 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests + 4xx-rotate-instead-of-abort + claude-tool-prefix-strip
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -549,6 +551,35 @@ def test_revert_sse_hang_group_all_and_idempotent(patches, tmp_path):
     assert revert(b, patches, group="sse-hang", check=ok_check()) == []
     assert read(b / "8895.js") == t
     assert patched != t
+
+
+def test_claude_tool_prefix_strip_renames_only_when_matching_tools(patches, tmp_path):
+    """P39: tool_use name có namespace prefix (default.Grep) được strip về Grep khi Grep
+    nằm trong tools[]; tên lạ thật (default.Unknown) giữ nguyên để upstream báo lỗi đúng.
+    Anchor tại điểm dispatch chung trong 8895.js để cover cả nhánh passthrough."""
+    p = by_id(patches, "claude-tool-prefix-strip")
+    t = read(engine.build_dir() / "server" / "chunks" / "8895.js")
+    assert p.find in t
+    assert "(0,j.jd)" in p.find and "onDisconnect" in p.find
+    # injection phải: build tên tool thật từ tools[] (name lẫn function.name), chỉ strip
+    # khi phần sau dấu chấm khớp, và KHÔNG raise khi thân request thiếu mảng
+    for token in ("$T", "filter(Boolean)", 'indexOf(".")', 'slice($d+1)',
+                  "Array.isArray(ai.tools)", "Array.isArray(ai.messages)"):
+        assert token in p.replace
+    # no-op JS check: injection là IIFE bọc try/catch
+    assert ";(function(){try{" in p.replace
+    # apply lên build thật rồi revert để chứng minh atomic + node --check pass.
+    # Build thật có thể đang applied (find là prefix của replace nên cả hai cùng
+    # match) → normalize về clean trước, roundtrip mới deterministic.
+    t_clean = t.replace(p.replace, p.find)
+    assert p.find in t_clean and p.replace not in t_clean
+    (tmp_path / "build").mkdir()
+    write(tmp_path / "build", "8895.js", t_clean)
+    real_check = getattr(engine, "node_check")
+    apply(tmp_path / "build", patches, ids=[p.id], check=real_check)
+    assert p.replace in read(tmp_path / "build" / "8895.js")
+    revert(tmp_path / "build", patches, group=p.group, check=real_check)
+    assert read(tmp_path / "build" / "8895.js") == t_clean
 
 
 def test_revert_all_reverts_every_group_atomically(patches, tmp_path):
@@ -1729,68 +1760,6 @@ def test_upstream_claude_sse_passthrough_anchor_hits_real_build(patches):
     build = Path(engine.build_dir())
     p = by_id(patches, "upstream-claude-sse-passthrough")
     # `find` is a prefix of `replace`: exactly one def, patched or not.
-    places = _anchor_placements(build, p)
-    assert sum(places.values()) == 1, places
-
-
-# ---------- p36: muse-spark-freetier-tool-signature ----------
-# 2026-09-22 incident: aa/muse-spark-1.3 (provider anthropic-compatible-cf404992 →
-# gateway.agents.ai.vn) returns 403 FreeTierError "OpenCode's free tier can only be
-# used from within OpenCode" whenever Claude Code sends its PascalCase tool list.
-# Measured against the relay's /v1/messages, varying ONLY the tools array:
-#   PascalCase only / +bash only / +read only → 403;  +bash AND +read → 200.
-# deepseek-v4-flash on the same provider ran 40+ times with 0 lowercase tools → 200,
-# so the gate is per-model (muse-spark*), not per-provider. P32 cannot help: it
-# injects into the OpenCodeProvider shape ({type:"function",name:...}), which the
-# anthropic-compatible path normalizes away.
-
-def test_muse_spark_freetier_injects_lowercase_bash_read(patches):
-    """Guard: only muse-spark* + only when a tools array exists; injects the exact
-    Claude-shaped lowercase `bash`/`read` pair, deduped; every other model untouched."""
-    p = by_id(patches, "muse-spark-freetier-tool-signature")
-    assert p.find == ('0===a.tools.length&&(delete a.tools,delete a.tool_choice)}'
-                      'if("claude"===b||b?.startsWith("anthropic-compatible")||')
-    i = p.replace.index(';(function(){try{if("string"!=typeof a.model')
-    j = p.replace.index("})();", i) + len("})();")
-    guard = p.replace[i:j]
-    assert p.find not in p.replace          # applied/clean are mutually exclusive states
-    script = """
-const a = {model: %s, tools: %s};
-%s
-console.log(a.tools.map(t => t.name).join(","));
-"""
-    cases = [
-        ("muse-spark-1.3", "[{name:'Bash'},{name:'Read'}]", "Bash,Read,bash,read"),
-        ("muse-spark-1.3", "[{name:'Bash'},{name:'bash'},{name:'read'}]", "Bash,bash,read"),
-        ("muse-spark-1.3", "[{name:'bash'}]", "bash,read"),          # read still needed
-        ("muse-spark-1.2-contributor-free", "[{name:'Bash'}]", "Bash,bash,read"),
-        ("deepseek-v4-flash", "[{name:'Bash'}]", "Bash"),            # same provider, no gate
-        ("claude-opus-5", "[{name:'Bash'}]", "Bash"),
-    ]
-    if shutil.which("node") is None:
-        pytest.skip("node not installed")
-    for model, tools, want in cases:
-        js = script % (repr(model), tools, guard)
-        r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30)
-        got = r.stdout.strip()
-        assert got == want, f"{model} {tools}: got {got!r} want {want!r} :: {r.stderr[:200]}"
-    # injected tools must be Claude-shaped (name + input_schema), never nested fn
-    js = script % (repr("muse-spark-1.3"), "[{name:'X'}]", guard) + """
-const inj = a.tools.find(t => t.name === 'bash');
-if (!inj || !inj.input_schema || inj.function) throw new Error("wrong shape: " + JSON.stringify(inj));
-console.log("P36-SHAPE-OK");
-"""
-    r = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=30)
-    assert "P36-SHAPE-OK" in r.stdout, r.stderr or r.stdout
-
-
-def test_muse_spark_freetier_anchor_hits_real_build(patches):
-    """P36 anchor exists exactly once in the build (find/replace don't overlap,
-    so the block is in exactly one of clean/applied)."""
-    if _target_mismatch():
-        pytest.skip("install version does not match patches target_version")
-    build = Path(engine.build_dir())
-    p = by_id(patches, "muse-spark-freetier-tool-signature")
     places = _anchor_placements(build, p)
     assert sum(places.values()) == 1, places
 
