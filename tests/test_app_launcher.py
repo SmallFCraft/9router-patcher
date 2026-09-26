@@ -52,3 +52,11 @@ def test_port_busy_detects_bound_port():
     finally:
         probe.close()
     assert app._port_busy("127.0.0.1", free_port) is False
+
+
+def test_parse_args_supports_tray():
+    import app
+    args = app._parse_args(["--tray"])
+    assert args.tray is True
+    args_default = app._parse_args([])
+    assert args_default.tray is False

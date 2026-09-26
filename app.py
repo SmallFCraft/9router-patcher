@@ -70,6 +70,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Bỏ qua kiểm tra port bận, ép chạy lại doctor + server",
     )
+    parser.add_argument(
+        "--tray",
+        action="store_true",
+        help="Khởi động ẩn trực tiếp vào khay hệ thống, không mở trình duyệt",
+    )
     return parser.parse_args(argv)
 
 
@@ -229,13 +234,18 @@ def main(argv: list[str] | None = None) -> None:
     server_thread = threading.Thread(target=run_server, name="uvicorn-server", daemon=True)
     server_thread.start()
 
-    # 4. Tự động mở browser khi server sẵn sàng
-    threading.Thread(
-        target=_open_browser_when_ready,
-        args=(url,),
-        name="browser-launcher",
-        daemon=True,
-    ).start()
+    # 4. Tự động mở browser khi server sẵn sàng (bỏ qua nếu chạy ngầm vào tray)
+    if not args.tray:
+        threading.Thread(
+            target=_open_browser_when_ready,
+            args=(url,),
+            name="browser-launcher",
+            daemon=True,
+        ).start()
+    else:
+        log_boot("Khởi động ở chế độ khay hệ thống (--tray), không mở trình duyệt.")
+        if tray.available():
+            _hide_console()
 
     # 5. Giữ console tương tác trên main thread + tray icon khi ẩn
     tray.set_console_title(f"9router Patcher Manager v{version.APP_VERSION}")
