@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 import app_paths
@@ -134,7 +135,8 @@ def cleanup_old_files(exe_dir: Path | None = None) -> int:
     return count
 
 
-def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
+def download_and_swap(meta: dict, current_exe: Path | None = None,
+                      on_progress: Callable[[int, int], None] | None = None) -> dict:
     """Tải exe mới, xác thực SHA256 rồi hoán đổi nguyên tử vào exe hiện tại.
 
     Windows cho phép os.replace() trên file exe đang chạy (đã đo trực tiếp) —
@@ -179,12 +181,21 @@ def download_and_swap(meta: dict, current_exe: Path | None = None) -> dict:
             meta["url"], headers={"User-Agent": f"9router-patcher/{version.APP_VERSION}"})
         try:
             with urllib.request.urlopen(req, timeout=30.0) as resp, open(new_file, "wb") as f:
+                try:
+                    total_bytes = int(resp.headers.get("Content-Length", 0))
+                except (ValueError, TypeError, AttributeError):
+                    total_bytes = 0
+                downloaded = 0
+
                 while True:
                     chunk = resp.read(65536)
                     if not chunk:
                         break
                     f.write(chunk)
                     hasher.update(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total_bytes)
         except Exception as e:
             new_file.unlink(missing_ok=True)
             _set_state(phase="error", error=f"Lỗi tải file: {e}")

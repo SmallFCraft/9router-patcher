@@ -364,3 +364,41 @@ def test_download_and_swap_second_version_clears_previous_old(tmp_path, monkeypa
     assert self_update.download_and_swap(meta1, current_exe=exe_file)["ok"] is True
     assert len(list(tmp_path.glob("9router-patch.old-*"))) == 1, \
         f"Sót file cũ: {list(tmp_path.glob('9router-patch.old-*'))}"
+
+
+def test_download_and_swap_invokes_on_progress_callback(tmp_path, monkeypatch):
+    """download_and_swap báo tiến trình tải cho callback on_progress."""
+    import hashlib
+    import self_update
+
+    exe_file = tmp_path / "9router-patch.exe"
+    exe_file.write_bytes(b"OLD_EXE")
+    new_content = b"X" * 131072  # 128 KB (2 chunks)
+
+    class DummyResp:
+        def __init__(self):
+            self._buf = new_content
+            self.headers = {"Content-Length": str(len(new_content))}
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def read(self, size=65536):
+            out, self._buf = self._buf[:size], self._buf[size:]
+            return out
+
+    monkeypatch.setattr(self_update.urllib.request, "urlopen", lambda *a, **k: DummyResp())
+    monkeypatch.setattr(self_update.app_paths, "is_frozen", lambda: True)
+
+    progress_ticks = []
+    def on_prog(done, total):
+        progress_ticks.append((done, total))
+
+    meta = {
+        "version": "2.9.9",
+        "url": "https://example.com/f.exe",
+        "sha256": hashlib.sha256(new_content).hexdigest(),
+    }
+    res = self_update.download_and_swap(meta, current_exe=exe_file, on_progress=on_prog)
+    assert res["ok"] is True
+    assert len(progress_ticks) >= 2
+    assert progress_ticks[-1] == (len(new_content), len(new_content))
+
