@@ -130,6 +130,11 @@ def install_target_router(on_output=None) -> tuple[bool, str]:
     if not cmd_base:
         return False, "Không tìm thấy npm"
     cmd = cmd_base + ["install", "-g", f"9router@{target}"]
+    # Chống EBUSY trên Windows: router đang chạy giữ file/dir trong node_modules/9router/app
+    # khiến npm rename dở dang (đo 2026-09-27: EBUSY errno -4082). Tắt trước, bật lại sau.
+    was_running = pid_on_port(ROUTER_PORT) is not None
+    if was_running:
+        stop_router(lambda ev: None)
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, text=True, bufsize=1, creationflags=SILENT_FLAGS)
@@ -145,9 +150,13 @@ def install_target_router(on_output=None) -> tuple[bool, str]:
             proc.kill()
             proc.wait()
             return False, "npm install quá thời gian (300s)"
-        return proc.returncode == 0, f"Cài đặt 9router@{target} {'thành công' if proc.returncode == 0 else 'thất bại'}"
+        ok = proc.returncode == 0
+        return ok, f"Cài đặt 9router@{target} {'thành công' if ok else 'thất bại'}"
     except Exception as e:
         return False, str(e)
+    finally:
+        if was_running:
+            start_router(lambda ev: None)
 
 
 TARBALL_TIMEOUT = 120

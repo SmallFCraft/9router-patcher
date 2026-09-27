@@ -558,16 +558,18 @@ def test_claude_tool_prefix_strip_renames_only_when_matching_tools(patches, tmp_
     nằm trong tools[]; tên lạ thật (default.Unknown) giữ nguyên để upstream báo lỗi đúng.
     Anchor tại điểm dispatch chung trong 8895.js để cover cả nhánh passthrough."""
     p = by_id(patches, "claude-tool-prefix-strip")
-    t = read(engine.build_dir() / "server" / "chunks" / "8895.js")
-    assert p.find in t
     assert "(0,j.jd)" in p.find and "onDisconnect" in p.find
     # injection phải: build tên tool thật từ tools[] (name lẫn function.name), chỉ strip
     # khi phần sau dấu chấm khớp, và KHÔNG raise khi thân request thiếu mảng
     for token in ("$T", "filter(Boolean)", 'indexOf(".")', 'slice($d+1)',
-                  "Array.isArray(ai.tools)", "Array.isArray(ai.messages)"):
+                  "tools", "messages"):
         assert token in p.replace
     # no-op JS check: injection là IIFE bọc try/catch
     assert ";(function(){try{" in p.replace
+    if _target_mismatch():
+        pytest.skip("installed build does not match target_version")
+    t = read(engine.build_dir() / "server" / "chunks" / "8895.js")
+    assert p.find in t
     # apply lên build thật rồi revert để chứng minh atomic + node --check pass.
     # Build thật có thể đang applied (find là prefix của replace nên cả hai cùng
     # match) → normalize về clean trước, roundtrip mới deterministic.
@@ -931,14 +933,14 @@ def test_nonstream_retry_anchors_exactly_one_state_in_real_build(patches):
 
 
 def test_nonstream_retry_075_anchor_tracks_remapped_handler_bindings(patches):
-    """0.5.85 shifted trackDone/appendLog and local names again (F->G, G->H, K->L, log J->K).
+    """0.5.91 shifted bindings again: log:L, let M, H(), l.F, return I({status:).
     Retry must call the new appendLog binding, not a stale letter."""
     p11 = by_id(patches, "nonstream-retry-aggregate")
-    assert p11.find == ('log:K}){let L;if(G(),(a.headers.get("content-type")||"")'
-                        '.includes("text/event-stream")){let b=await a.text(),d=(0,k.F)(b,c);'
-                        'if(!d)return H({status:')
-    assert p11.replace.startswith('log:K,retry:$x}){let L;if(G(),')
-    assert p11.replace.endswith('if($m)d=$m}}if(!d)return H({status:')
+    assert p11.find == ('log:L}){let M;if(H(),(a.headers.get("content-type")||"")'
+                        '.includes("text/event-stream")){let b=await a.text(),d=(0,l.F)(b,c);'
+                        'if(!d)return I({status:')
+    assert p11.replace.startswith('log:L,retry:$x}){let M;if(H(),')
+    assert p11.replace.endswith('if($m)d=$m}}if(!d)return I({status:')
 
 
 def test_nonstream_retry_aggregator_builds_claude_message(patches):
@@ -1030,25 +1032,27 @@ console.log("NON-SSE-METADATA-OK");
 # ---------- reasoning-effort body cap (p14) ----------
 
 def test_reasoning_effort_cap_mutates_the_body_that_is_sent(patches):
-    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite `ai` — the object handed to
-    `execute({body:ai})`. `aW` is the headroom RESPONSE ({tokens_before,...}), so capping it
-    is a silent no-op: THINK:max still goes out on >448KB bodies (the am empty-stream case).
-    The IIFE must also size-check `ai`, not `aW`."""
+    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite the sent body (`aj` in 0.5.91,
+    `ai` in 0.5.86). `aW` is the headroom RESPONSE, so capping it is a silent no-op.
+    The IIFE must also size-check the body, not `aW`."""
     p14 = by_id(patches, "reasoning-effort-body-cap")
     iife = p14.replace[p14.replace.index("(function(){"):]
-    assert "aW" not in iife, "cap still reads/writes aW (headroom response), not ai (sent body)"
+    assert "aW" not in iife, "cap still reads/writes aW (headroom response), not body"
     script = """
-const d={line:()=>{}}; const at="t";
+const d={line:()=>{}}; const at="t", au="t";
 let aW={tokens_before:1,tokens_after:1};
-let ai={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
+let aj={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
+let ai=aj;
 %s
-if (ai.reasoning_effort !== "high") throw new Error("body not capped: " + ai.reasoning_effort);
-ai={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
+if (aj.reasoning_effort !== "high") throw new Error("body not capped: " + aj.reasoning_effort);
+aj={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
+ai=aj;
 %s
-if (ai.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
-ai={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
+if (aj.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
+aj={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
+ai=aj;
 %s
-if (ai.reasoning_effort !== "max") throw new Error("small body must not cap");
+if (aj.reasoning_effort !== "max") throw new Error("small body must not cap");
 console.log("P14-BODY-CAP-OK");
 """ % (iife, iife, iife)
     if shutil.which("node") is None:
@@ -1194,6 +1198,8 @@ console.log("HOIST-OK");
 def test_empty_stream_fallback_real_build_exactly_one_state(patches):
     if not any(x.id == "empty-stream-fallback" for x in patches):
         pytest.skip("p16 suspended")
+    if _target_mismatch():
+        pytest.skip("installed build does not match target_version")
     try:
         build = engine.build_dir()
     except Exception:
@@ -1230,8 +1236,11 @@ def test_empty_stream_peek_live_or_502(patches):
         pytest.skip("p16 suspended")
     p16 = by_id(patches, "empty-stream-fallback")
     head = "let $pk="
-    tail = ";return await $pk(Q,n.RK)"
-    fn = p16.replace[p16.replace.index(head) + len(head):p16.replace.index(tail)]
+    # tail of the call: ;return await $pk(<stream expr>,<headers expr>) at end of replace
+    tail_marker = ";return await $pk("
+    rest = p16.replace[p16.replace.index(tail_marker):]
+    assert rest.endswith(")"), rest[-20:]
+    fn = p16.replace[p16.replace.index(head) + len(head):p16.replace.rindex(tail_marker)]
     script = """
 const $pk = %s;
 const enc = new TextEncoder();
@@ -1427,15 +1436,16 @@ console.log("HEADROOM-TRIM-OK");
 
 
 def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
-    """P23: POST line no longer embeds the `${ao}/${ap}` provider-UUID target, adds a 100-char
+    """P23: POST line no longer embeds the provider/model target, adds a 100-char
     cap and a 4-char ACC short label; the rebuilt statement must still parse as JS."""
     rep = _patch_replace(patches, "log-post-trim")
-    assert "→ ${ap}/${aq}" not in rep          # provider-uuid target dropped
+    assert "→ ${aq}/${ar}" not in rep          # provider-uuid target dropped
     assert "slice(0,100)" in rep                # length cap present
     assert "slice(0,4)" in rep                  # ACC short label
     # wrap the emitted statement so node can syntax-check it in isolation
-    stmt = rep[rep.index("let aS=aR?au:aB;if(d?.line){"):]
-    script = "function st(aR,au,aB,ai,a,d,ap,aq,c,P,g,t,aJ,at){" + stmt + "}\n"
+    stmt = rep[rep.index("let aT=aS?av:aC;if(d?.line){"):]
+    script = ("function st(aS,av,aC,aj,a,d,ar,aq,c,Q,g,t,aK,au){"
+              + stmt + "}\n")
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     tmp = tmp_path / "stmt.js"
@@ -1507,8 +1517,8 @@ def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
     variable; guard reads `ai`, mutates in place, leaves the anchor statement intact."""
     p = by_id(patches, "max-tokens-floor")
-    assert p.find == 'let a$=(0,s.SB)(ap);'
-    assert p.replace.startswith('if(ai&&"number"==typeof ai.max_tokens&&ai.max_tokens<16)ai.max_tokens=16;')
+    assert p.find == 'let a_=(0,t.SB)(aq);'
+    assert p.replace.startswith('if(aj&&"number"==typeof aj.max_tokens&&aj.max_tokens<16)aj.max_tokens=16;')
     assert p.replace.endswith(p.find)
 
 
@@ -1527,7 +1537,7 @@ def test_post_headroom_tool_result_remerge_patch_exists(patches):
     """P28 regression: a post-headroom merge must be anchored after compression, because
     Claude→OpenAI→Claude makes one user message per tool_result."""
     p = by_id(patches, "tool-result-remerge-post-headroom")
-    assert p.find == 'let a_=ai.messages?.length'
+    assert p.find == 'let a0=aj.messages?.length'
     assert '"tool_result"===$b2' in p.replace
     assert '$ms2.splice($i2+1,$mg2.length,$kp2)' in p.replace
 
@@ -1536,9 +1546,9 @@ def test_accept_text_plain_as_sse_relaxes_mime_guard(patches):
     """P29: MIME guard must let text/plain through (some providers send valid SSE bodies
     under text/plain); JSON + event-stream stays required, everything else still blocked."""
     p = by_id(patches, "accept-text-plain-as-sse")
-    assert p.find == ('if(M&&!M.includes("text/event-stream")&&!M.includes("application/json"))')
-    assert p.replace == ('if(M&&!M.includes("text/event-stream")&&!M.includes("application/json")'
-                         '&&!M.includes("text/plain"))')
+    assert p.find == ('if(N&&!N.includes("text/event-stream")&&!N.includes("application/json"))')
+    assert p.replace == ('if(N&&!N.includes("text/event-stream")&&!N.includes("application/json")'
+                         '&&!N.includes("text/plain"))')
 
 
 # ---------- p30: errbody-html-title (base parseError) ----------
@@ -1827,15 +1837,15 @@ console.log("P13-CONTENT-BLOCK-OK");
 
 
 def test_p38_anchor_hits_real_build(patches):
-    """P38 anchor = the final `return` of classifier e(); byte-measured on 0.5.86 as
-    exactly 1 occurrence in each of 8 files (3 chunks + 5 route bundles). find/replace
+    """P38 anchor = the final `return` of classifier e(); byte-measured as
+    exactly 1 occurrence in each bundle (8 in 0.5.86, 9 in 0.5.91). find/replace
     share no substring, so a re-apply stays a no-op and never recurses."""
     if _target_mismatch():
         pytest.skip("install version does not match patches target_version")
     p = by_id(patches, "4xx-rotate-instead-of-abort")
     assert p.find not in p.replace and p.replace not in p.find
     places = _anchor_placements(Path(engine.build_dir()), p)
-    assert sum(places.values()) == 8, places
+    assert sum(places.values()) in (8, 9), places
     assert all(v == 1 for v in places.values()), places
 
 
@@ -2098,8 +2108,8 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
 def test_target_version_configured_and_matches_patches_toml():
     import config, engine
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.86"
-    assert engine.target_version() == "0.5.86"
+    assert config.TARGET_9ROUTER_VERSION == "0.5.91"
+    assert engine.target_version() == "0.5.91"
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):

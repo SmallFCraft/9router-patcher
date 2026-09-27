@@ -275,8 +275,15 @@ def test_install_target_router_invokes_npm_with_target_pin(monkeypatch):
         def wait(self, timeout=None):
             return 0
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
     monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(updater, "pid_on_port", lambda p: None)
 
     ok, msg = updater.install_target_router()
     assert ok is True
@@ -284,6 +291,30 @@ def test_install_target_router_invokes_npm_with_target_pin(monkeypatch):
     assert target_spec in calls[0]
     assert "9router@latest" not in calls[0]
     assert f"Cài đặt {target_spec} thành công" in msg
+
+
+def test_install_target_router_stops_and_restarts_running_router(monkeypatch):
+    """Chống EBUSY: nếu router đang chạy, phải tắt trước khi npm và bật lại sau."""
+    stopped, started = [], []
+
+    class FakePopen:
+        def __init__(self, cmd, *a, **k):
+            self.stdout = None
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(updater, "pid_on_port", lambda p: 99999 if p == updater.ROUTER_PORT else None)
+    monkeypatch.setattr(updater, "stop_router", lambda emit: stopped.append(True))
+    monkeypatch.setattr(updater, "start_router", lambda emit: started.append(True))
+
+    ok, msg = updater.install_target_router()
+    assert ok is True
+    assert len(stopped) == 1
+    assert len(started) == 1
 
 
 def test_install_target_router_timeout_kills_process(monkeypatch):
@@ -302,8 +333,15 @@ def test_install_target_router_timeout_kills_process(monkeypatch):
         def kill(self):
             killed.append(True)
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
     monkeypatch.setattr(updater, "_npm_cli", lambda: ["node", "npm-cli.js"])
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(updater, "pid_on_port", lambda p: None)
 
     ok, msg = updater.install_target_router()
     assert ok is False

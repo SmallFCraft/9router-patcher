@@ -32,10 +32,10 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-09-27, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q` → **416 passed, 5 skipped**.
-  Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.86 → patch states legitimately differ), `318.js` not in current build, `test_tray` non-Windows no-op paths.
-- Engine tests: `python -m pytest tests/test_engine.py -q` → **104 passed, 2 skipped**.
-- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **63 passed, 2 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **417 passed, 5 skipped**.
+  Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.91 → patch states legitimately differ), `318.js` not in current build, `test_tray` non-Windows no-op paths.
+- Engine tests: `python -m pytest tests/test_engine.py -q` → **105 passed, 2 skipped**.
+- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **68 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 
 ## Standalone Distribution (Executable)
