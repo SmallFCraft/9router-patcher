@@ -20,6 +20,11 @@ def test_available_false_without_console():
     assert tray.available() is False
 
 
+def test_trim_memory_returns_bool():
+    """trim_memory không bao giờ nổ — chỉ là gợi ý nhả RAM, không được làm app sập."""
+    assert isinstance(tray.trim_memory(), bool)
+
+
 def test_dispatch_calls_callback_and_returns_true():
     called = []
     cbs = {1: lambda: called.append("a"), 2: lambda: called.append("b")}

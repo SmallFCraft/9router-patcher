@@ -143,6 +143,7 @@
       {% elif g.state == "dead-anchor" %}<span class="badge bad">dead-anchor</span>
       {% else %}<span class="badge warn">{{ g.state }}</span>{% endif %}
       <div class="gactions">
+        {% if g.members | selectattr("state", "in", ["clean", "partial"]) | list %}
         <form method="post" action="/apply">
           <input type="hidden" name="ids" value="{{ g.name }}">
           {% if compat and compat.get("relation") in ("newer", "older") %}
@@ -151,11 +152,14 @@
           <button class="btn btn-ghost btn-sm" type="submit">{{ icon('play') }}Apply</button>
           {% endif %}
         </form>
+        {% endif %}
+        {% if g.members | selectattr("state", "in", ["applied", "partial"]) | list %}
         <form method="post" action="/revert">
           <input type="hidden" name="group" value="{{ g.name }}">
           <button class="btn btn-danger btn-sm" type="submit"
                   data-confirm="Revert group «{{ g.name }}»? Sẽ gỡ toàn bộ {{ g.members | length }} patch khỏi build.">{{ icon('undo') }}Revert</button>
         </form>
+        {% endif %}
       </div>
     </header>
     <div class="gbody">

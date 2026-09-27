@@ -695,14 +695,24 @@ def restart_router_stack_if_up(emit=None) -> str:
 
     9router đọc build vào RAM lúc boot: ghi file xong mà process cũ vẫn nghe :20128
     thì patch chỉ nằm trên đĩa — vô dụng. Chỉ router chạy mới bị restart; headroom
-    (:8787) không đọc build nên không cần kill. Router tắt sẵn thì không bật hộ."""
+    (:8787) không đọc build nên không cần kill. Router tắt sẵn thì không bật hộ.
+
+    Phải kiểm PID ĐỔI sau restart: taskkill trượt hoặc cổng chưa nhả thì
+    start_router gặp cổng bận, early-return True mà không spawn process nào —
+    báo "đã khởi động lại" trong khi router cũ vẫn giữ build cũ trong RAM."""
     out = emit or (lambda ev: None)
-    if pid_on_port(ROUTER_PORT) is None:
+    old_pid = pid_on_port(ROUTER_PORT)
+    if old_pid is None:
         return "Router không chạy — không cần restart."
     stop_router(out)
     ok = start_router(out)
-    return ("Đã khởi động lại router — patch có hiệu lực ngay."
-            if ok else "Không khởi động lại được router — xem log trong logs/")
+    if not ok:
+        return "Không khởi động lại được router — xem log trong logs/"
+    # ponytail: so PID là đủ; Windows cấp lại PID cũ ngay lập tức gần như không xảy ra.
+    if pid_on_port(ROUTER_PORT) == old_pid:
+        return (f"CẢNH BÁO: router cũ (PID {old_pid}) vẫn nghe :{ROUTER_PORT} — "
+                f"patch CHƯA có hiệu lực, hãy tắt router rồi mở lại.")
+    return "Đã khởi động lại router — patch có hiệu lực ngay."
 
 
 def stop_router_stack(emit) -> bool:

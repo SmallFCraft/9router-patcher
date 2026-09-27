@@ -151,7 +151,9 @@ def test_index_dead_anchor_banner(web, monkeypatch):
     assert "gauge-guard" in r.text.split('class="banner"')[1].split("</p>")[0]
 
 
-def test_sse_group_has_exactly_one_action(web):
+def test_sse_group_has_exactly_one_action(web, monkeypatch):
+    """Khi các group có cả file applied lẫn clean (mixed): mỗi group có đúng 1 form apply và 1 form revert."""
+    set_scan(monkeypatch, {p.id: "partial" for p in REAL_PATCHES})
     html = web["client"].get("/").text
     # one apply + one revert control for the whole 4-patch group, never per-patch
     assert html.count('name="ids" value="sse-hang"') == 1
@@ -163,9 +165,11 @@ def test_sse_group_has_exactly_one_action(web):
     assert grid.count('name="group" value=') == len(engine.groups(REAL_PATCHES))
 
 
-def test_index_has_apply_all_form(web):
+def test_index_has_apply_all_form(web, monkeypatch):
+    """Khi toàn bộ clean: cả toolbar và mọi group đều hiện form /apply."""
+    set_scan(monkeypatch, {p.id: "clean" for p in REAL_PATCHES})
     html = web["client"].get("/").text
-    assert html.count('action="/apply"') >= 7  # 6 per-group + 1 apply-all
+    assert html.count('action="/apply"') >= 7  # per-group + 1 apply-all
 
 
 # ---------- CSRF on POST ----------
@@ -271,6 +275,46 @@ def test_post_apply_selected_still_works_when_all_applied(web):
     r = web["client"].post("/apply", data={"ids": ["sse-hang"]}, headers={"Origin": OWN})
     assert r.status_code == 303
     assert web["apply"][0][1]["ids"] == ["sse-hang"]
+
+
+def _group_block(html, group):
+    """Khối <article> của một group trong danh sách patch."""
+    blocks = re.findall(r'<article class="card gcard">.*?</article>', html, re.S)
+    hits = [b for b in blocks if group in b]
+    assert hits, f"không thấy group block {group}"
+    return hits[0]
+
+
+def test_group_hides_apply_when_group_fully_applied(web, monkeypatch):
+    """Group đã applied hết: không còn gì để apply -> nút Apply phải ẩn."""
+    set_scan(monkeypatch, {p.id: "applied" for p in REAL_PATCHES})
+    html = web["client"].get("/").text
+    blk = _group_block(html, "connect-timeout-180s")
+    assert "Revert" in blk
+    assert "Apply</button>" not in blk
+
+
+def test_group_hides_revert_when_group_fully_clean(web, monkeypatch):
+    """Group còn clean (chưa apply): Revert là no-op -> nút Revert phải ẩn."""
+    set_scan(monkeypatch, {p.id: "clean" for p in REAL_PATCHES})
+    html = web["client"].get("/").text
+    blk = _group_block(html, "connect-timeout-180s")
+    assert "Apply</button>" in blk
+    assert "Revert</button>" not in blk
+
+
+def test_group_shows_both_when_partial(web, monkeypatch):
+    """partial: file này applied, file kia clean -> cả hai nút đều còn việc."""
+    set_scan(monkeypatch, {p.id: "partial" for p in REAL_PATCHES})
+    blk = _group_block(web["client"].get("/").text, "connect-timeout-180s")
+    assert "Apply</button>" in blk and "Revert</button>" in blk
+
+
+def test_group_hides_both_when_dead_anchor(web, monkeypatch):
+    """dead-anchor: build đổi, không apply/revert được -> cả hai nút ẩn."""
+    set_scan(monkeypatch, {p.id: "dead-anchor" for p in REAL_PATCHES})
+    blk = _group_block(web["client"].get("/").text, "connect-timeout-180s")
+    assert "Apply</button>" not in blk and "Revert</button>" not in blk
 
 
 def test_post_apply_all_scan_failure_falls_through_to_engine(web, monkeypatch):
@@ -1151,6 +1195,7 @@ def test_base_template_has_self_update_modal(web):
 
 def test_index_disables_apply_and_shows_warning_when_router_newer(web, monkeypatch):
     import updater
+    set_scan(monkeypatch, {p.id: "partial" for p in REAL_PATCHES})
     newer = {"compatible": False, "relation": "newer", "local": "0.5.86", "target": "0.5.85"}
     monkeypatch.setattr(updater, "check_router_compatibility", lambda *a, **k: newer)
     # the fixture swaps main.updater for a stub namespace — patch the object the route reads
@@ -1170,6 +1215,7 @@ def test_index_disables_apply_and_shows_warning_when_router_newer(web, monkeypat
 def test_index_blocks_apply_and_offers_align_when_router_older(web, monkeypatch):
     """Hồi quy incident 2026-09-22: older mở apply + không có nút align → dead-anchor.
     Giờ older khóa apply như newer, nút align-target hiện cả hai chiều."""
+    set_scan(monkeypatch, {p.id: "partial" for p in REAL_PATCHES})
     older = {"compatible": False, "relation": "older", "local": "0.5.70", "target": "0.5.85"}
     monkeypatch.setattr(main.updater, "check_router_compatibility", lambda *a, **k: older)
     html = web["client"].get("/").text

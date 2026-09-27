@@ -887,13 +887,37 @@ def test_restart_router_stack_if_up_restarts_running_router(monkeypatch):
     process giữ code cũ trong RAM, patch vô dụng (đặc biệt sau npm update lúc boot)."""
     import updater
     log = []
+    # PID phải ĐỔI sau stop: restart thật thì process mới có PID mới.
+    state = {"pid": 111}
     monkeypatch.setattr(updater, "pid_on_port",
-                        lambda port: 111 if port == updater.ROUTER_PORT else None)
-    for name in ("stop_router", "start_router"):
-        monkeypatch.setattr(updater, name, lambda emit, _n=name: log.append(_n) or True)
+                        lambda port: state["pid"] if port == updater.ROUTER_PORT else None)
+
+    def fake_stop(emit):
+        log.append("stop_router")
+        state["pid"] = 222
+        return True
+
+    monkeypatch.setattr(updater, "stop_router", fake_stop)
+    monkeypatch.setattr(updater, "start_router",
+                        lambda emit: log.append("start_router") or True)
     msg = updater.restart_router_stack_if_up()
     assert log == ["stop_router", "start_router"]
     assert "khởi động lại" in msg
+
+
+def test_restart_router_stack_if_up_warns_when_pid_unchanged(monkeypatch):
+    """Hồi quy 2026-09-27: taskkill trượt/ cổng chưa nhả → start_router gặp cổng bận,
+    early-return True mà không spawn process nào. Router cũ (PID 16772, start 16:10:23)
+    vẫn giữ classifier cũ trong RAM 55s sau khi P38 ghi đĩa → 400 content-blocked
+    không xoay model, Claude Code hủy session compact. Phải báo CẢNH BÁO, không "OK"."""
+    import updater
+    monkeypatch.setattr(updater, "pid_on_port",
+                        lambda port: 16772 if port == updater.ROUTER_PORT else None)
+    for name in ("stop_router", "start_router"):
+        monkeypatch.setattr(updater, name, lambda emit, _n=name: True)
+    msg = updater.restart_router_stack_if_up()
+    assert "CẢNH BÁO" in msg
+    assert "16772" in msg
 
 
 def test_restart_router_stack_if_up_noop_when_router_down(monkeypatch):

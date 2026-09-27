@@ -224,6 +224,28 @@ def _set_exstyle(hwnd: int, on: bool) -> None:
     u.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new)
 
 
+def trim_memory() -> bool:
+    """Yêu cầu Windows thu hồi Working Set (RAM vật lý) không dùng.
+
+    Gọi khi app ẩn vào khay hệ thống (idle dài): nhả ~50-100 MB RAM vật lý về
+    cho hệ điều hành. Khi có request tới dashboard, Windows tự page lại vào RAM
+    trong vài ms mà không ảnh hưởng tính đúng đắn.
+    ponytail: EmptyWorkingSet của Windows API; không giảm Private Bytes (commit).
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        k32 = ctypes.windll.kernel32
+        psapi = ctypes.windll.psapi
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.GetCurrentProcess.argtypes = []
+        psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+        psapi.EmptyWorkingSet.restype = wintypes.BOOL
+        return bool(psapi.EmptyWorkingSet(k32.GetCurrentProcess()))
+    except Exception:
+        return False
+
+
 def hide_console() -> bool:
     """Ẩn hẳn cửa sổ console (mất khỏi taskbar lẫn alt-tab).
 
@@ -240,6 +262,7 @@ def hide_console() -> bool:
         for hwnd in wins:
             _set_exstyle(hwnd, on=True)
             u.ShowWindow(hwnd, SW_HIDE)
+        trim_memory()
         return True
     except Exception:
         return False
