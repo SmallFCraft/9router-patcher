@@ -4,8 +4,9 @@ Authoritative rules live in [CLAUDE.md](CLAUDE.md). Read it first; this file is 
 
 ## Quick Reference
 
-- **Test Suite**: `python -m pytest tests/ -q` (378 passed, 5 skipped — verified 2026-09-25)
+- **Test Suite**: `python -m pytest tests/ -q` (416 passed, 5 skipped — verified 2026-09-27)
 - **Engine Tests**: `python -m pytest tests/test_engine.py -q` (104 passed, 2 skipped)
+- **Autostart**: `shell:startup\9router-patch.vbs` (wscript ẩn); không dùng Run key / schtasks (xem [CLAUDE.md](CLAUDE.md))
 - **Build Executable**: `python build_app.py` -> `dist\9router-patch.exe` (publish ~18 MB zstd; dev loop: add `--fast`)
 - **Dashboard Port**: `127.0.0.1:20129` (local-only, CSRF-guarded)
 - **GitNexus Repo**: `--repo 9router-patcher` on every call (16 repos indexed; bare tool names `impact`/`context`/`query`/`detect_changes` — never `gitnexus_*` prefix. CLI: prefer `npx gitnexus` / explicit `node E:\Apps\npm-global\node_modules\gitnexus\dist\cli\index.js`; PATH `gitnexus.CMD` is stale 1.6.4-rc.48)

@@ -20,18 +20,19 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 - `app.py` — Standalone desktop launcher (boots uvicorn + opens default browser).
 - `main.py` — FastAPI dashboard bound to `127.0.0.1:20129`. Refuses non-localhost.
-- `updater.py` — Update pipeline + port lifecycle (router `:20128`, headroom `:8787`).
+- `updater.py` — Update pipeline + port lifecycle (router `:20128`, headroom `:8787`). Router gốc KHÔNG tự bật headroom; chính updater spawn nó. Headroom cold-start 40-50s KHÔNG được block boot: boot chỉ chờ `HEADROOM_BOOT_WAIT = 3s` rồi để nó chạy nền, router lên là stack OK (bước [5/5] không treo).
 - `engine.py` — Atomic find/replace engine, snapshots, `node --check`, rollback.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
+- `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
 - `patches.toml` — Single source of truth (36 patches, 32 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
-## Verified Baselines (2026-09-25, re-verified live)
+## Verified Baselines (2026-09-27, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q` → **378 passed, 5 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **416 passed, 5 skipped**.
   Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.86 → patch states legitimately differ), `318.js` not in current build, `test_tray` non-Windows no-op paths.
 - Engine tests: `python -m pytest tests/test_engine.py -q` → **104 passed, 2 skipped**.
 - App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **63 passed, 2 skipped**.

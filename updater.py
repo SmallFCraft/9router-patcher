@@ -461,6 +461,11 @@ HEADROOM_CWD = Path(os.environ.get("APPDATA", "")) / "9router" / "headroom"
 STACK_PORT_WAIT = 60           # router bind ~2s; headroom cold-start sau npm (import python
                                # + build runtime) đo >25s — 2026-09-23: 25s báo "CHƯA lên" giả
 
+# Boot path không được chờ headroom: `headroom.cli proxy` cold-start 40-60s (import
+# python + build runtime + code-aware AST), block ở đây làm boot treo tới 1 phút dù
+# router đã lên. Headroom tự bind cổng sau; dashboard báo trạng thái riêng.
+HEADROOM_BOOT_WAIT = 3          # chỉ chờ nhỡ nó lên sẵn từ instance trước, không chặn boot
+
 
 def _runtime_node_modules() -> Path:
     data_dir = os.environ.get("DATA_DIR")
@@ -622,7 +627,8 @@ def _kill_port(port: int, name: str, emit) -> bool:
     return closed
 
 
-def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit) -> bool:
+def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit,
+                     wait: float = STACK_PORT_WAIT) -> bool:
     if pid_on_port(port) is not None:
         emit({"type": "line", "text": f"  {kind} đang chạy sẵn ở cổng {port} — bỏ qua"})
         return True
@@ -641,7 +647,7 @@ def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit) -> 
     except (OSError, subprocess.SubprocessError) as e:
         emit({"type": "line", "text": f"  → KHÔNG khởi động được: {type(e).__name__}: {e}"})
         return False
-    up = _wait_port(port, STACK_PORT_WAIT)
+    up = _wait_port(port, wait)
     emit({"type": "line",
           "text": f"  cổng {port}: {'ĐÃ LÊN' if up else 'chưa nghe — xem log trong logs/'}"})
     return up
@@ -663,14 +669,16 @@ def stop_headroom(emit) -> bool:
     return _kill_port(HEADROOM_PORT, "headroom", emit)
 
 
-def start_headroom(emit) -> bool:
+def start_headroom(emit, wait: float = STACK_PORT_WAIT) -> bool:
+    """Bật headroom. `wait` timeout chờ bind: boot path chỉ cần spawn rồi đi tiếp
+    (đo 2026-09-27: cold-start 40-60s), manual start thì chờ hẳn như trước."""
     cmd = _stack_cmdlines().get("headroom_cmd") or _default_headroom_cmd()
     if not cmd:
         st = headroom_status()
         emit({"type": "line", "text": f"  Headroom: {st.get('reason') or 'bỏ qua'}"})
         return False
     cwd = HEADROOM_CWD if HEADROOM_CWD.is_dir() else None
-    return _launch_port_cmd("headroom", HEADROOM_PORT, cmd, cwd, emit)
+    return _launch_port_cmd("headroom", HEADROOM_PORT, cmd, cwd, emit, wait)
 
 
 def restart_router_stack_if_up(emit=None) -> str:
@@ -698,7 +706,10 @@ def stop_router_stack(emit) -> bool:
 def start_router_stack(emit) -> bool:
     """Bật LẦN LƯỢT: router lên hẳn trước rồi mới tới headroom (nếu có).
 
-    headroom là tuỳ chọn: router lên là stack OK, headroom thiếu không làm fail."""
+    headroom là tuỳ chọn: router lên là stack OK. Nó cũng cold-start 40-60s, nên ở
+    đây chỉ chờ HEADROOM_BOOT_WAIT giây — process đã spawn, cổng sẽ tự lên sau;
+    chờ hết 60s chỉ làm boot treo (đo 2026-09-27), trong khi dashboard vẫn báo
+    trạng thái headroom riêng qua /api/headroom/status."""
     ok = start_router(emit)
     emit({"type": "line", "text": "  --"})
     # Nếu user đã từng chạy headroom (có trong saved state) hoặc máy có cài headroom
@@ -706,8 +717,14 @@ def start_router_stack(emit) -> bool:
     if not has_saved_cmd and not headroom_status()["installed"]:
         emit({"type": "line", "text": "  Headroom chưa được cài đặt (tuỳ chọn) — bỏ qua"})
         return ok
-    h_ok = start_headroom(emit)
-    return ok and h_ok
+    if pid_on_port(HEADROOM_PORT) is not None:
+        return start_headroom(emit, wait=HEADROOM_BOOT_WAIT) and ok
+    h_ok = start_headroom(emit, wait=HEADROOM_BOOT_WAIT)
+    if h_ok:
+        return ok
+    # Chưa kịp nghe trong 3s: process vẫn đang khởi động, không phải lỗi boot.
+    emit({"type": "line", "text": "  headroom đang khởi động trong nền (cổng 8787 tự lên)"})
+    return ok
 
 
 def restart_processes(stopped: dict[int, tuple[str, str]], emit) -> str:

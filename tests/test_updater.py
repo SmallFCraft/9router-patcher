@@ -1107,6 +1107,30 @@ def test_start_router_stack_skips_headroom_when_not_installed(monkeypatch, tmp_p
     assert any("Headroom chưa được cài đặt" in ln for ln in lines)
 
 
+def test_start_router_stack_does_not_block_on_slow_headroom(monkeypatch, tmp_path):
+    """Hồi quy 2026-09-27: headroom cold-start 40-60s, boot không được chờ hết 60s.
+    Router đã lên là stack OK; chỉ chờ HEADROOM_BOOT_WAIT giây rồi đi tiếp."""
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    (tmp_path / "stack.json").write_text(json.dumps({
+        "router_cmd": "node custom-server.js",
+        "headroom_cmd": "python headroom proxy"}), encoding="utf-8")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    # headroom spawn thành công nhưng cold-start chậm: port không nghe kịp trong boot.
+    seen_waits = []
+    monkeypatch.setattr(updater, "_wait_port",
+                        lambda port, timeout: seen_waits.append((port, timeout))
+                        or (True if port == updater.ROUTER_PORT else False))
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: type("P", (), {"pid": 1})())
+    lines = []
+    assert updater.start_router_stack(lambda e: lines.append(e.get("text", "")))
+    hr_waits = [t for p, t in seen_waits if p == updater.HEADROOM_PORT]
+    assert hr_waits and max(hr_waits) <= updater.HEADROOM_BOOT_WAIT
+    assert max(hr_waits) < updater.STACK_PORT_WAIT
+    assert any("trong nền" in ln for ln in lines)
+
+
 def test_start_router_injects_port_env(monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
     monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
