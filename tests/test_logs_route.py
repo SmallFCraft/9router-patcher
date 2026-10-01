@@ -52,6 +52,9 @@ def web(monkeypatch, tmp_path):
         start_headroom=lambda emit: True,
     ))
     monkeypatch.setattr(main, "HISTORY_FILE", tmp_path / "update-history.jsonl")
+    saved_boot = list(main.boot_doctor._BOOT_LOGS)
+    monkeypatch.setattr(main.boot_doctor, "_BOOT_LOGS",
+                        main.boot_doctor.collections.deque(saved_boot, maxlen=500))
     main.LOCK_CACHE.update(locks=[], error=None, probed_at=0.0)
     main.LAST_UPDATE_STEPS = []
     main.JOB = main.JobState()
@@ -182,3 +185,58 @@ def test_logs_api_never_leaks_patch_payloads(web):
     for p in engine.load_patches():
         assert p.find not in blob
         assert p.replace not in blob
+
+
+def _seed_logs(log_dir, monkeypatch=None):
+    """Seed one file per log kind. Caller supplies a tmp dir so the repo's real
+    logs/ is never touched by a destructive test."""
+    (log_dir / "router-a.log").write_text("R" * 100, encoding="utf-8")
+    (log_dir / "headroom-a.log").write_text("H" * 50, encoding="utf-8")
+    (log_dir / "app.log").write_text("A" * 20, encoding="utf-8")
+    (log_dir / "boot.log").write_text("B" * 10, encoding="utf-8")
+    main.HISTORY_FILE.write_text('{"time_str":"x","ok":true,"steps":[]}\n', encoding="utf-8")
+    if monkeypatch:
+        saved_boot = list(main.boot_doctor._BOOT_LOGS)
+        monkeypatch.setattr(main.boot_doctor, "_BOOT_LOGS",
+                            main.boot_doctor.collections.deque(saved_boot, maxlen=500))
+    main.boot_doctor._BOOT_LOGS.append("buffered line")
+    return log_dir
+
+
+def test_logs_clear_scope_wipes_only_that_kind(web, monkeypatch, tmp_path):
+    """Xóa 1 tab chỉ đụng file của tab đó; các tab khác còn nguyên."""
+    d = _seed_logs(tmp_path, monkeypatch)
+    monkeypatch.setattr(main.app_paths, "get_log_dir", lambda: d)
+    r = web["client"].post("/logs/clear", data={"scope": "router"},
+                           headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert not (d / "router-a.log").exists()
+    assert (d / "headroom-a.log").exists() and (d / "app.log").exists()
+
+
+def test_logs_clear_all_empties_ram_and_disk(web, monkeypatch, tmp_path):
+    """Dọn tất cả: file log sạch, history sạch, và deque boot trong RAM rỗng."""
+    d = _seed_logs(tmp_path)
+    monkeypatch.setattr(main.app_paths, "get_log_dir", lambda: d)
+    r = web["client"].post("/logs/clear", data={"scope": "all"},
+                           headers={"Origin": OWN})
+    assert r.status_code == 303
+    assert main.boot_doctor.get_boot_logs() == []
+    assert not main.HISTORY_FILE.exists() or main.HISTORY_FILE.stat().st_size == 0
+    for name in ("router-a.log", "headroom-a.log", "app.log", "boot.log"):
+        assert not (d / name).exists() or (d / name).stat().st_size == 0, name
+    assert "cleared=" in r.headers["location"]
+
+
+def test_logs_clear_refuses_bad_scope_and_cross_site(web, monkeypatch, tmp_path):
+    d = _seed_logs(tmp_path)
+    monkeypatch.setattr(main.app_paths, "get_log_dir", lambda: d)
+    bad = web["client"].post("/logs/clear", data={"scope": "../../etc"},
+                             headers={"Origin": OWN})
+    assert bad.status_code == 400
+    assert (d / "router-a.log").exists()
+    csrf = web["client"].post("/logs/clear", data={"scope": "all"},
+                              headers={"Origin": "http://evil.example"})
+    assert csrf.status_code == 403
+    assert (d / "router-a.log").exists()
+

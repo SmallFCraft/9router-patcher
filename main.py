@@ -387,6 +387,71 @@ def logs_api():
     return JSONResponse(_gather_logs())
 
 
+# ---------------------------------------------------------------- log cleanup
+
+LOG_SCOPES = ("all", "doctor", "update", "app", "router", "headroom")
+
+
+def _log_clear_targets(scope: str) -> list[Path]:
+    """Files belonging to one log scope. router-stack.json is state, never returned:
+    it is not *.log and not the history file."""
+    d = app_paths.get_log_dir()
+    if scope == "doctor":
+        return [d / "boot.log"]
+    if scope == "update":
+        return [HISTORY_FILE]
+    try:
+        logs = [p for p in d.glob("*.log") if p.is_file()]
+    except OSError:
+        return []
+    if scope == "router":
+        return [p for p in logs if p.name.startswith("router-")]
+    if scope == "headroom":
+        return [p for p in logs if p.name.startswith("headroom-")]
+    if scope == "app":
+        # pre-split naming (node-*.log) and the app's own logs all render in the App tab
+        return [p for p in logs
+                if not p.name.startswith(("router-", "headroom-", "boot."))]
+    return logs + [HISTORY_FILE]                         # all
+
+
+def _wipe_file(p: Path) -> tuple[bool, int]:
+    """(emptied, bytes_freed). A file still held open (uvicorn's app.log, or the log of a
+    running router/headroom) cannot be unlinked on Windows — Python opens it share-read/write
+    but not share-delete — so fall back to truncating it in place."""
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return False, 0
+    try:
+        p.unlink()
+        return True, size
+    except OSError:
+        pass
+    try:
+        os.truncate(p, 0)
+        return True, size
+    except OSError:
+        return False, 0
+
+
+@app.post("/logs/clear", dependencies=CSRF)
+def logs_clear(scope: Annotated[str, Form()] = "all"):
+    """Empty the chosen log scope and free its disk. Destructive on purpose: the page this
+    returns to renders empty, which is the confirmation."""
+    if scope not in LOG_SCOPES:
+        raise HTTPException(status_code=400, detail="unknown log scope")
+    if scope in ("all", "doctor"):
+        boot_doctor.clear_boot_logs()                   # RAM ring buffer, not just the file
+    emptied = freed = 0
+    for p in _log_clear_targets(scope):
+        ok, size = _wipe_file(p)
+        if ok:
+            emptied += 1
+            freed += size
+    return RedirectResponse(f"/logs?cleared={emptied}&freed={freed}", status_code=303)
+
+
 def _latest_backup() -> datetime | None:
     """Newest engine backup snapshot (names are UTC stamps); None = chưa backup lần nào."""
     try:
@@ -532,6 +597,10 @@ def index(request: Request):
     } for g, ms in grouped.items()]
     counts = {k: sum(1 for s in states if s.state == k)
               for k in ("applied", "clean", "partial", "dead-anchor")}
+    # The filter chips select whole groups, so they must count groups — not patches.
+    # A group is "partial" when its members disagree, which no per-patch tally can see.
+    group_counts = {k: sum(1 for g in groups if g["state"] == k)
+                    for k in ("applied", "clean", "partial", "dead-anchor")}
     backup = _latest_backup()
     compat = {"compatible": True, "relation": "match", "local": versions["local"],
               "target": getattr(engine, "target_version", lambda: "0.5.81")()}
@@ -545,6 +614,7 @@ def index(request: Request):
         "groups": groups,
         "patch_count": len(states),
         "counts": counts,
+        "group_counts": group_counts,
         "dead": [s.patch.id for s in states if s.state == "dead-anchor"],
         "error": error,
         "router": probes["router"],

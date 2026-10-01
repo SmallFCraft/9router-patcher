@@ -132,10 +132,38 @@
 <section class="card panel"><p class="muted">Không có patch nào trong patches.toml.</p></section>
 {% endif %}
 
+<section class="card panel flock" aria-label="Bộ lọc danh sách patch">
+  <div class="flock-row">
+    <div class="fsearch" role="search">
+      <span class="fsearch-ic">{{ icon('search') }}</span>
+      <input type="search" id="patch-search" autocomplete="off" spellcheck="false"
+             placeholder="Lọc patch — nhấn / để tìm" aria-label="Lọc group và patch theo tên hoặc mô tả">
+      <button type="button" class="fsearch-clear" id="patch-search-clear" hidden
+              title="Xóa lọc" aria-label="Xóa lọc">{{ icon('x') }}</button>
+    </div>
+    <div class="fview" role="group" aria-label="Chế độ hiển thị">
+      <button type="button" class="seg on" data-view="card" title="Chế độ thẻ">{{ icon('grid') }}Thẻ</button>
+      <button type="button" class="seg" data-view="compact" title="Chế độ gọn">{{ icon('list') }}Gọn</button>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" id="fold-all" title="Thu gọn / mở rộng tất cả">{{ icon('chevron') }}Thu gọn</button>
+  </div>
+  <div class="flock-row fchips" role="group" aria-label="Lọc theo trạng thái">
+    <button type="button" class="fchip on" data-state="all">Tất cả <strong>{{ groups | length }}</strong></button>
+    <button type="button" class="fchip" data-state="applied">Applied <strong>{{ group_counts.applied }}</strong></button>
+    <button type="button" class="fchip" data-state="clean">Clean <strong>{{ group_counts.clean }}</strong></button>
+    {% if group_counts.partial %}<button type="button" class="fchip" data-state="partial">Partial <strong>{{ group_counts.partial }}</strong></button>{% endif %}
+    <button type="button" class="fchip fchip-bad" data-state="dead-anchor">Dead-anchor <strong>{{ group_counts['dead-anchor'] }}</strong></button>
+    <span class="meta ffound" id="filter-found" aria-live="polite"></span>
+  </div>
+</section>
+
+<p class="flock-empty" id="patch-empty" hidden>Không group nào khớp bộ lọc — thử từ khóa khác.</p>
+
 <section class="ggrid">
 {% for g in groups %}
-  <article class="card gcard">
+  <article class="card gcard" data-state="{{ g.state }}" data-gname="{{ g.name | lower }}">
     <header>
+      <button type="button" class="gfold" aria-expanded="true" title="Thu gọn / mở rộng" aria-label="Thu gọn group {{ g.name }}">{{ icon('chevron') }}</button>
       <h3 class="gname">{{ g.name }}</h3>
       <span class="gcount">{{ g.members | length }} patch</span>
       {% if g.state == "applied" %}<span class="badge ok">applied</span>
@@ -358,6 +386,160 @@
         if (b) { b.classList.remove("is-loading"); b.removeAttribute("aria-busy"); }
       });
   }, true);
+
+})();
+</script>
+
+<script>
+/* Patch list: search / state filter / view / fold.
+   All handlers are delegated on `document` and re-query the DOM at call time:
+   base.html autoRefresh replaces <main> innerHTML, which destroys any node-bound
+   listener (and the cached `grid`/`searchInput` refs) a few minutes after load. */
+(function initPatchControls(){
+  "use strict";
+  function q(id){ return document.getElementById(id); }
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+  function all(sel){ return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+  function cards(){ return all(".gcard"); }
+
+  var K_VIEW = "9r_patch_view", K_FOLDED = "9r_patch_folded";
+  // view model lives here, never in the (replaceable) DOM nodes
+  var currentState = "all";
+  var currentQuery = "";
+
+  function setView(mode){
+    var grid = document.querySelector(".ggrid");
+    if (grid) grid.classList.toggle("view-compact", mode === "compact");
+    all(".fview .seg").forEach(function(b){
+      b.classList.toggle("on", b.getAttribute("data-view") === mode);
+    });
+    lsSet(K_VIEW, mode);
+  }
+
+  function paintFold(card, isFolded){
+    card.classList.toggle("is-folded", isFolded);
+    var b = card.querySelector(".gfold");
+    if (b) b.setAttribute("aria-expanded", isFolded ? "false" : "true");
+  }
+
+  function saveFolded(){
+    var out = {};
+    cards().forEach(function(c){
+      if (c.classList.contains("is-folded")) out[c.getAttribute("data-gname")] = true;
+    });
+    lsSet(K_FOLDED, JSON.stringify(out));
+  }
+
+  function applyFilter(){
+    var qy = (currentQuery || "").trim().toLowerCase();
+    var shown = 0, list = cards();
+    list.forEach(function(card){
+      var st = card.getAttribute("data-state") || "";
+      var gname = (card.getAttribute("data-gname") || "").toLowerCase();
+      var okState = currentState === "all" || st === currentState;
+      var okText = true;
+      if (qy){
+        if (gname.indexOf(qy) !== -1) okText = true;
+        else {
+          var body = card.querySelector(".gbody");
+          okText = body ? body.textContent.toLowerCase().indexOf(qy) !== -1 : false;
+        }
+      }
+      var show = okState && okText;
+      card.style.display = show ? "" : "none";
+      if (show) shown++;
+    });
+    var emptyMsg = q("patch-empty"), foundMsg = q("filter-found"), clearBtn = q("patch-search-clear");
+    if (emptyMsg) emptyMsg.hidden = shown > 0;
+    if (foundMsg) foundMsg.textContent = (qy || currentState !== "all") ? shown + "/" + list.length + " group" : "";
+    if (clearBtn) clearBtn.hidden = !qy;
+  }
+
+  // Repaint a freshly swapped-in <main> from the saved view model.
+  function rehydrate(){
+    if (!document.querySelector(".ggrid")) return;
+    setView(lsGet(K_VIEW) || "card");
+    var folded = {};
+    try { folded = JSON.parse(lsGet(K_FOLDED) || "{}") || {}; } catch(e){ folded = {}; }
+    cards().forEach(function(c){
+      var n = c.getAttribute("data-gname");
+      paintFold(c, !!(n && folded[n]));
+    });
+    all(".fchip[data-state]").forEach(function(b){
+      b.classList.toggle("on", b.getAttribute("data-state") === currentState);
+    });
+    var inp = q("patch-search");
+    if (inp && inp.value !== currentQuery) inp.value = currentQuery;
+    applyFilter();
+  }
+  // base.html calls this right after it swaps <main> innerHTML.
+  window.__9rPatchRehydrate = rehydrate;
+  rehydrate();
+
+  document.addEventListener("click", function(e){
+    var t = e.target;
+    if (!t || !t.closest) return;
+
+    var btn = t.closest(".gfold");
+    if (btn){
+      var card = btn.closest(".gcard");
+      if (card){
+        paintFold(card, !card.classList.contains("is-folded"));
+        saveFolded();
+      }
+      return;
+    }
+
+    if (t.closest("#fold-all")){
+      var list = cards();
+      var anyOpen = list.some(function(c){ return !c.classList.contains("is-folded"); });
+      list.forEach(function(c){ paintFold(c, anyOpen); });
+      var fb = q("fold-all");
+      if (fb) fb.innerHTML = '{{ icon("chevron") }}' + (anyOpen ? "Mở rộng" : "Thu gọn");
+      saveFolded();
+      return;
+    }
+
+    var seg = t.closest(".fview .seg");
+    if (seg){ setView(seg.getAttribute("data-view")); return; }
+
+    var chip = t.closest(".fchip[data-state]");
+    if (chip){
+      currentState = chip.getAttribute("data-state") || "all";
+      all(".fchip[data-state]").forEach(function(b){ b.classList.toggle("on", b === chip); });
+      applyFilter();
+      return;
+    }
+
+    if (t.closest("#patch-search-clear")){
+      var s = q("patch-search");
+      if (s){ s.value = ""; s.focus(); }
+      currentQuery = "";
+      applyFilter();
+    }
+  });
+
+  document.addEventListener("input", function(e){
+    if (e.target && e.target.id === "patch-search"){
+      currentQuery = e.target.value;
+      applyFilter();
+    }
+  });
+
+  document.addEventListener("keydown", function(e){
+    var inp = q("patch-search");
+    if (!inp) return;
+    var tag = (document.activeElement || {}).tagName;
+    if (e.key === "/" && document.activeElement !== inp &&
+        tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT"){
+      e.preventDefault();
+      inp.focus();
+      inp.select();
+    } else if (e.key === "Escape" && document.activeElement === inp){
+      inp.value = ""; currentQuery = ""; inp.blur(); applyFilter();
+    }
+  });
 })();
 </script>
 {% endblock %}

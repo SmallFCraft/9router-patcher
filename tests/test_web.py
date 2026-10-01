@@ -279,7 +279,7 @@ def test_post_apply_selected_still_works_when_all_applied(web):
 
 def _group_block(html, group):
     """Khối <article> của một group trong danh sách patch."""
-    blocks = re.findall(r'<article class="card gcard">.*?</article>', html, re.S)
+    blocks = re.findall(r'<article class="card gcard"[^>]*>.*?</article>', html, re.S)
     hits = [b for b in blocks if group in b]
     assert hits, f"không thấy group block {group}"
     return hits[0]

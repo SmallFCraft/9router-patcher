@@ -35,6 +35,10 @@ def log_boot(msg: str) -> None:
 def get_boot_logs() -> list[str]:
     return list(_BOOT_LOGS)
 
+def clear_boot_logs() -> None:
+    # File wiped by main.py._wipe_file so the emptied count and freed bytes stay accurate.
+    _BOOT_LOGS.clear()
+
 def check_node() -> tuple[bool, str]:
     node = shutil.which("node")
     npm = shutil.which("npm.cmd") or shutil.which("npm")

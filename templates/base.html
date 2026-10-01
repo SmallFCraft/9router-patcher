@@ -214,14 +214,93 @@ document.documentElement.dataset.theme=t;})();
   .switch input:checked{background:var(--ok-bg)}
   .switch input:checked::after{left:18px; background:var(--accent)}
 
+  /* ---------- patch filter bar (flock) ---------- */
+  .flock{margin-bottom:14px; padding:12px 14px}
+  .flock-row{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap}
+  .flock-row + .flock-row{margin-top:10px; padding-top:10px; border-top:2px solid var(--ink)}
+  .fsearch{
+    position:relative; flex:1; min-width:200px; display:flex; align-items:center;
+  }
+  .fsearch input{
+    width:100%; height:34px; font:16px var(--font-mono); color:var(--text);
+    background:var(--surface-2); border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink);
+    padding:0 30px 0 32px;
+  }
+  .fsearch input:focus{outline:3px solid var(--ring); outline-offset:0}
+  .fsearch input::-webkit-search-cancel-button{-webkit-appearance:none; appearance:none}
+  .fsearch-ic{position:absolute; left:8px; width:16px; height:16px; color:var(--muted); pointer-events:none; display:flex}
+  .fsearch-ic .ic{width:16px; height:16px}
+  .fsearch-clear{
+    position:absolute; right:4px; width:26px; height:26px; display:inline-flex; align-items:center;
+    justify-content:center; background:transparent; border:none; color:var(--muted); cursor:pointer;
+  }
+  .fsearch-clear .ic{width:14px; height:14px}
+  .fsearch-clear:hover{color:var(--text)}
+  .fview{display:inline-flex; border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink); background:var(--surface-2)}
+  .fview .seg{
+    font:16px var(--font-ui); color:var(--muted); background:transparent; border:none;
+    padding:4px 10px; cursor:pointer; display:inline-flex; align-items:center; gap:.35rem;
+    text-transform:uppercase; letter-spacing:.04em;
+  }
+  .fview .seg .ic{width:14px; height:14px}
+  .fview .seg.on{color:var(--on-accent); background:var(--accent)}
+  .fchips{gap:.45rem}
+  .fchip{
+    font:15px var(--font-mono); color:var(--muted); background:var(--surface-2);
+    border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink); padding:2px 8px;
+    cursor:pointer; display:inline-flex; align-items:center; gap:.35rem; text-transform:uppercase;
+  }
+  .fchip strong{color:var(--text-2); font-weight:normal}
+  .fchip:hover{color:var(--text); background:var(--surface)}
+  .fchip.on{color:var(--accent); border-color:var(--accent); background:var(--surface)}
+  .fchip.on strong{color:var(--accent)}
+  .fchip-bad.on{color:var(--bad); border-color:var(--bad)}
+  .fchip-bad.on strong{color:var(--bad)}
+  .ffound{margin-left:auto; font-size:15px; color:var(--muted)}
+  .flock-empty{
+    padding:24px; text-align:center; font-size:18px; color:var(--muted);
+    background:var(--surface); border:var(--px) solid var(--ink); box-shadow:var(--shadow);
+    margin-bottom:14px;
+  }
+
   /* ---------- patch groups ---------- */
-  .ggrid{display:grid; gap:14px}
-  .gcard > header{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; padding:12px 16px; border-bottom:var(--px) solid var(--ink); background:var(--surface-2)}
-  .gname{font-family:var(--font-mono); font-size:20px; word-break:break-all}
-  .gcount{font-size:15px; color:var(--muted); white-space:nowrap}
-  .gactions{margin-left:auto; display:flex; gap:.45rem}
+  .ggrid{display:grid; gap:14px; align-items:start}
+  .ggrid.view-compact{gap:8px}
+  /* Fixed 2-row grid: name owns row 1, count+badge+actions share row 2.
+     Old flex-wrap layout pushed .gactions to line 2 only on long names ->
+     ragged button/badge columns across the grid. */
+  .gcard > header{
+    display:grid; align-items:center; padding:12px 16px; border-bottom:var(--px) solid var(--ink); background:var(--surface-2);
+    grid-template-columns:auto auto 1fr auto;
+    grid-template-areas:"fold name name name" "fold count badge actions";
+    column-gap:.6rem; row-gap:.35rem;
+  }
+  .gcard.is-folded > header{border-bottom:none}
+  .gcard.is-folded .gbody{display:none}
+  .gfold{
+    grid-area:fold; align-self:center;
+    width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center;
+    background:transparent; border:none; color:var(--muted); cursor:pointer; padding:0; flex:none;
+    transform:rotate(0deg); transition:transform .12s steps(4);
+  }
+  .gfold .ic{width:16px; height:16px}
+  .gcard.is-folded .gfold{transform:rotate(-90deg)}
+  .gfold:hover{color:var(--text)}
+  .gname{grid-area:name; font-family:var(--font-mono); font-size:18px; word-break:break-word; line-height:1.25}
+  .gcount{grid-area:count; font-size:14px; color:var(--muted); white-space:nowrap}
+  .gcard > header > .badge{grid-area:badge; justify-self:start}
+  .gactions{grid-area:actions; justify-self:end; display:flex; gap:.45rem}
+  .gactions .btn{min-width:86px; justify-content:center}
   .gfiles{display:flex; flex-wrap:wrap; gap:6px; padding:10px 16px 0}
   .gbody{padding:10px 16px 14px}
+
+  /* Compact mode overrides */
+  .ggrid.view-compact .gcard > header{padding:8px 12px}
+  .ggrid.view-compact .gname{font-size:17px}
+  .ggrid.view-compact .gbody{padding:6px 12px 10px}
+  .ggrid.view-compact .patch-row{margin-top:4px; padding:.35rem .6rem; min-height:30px}
+  .ggrid.view-compact .patch-summary{display:none}
+  .ggrid.view-compact .patch-id{font-size:14px}
 
   .patch-row{
     border:2px solid var(--ink); background:var(--surface-2); margin-top:8px;
@@ -312,13 +391,24 @@ document.documentElement.dataset.theme=t;})();
 
   /* ---------- responsive ---------- */
   @media (max-width:960px){ .statgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  @media (min-width:1120px){
+    .ggrid:not(.view-compact){grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
   @media (max-width:640px){
     .brand small{display:none}
     .panel{padding:13px 14px}
-    .gactions{margin-left:0; width:100%}
+    .gactions{justify-self:stretch}
     .gactions .btn{flex:1}
     .lockrow{grid-template-columns:86px 1fr}
     .toolbar .meta{margin-left:0; width:100%}
+    .flock{padding:10px 12px}
+    .fsearch{flex:1 1 100%}
+    .fchips{gap:.35rem}
+    .fchip{font-size:13px; padding:2px 6px}
+    .ffound{margin-left:0; width:100%; text-align:right}
+    .ggrid{gap:10px}
+    .gname{font-size:17px}
+    .gcard > header{padding:10px 12px; gap:.45rem}
   }
   @media (max-width:400px){ .statgrid{grid-template-columns:1fr} }
   @media (prefers-reduced-motion:reduce){
@@ -499,6 +589,10 @@ document.documentElement.dataset.theme=t;})();
       });
       syncAuto();
       renderTimes();
+      // <main> innerHTML was just replaced -> page view models must repaint
+      // (fold/filter/view state lives in JS, the swapped-in nodes come back default).
+      if(typeof window.__9rPatchRehydrate==="function") window.__9rPatchRehydrate();
+      if(typeof window.__9rLogsRehydrate==="function") window.__9rLogsRehydrate();
     }).catch(function(){});
   }
   // Tab quay lại visible → làm mới ngay (background tab bỏ tick theo thiết kế để đỡ quét).

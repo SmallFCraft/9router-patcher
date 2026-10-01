@@ -498,3 +498,29 @@ why = "Harness client vô tình ghi tool_use name có namespace (default.Grep/de
 find = 'let a1=(0,j.jd)({onDisconnect:a=>'
 replace = ';(function(){try{if(!aj||!Array.isArray(aj.tools)||!Array.isArray(aj.messages))return;let $T=new Set(aj.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of aj.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&"tool_use"===$b.type&&"string"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(".");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a1=(0,j.jd)({onDisconnect:a=>'
 
+# P40 - Deno Deploy relay: strip header danh tinh client.
+# Template deno-deploy: new Headers(request.headers) roi chi xoa 3 header.
+# Deno Deploy khong tu tiem IP that vao header nhu CF/Vercel, nhung client tu gui
+# x-forwarded-for/x-real-ip/forwarded la du de upstream thay IP that - va x-relay
+# chay tren deno deploy van copy nguyen.
+# Anchor 1 DONG, unique 1 ban / 1 file tren build hien tai (da do bang engine._js_files).
+# 2026-10-01: P41 (vercel) va P42 (cloudflare) da GO BO. Ly do do song:
+#   - Vercel: edge tu tiem "Forwarded: for=<IP that>" luc egress, khong the strip
+#     tu code handler -> upstream luon thay IP client. Vo dung cho muc dich che IP.
+#   - Cloudflare: egress la IPv6 anycast 2a06:98c0:3600::/40 cua CF, TokenHarbor
+#     geo-block ca dai -> 403 region. Worker khong doi duoc egress IP (tru Enterprise).
+# Chi con Deno Deploy che duoc IP (egress IP sach, US).
+
+[[patch]]
+id = "relay-strip-client-headers-deno"
+order = 40
+summary = "Deno Deploy relay khong forward header danh tinh client ra upstream"
+why = "Template deno-deploy copy new Headers(request.headers), chi xoa x-relay-target/x-relay-path/host. Cac header x-forwarded-for / x-real-ip / forwarded do client tu gui duoc forward nguyen sang upstream nen upstream thay IP that - proxy mat tac dung che IP. Strip cac header do thi upstream chi con thay egress IP cua Deno Deploy. 2026-10-01: strip them accept-encoding de upstream tra identity (plaintext); tranh loi Deno tu decompress nhung van forward content-encoding: br/gzip khien Node undici/9router decompress lan 2 va crash 'terminated' (502)."
+find = '''  newHeaders.delete("host");'''
+replace = '''  newHeaders.delete("host");
+  newHeaders.delete("x-forwarded-for");
+  newHeaders.delete("x-forwarded-host");
+  newHeaders.delete("x-forwarded-proto");
+  newHeaders.delete("x-real-ip");
+  newHeaders.delete("forwarded");
+  newHeaders.set("accept-encoding", "identity");'''

@@ -2,27 +2,89 @@
 {% from "_macros.html" import icon, copy_btn %}
 {% block title %}Logs · 9router{% endblock %}
 {% block heading %}{{ icon('terminal') }}Nhật ký hệ thống{% endblock %}
+
+{% macro logpre(lines, pre_id) -%}
+<div class="codewrap logscroll" data-logscroll>
+  <pre id="{{ pre_id }}">{% for l in lines %}<span class="logline{{ (' log-' + log_line_kind(l)) if log_line_kind(l) else '' }}" data-text="{{ l }}" data-ln="{{ loop.index }}">{{ l }}</span>{% endfor %}</pre>
+</div>
+{%- endmacro %}
+
 {% block content %}
 <style>
-  .tabs{display:flex; gap:.35rem; flex-wrap:wrap; margin-top:.7rem; border-bottom:var(--px) solid var(--ink); padding-bottom:.5rem}
+  /* ---------- tabs ---------- */
+  .logtabs{display:flex; gap:.35rem; flex-wrap:wrap; margin-top:.7rem;
+           border-bottom:var(--px) solid var(--ink); padding-bottom:.5rem}
   .tab{font:inherit; background:var(--surface-2); color:var(--text-2); border:var(--px) solid var(--ink);
-       padding:.35rem .75rem; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; box-shadow:2px 2px 0 var(--ink)}
+       padding:.35rem .75rem; cursor:pointer; display:inline-flex; align-items:center; gap:.4rem;
+       box-shadow:2px 2px 0 var(--ink)}
   .tab:hover{background:var(--surface); color:var(--text)}
   .tab.active{background:var(--accent); color:var(--on-accent); border-color:var(--ink); font-weight:bold}
-  .logsearch{flex:1; min-width:14rem; max-width:28rem; font:inherit; font-size:16px; padding:.4rem .6rem;
-             background:var(--surface-2); color:var(--text); border:var(--px) solid var(--ink); box-shadow:2px 2px 0 var(--ink)}
-  .logsearch:focus{outline:3px solid var(--ring)}
-  .logscroll{max-height:min(54vh, 520px); overflow-y:auto; overflow-x:auto}
+  .tab .tcount{font-size:13px; padding:0 5px; border:2px solid currentColor; background:transparent}
+  .tab .tcount[hidden]{display:none}
+
+  /* ---------- search ---------- */
+  .lsearch{position:relative; flex:1 1 240px; min-width:0; display:flex; align-items:center}
+  .lsearch input{
+    width:100%; height:34px; font:16px var(--font-mono); color:var(--text);
+    background:var(--surface-2); border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink);
+    padding:0 84px 0 32px;
+  }
+  .lsearch input:focus{outline:3px solid var(--ring); outline-offset:0}
+  .lsearch input::-webkit-search-cancel-button{-webkit-appearance:none; appearance:none}
+  .lsearch-ic{position:absolute; left:8px; width:16px; height:16px; color:var(--muted); pointer-events:none; display:flex}
+  .lsearch-ic .ic{width:16px; height:16px}
+  .lnav{position:absolute; right:4px; display:flex; gap:2px}
+  .lnav button{
+    width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center;
+    background:transparent; border:none; color:var(--muted); cursor:pointer;
+  }
+  .lnav button .ic{width:14px; height:14px}
+  .lnav button:hover{color:var(--text)}
+  .lnav button:disabled{opacity:.35; cursor:default}
+  .lnav .lprev .ic{transform:rotate(180deg)}
+
+  /* ---------- log surface ---------- */
+  .logscroll{max-height:min(60vh, 560px); overflow:auto; overscroll-behavior:contain}
   .logline{display:block; white-space:pre-wrap; word-break:break-all}
   .logline.log-err{color:var(--bad); font-weight:bold; background:var(--bad-bg)}
   .logline.log-warn{color:var(--warn); font-weight:bold; background:var(--warn-bg)}
+  .logline.lcur{outline:2px solid var(--accent); outline-offset:-2px}
+  mark.lhit{background:var(--ring); color:#1a1206; font-weight:bold}
+
+  /* line numbers: server-side data-ln -> stable even while filtered */
+  .codewrap.shownum pre .logline{position:relative; padding-left:3.9rem}
+  .codewrap.shownum pre .logline::before{
+    content:attr(data-ln); position:absolute; left:0; top:0; width:3.1rem; text-align:right;
+    color:var(--muted); opacity:.6; font-weight:normal; background:none;
+    border-right:2px solid var(--ink); margin-right:.6rem; padding-right:.35rem;
+  }
+  .codewrap.nw pre, .codewrap.nw .logline{white-space:pre; word-break:normal}
+  .codewrap.nw pre{overflow-x:auto}
+
+  .ltools{display:flex; align-items:center; gap:.45rem; flex-wrap:wrap}
+  .lfoot{display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-top:.7rem}
+  .lfoot .meta{margin-left:auto}
+  @media (max-width:700px){
+    .logtabs{flex-wrap:nowrap; overflow-x:auto; padding-bottom:.55rem}
+    .tab{flex:none}
+    .lsearch{flex:1 1 100%}
+    .lfoot .meta{margin-left:0; width:100%}
+    .logscroll{max-height:58vh}
+    .ltools .btn{flex:1}
+  }
 </style>
+
 <section class="card panel">
   <div class="panel-head">
-    <div>
-      <span class="small muted">Trích xuất nhật ký &amp; chẩn đoán gửi hỗ trợ kỹ thuật</span>
-    </div>
+    <div><span class="small muted">Trích xuất nhật ký &amp; chẩn đoán gửi hỗ trợ kỹ thuật</span></div>
     <span style="margin-left:auto"></span>
+    <form method="post" action="/logs/clear" id="log-clear-form" style="display:inline">
+      <input type="hidden" name="scope" id="log-clear-scope" value="doctor">
+      <button type="submit" class="btn btn-danger btn-lg" id="btn-clear-scope"
+              data-confirm="Xóa log giải phóng đĩa? HÀNH ĐỘNG KHÔNG THỂ HOÀN TÁC.">
+        {{ icon('x') }}Xóa log tab này
+      </button>
+    </form>
     <button type="button" class="btn btn-primary btn-lg" id="btn-copy-all">
       {{ icon('copy') }}Sao chép toàn bộ log gửi Dev
     </button>
@@ -32,24 +94,48 @@
     <span class="badge info">Python: {{ context.python }}</span>
     {% if context.versions %}<span class="badge info">9router {{ context.versions }}</span>{% endif %}
   </div>
-  <div class="tabs" role="tablist" aria-label="Nhóm nhật ký">
-    <button type="button" class="tab active" data-tab="doctor" role="tab" aria-selected="true">{{ icon('activity') }}Doctor <span class="badge info">{{ boot | length }}</span></button>
-    <button type="button" class="tab" data-tab="update" role="tab" aria-selected="false">{{ icon('clock') }}Update <span class="badge info">{{ history | length }}</span></button>
-    <button type="button" class="tab" data-tab="app" role="tab" aria-selected="false">{{ icon('terminal') }}App <span class="badge info">{{ app | length }}</span></button>
-    <button type="button" class="tab" data-tab="router" role="tab" aria-selected="false">{{ icon('server') }}Router <span class="badge info">{{ router | length }}</span></button>
-    <button type="button" class="tab" data-tab="headroom" role="tab" aria-selected="false">{{ icon('gauge') }}Headroom <span class="badge info">{{ headroom | length }}</span></button>
+  <div class="logtabs" role="tablist" aria-label="Nhóm nhật ký">
+    <button type="button" class="tab active" data-tab="doctor" role="tab" aria-selected="true">{{ icon('activity') }}Doctor <span class="badge info">{{ boot | length }}</span><span class="tcount" hidden></span></button>
+    <button type="button" class="tab" data-tab="update" role="tab" aria-selected="false">{{ icon('clock') }}Update <span class="badge info">{{ history | length }}</span><span class="tcount" hidden></span></button>
+    <button type="button" class="tab" data-tab="app" role="tab" aria-selected="false">{{ icon('terminal') }}App <span class="badge info">{{ app | length }}</span><span class="tcount" hidden></span></button>
+    <button type="button" class="tab" data-tab="router" role="tab" aria-selected="false">{{ icon('server') }}Router <span class="badge info">{{ router | length }}</span><span class="tcount" hidden></span></button>
+    <button type="button" class="tab" data-tab="headroom" role="tab" aria-selected="false">{{ icon('gauge') }}Headroom <span class="badge info">{{ headroom | length }}</span><span class="tcount" hidden></span></button>
   </div>
+
   <div class="toolbar" style="margin-top:.6rem">
-    <input id="log-search" class="logsearch" type="search" placeholder="🔍 Tìm trong tab đang mở…" aria-label="Tìm trong nhật ký">
-    <span class="meta small muted" id="log-search-count"></span>
+    <div class="lsearch">
+      <span class="lsearch-ic">{{ icon('search') }}</span>
+      <input id="log-search" type="search" placeholder="Tìm trong nhật ký — nhấn / để tìm" aria-label="Tìm trong nhật ký" autocomplete="off">
+      <span class="lnav">
+        <button type="button" class="lprev" id="log-prev" title="Khớp trước (Shift+Enter)" aria-label="Khớp trước" disabled>{{ icon('chevron') }}</button>
+        <button type="button" class="lnext" id="log-next" title="Khớp sau (Enter)" aria-label="Khớp sau" disabled>{{ icon('chevron') }}</button>
+        <button type="button" class="lclear" id="log-clear" title="Xóa tìm kiếm (Esc)" aria-label="Xóa tìm kiếm">{{ icon('x') }}</button>
+      </span>
+    </div>
+    <div class="fchips" role="group" aria-label="Lọc theo mức độ" id="log-levels">
+      <button type="button" class="fchip on" data-level="all">Tất cả</button>
+      <button type="button" class="fchip fchip-bad" data-level="err">Lỗi</button>
+      <button type="button" class="fchip" data-level="warn">Cảnh báo</button>
+    </div>
+  </div>
+
+  <div class="lfoot">
+    <div class="ltools">
+      <button type="button" class="btn btn-ghost btn-sm" id="log-num" aria-pressed="false" title="Hiện số dòng">{{ icon('list') }}Số dòng</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="log-wrap" aria-pressed="true" title="Bật/tắt ngắt dòng">{{ icon('terminal') }}Ngắt dòng</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="log-bottom" title="Nhảy xuống cuối">{{ icon('arrow') }}Cuối log</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="log-download" title="Tải tab này thành file .txt">{{ icon('save') }}Tải .txt</button>
+      <form method="post" action="/logs/clear" style="display:inline">
+        <input type="hidden" name="scope" value="all">
+        <button type="submit" class="btn btn-danger btn-sm" id="btn-clear-all"
+                data-confirm="XÓA TOÀN BỘ LOG (tất cả các tab)? Sẽ giải phóng dung lượng đĩa và RAM. HÀNH ĐỘNG KHÔNG THỂ HOÀN TÁC.">
+          {{ icon('x') }}Dọn sạch tất cả
+        </button>
+      </form>
+    </div>
+    <span class="meta small muted" id="log-search-count" aria-live="polite"></span>
   </div>
 </section>
-
-{% macro logpre(lines, pre_id) -%}
-<div class="codewrap logscroll">
-  <pre id="{{ pre_id }}">{% for l in lines %}<span class="logline{{ (' log-' + log_line_kind(l)) if log_line_kind(l) else '' }}" data-text="{{ l }}">{{ l }}</span>{{ "\n" if not loop.last else "" }}{% endfor %}</pre>
-</div>
-{%- endmacro %}
 
 <section class="card panel tabpane active" id="pane-doctor" role="tabpanel">
   <div class="panel-head">
@@ -77,7 +163,7 @@
     </button>
   </div>
   {% if history %}
-  <div id="history-container" class="logscroll">
+  <div id="history-container" class="logscroll" data-logscroll>
     {% for h in history %}
     <div class="history-run" style="margin-bottom:1rem">
       <div class="step-head" style="margin:.1rem 0 .4rem">
@@ -198,77 +284,358 @@ Python: {{ context.python }}
 
 {% block scripts %}
 <script>
+/* Logs page: tabs / search+highlight / level filter / line numbers / wrap / download.
+   Handlers are delegated on `document` and re-query the DOM at call time, so the
+   page keeps working if anything ever swaps <main> innerHTML (same trap that
+   killed the patch-list controls on the dashboard). */
 (function(){
   "use strict";
-  function wire(btnId, srcId){
-    var btn = document.getElementById(btnId);
-    var src = document.getElementById(srcId);
-    if (btn && src) {
-      btn.setAttribute("data-copy", src.innerText || src.textContent || "");
-    }
-  }
-  wire("btn-copy-boot", "boot-log-pre");
-  wire("btn-copy-app", "app-log-pre");
-  wire("btn-copy-router", "router-log-pre");
-  wire("btn-copy-headroom", "headroom-log-pre");
-  wire("btn-copy-history", "history-container");
-  wire("btn-copy-all", "all-logs-export");
+  var TABS = ["doctor", "update", "app", "router", "headroom"];
+  var K_TAB = "9r_logs_tab", K_NUM = "9r_logs_num", K_WRAP = "9r_logs_wrap";
 
-  // tabs
-  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
-  var panes = {
-    doctor: document.getElementById("pane-doctor"),
-    update: document.getElementById("pane-update"),
-    app: document.getElementById("pane-app"),
-    router: document.getElementById("pane-router"),
-    headroom: document.getElementById("pane-headroom")
-  };
+  function q(id){ return document.getElementById(id); }
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+  function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+  function pane(name){ return q("pane-" + name); }
+  function scrollBox(){ var p = pane(current); return p ? p.querySelector("[data-logscroll]") : null; }
+
   var current = "doctor";
-  function show(name){
-    current = name;
-    for (var k in panes) {
-      var on = (k === name);
-      panes[k].hidden = !on;
-      panes[k].classList.toggle("active", on);
+  var level = "all";
+  var query = "";
+  var matches = [];      // elements currently matching the query (navigation order)
+  var matchIdx = -1;
+  var highlighted = [];  // elements whose <mark> we must undo on the next pass
+  var INDEX = {};        // pane name -> [{el, text}] built once per render
+  var debounce = null;
+
+  // ---- index: lowercase haystack per element, so filtering never re-reads layout ----
+  function buildIndex(){
+    INDEX = {};
+    TABS.forEach(function(name){
+      var p = pane(name);
+      if (!p) return;
+      var sel = (name === "update") ? ".history-run" : ".logline";
+      INDEX[name] = Array.prototype.slice.call(p.querySelectorAll(sel)).map(function(el){
+        var raw = (name === "update") ? (el.textContent || "") : (el.getAttribute("data-text") || "");
+        return { el: el, text: raw.toLowerCase() };
+      });
+    });
+  }
+
+  function lineKind(el){
+    if (el.classList.contains("log-err")) return "err";
+    if (el.classList.contains("log-warn")) return "warn";
+    return "";
+  }
+
+  function resetHighlights(){
+    highlighted.forEach(function(el){ el.textContent = el.getAttribute("data-text") || ""; });
+    highlighted = [];
+  }
+
+  // textContent-only DOM build: log content is never parsed as HTML
+  function paintHighlight(el, term){
+    var text = el.getAttribute("data-text") || "";
+    var lower = text.toLowerCase();
+    var i = 0, idx, frag = document.createDocumentFragment();
+    while ((idx = lower.indexOf(term, i)) !== -1){
+      if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+      var m = document.createElement("mark");
+      m.className = "lhit";
+      m.textContent = text.slice(idx, idx + term.length);
+      frag.appendChild(m);
+      i = idx + term.length;
     }
-    tabs.forEach(function(t){
+    if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+    el.textContent = "";
+    el.appendChild(frag);
+    highlighted.push(el);
+  }
+
+  // ---- filter + highlight for the active pane ----
+  function applyFilter(){
+    var p = pane(current);
+    if (!p) return;
+    // NOTE: never name a local `q` here — it shadows the q(id) DOM helper.
+    var needle = query.trim().toLowerCase();
+    var items = INDEX[current] || [];
+    var shown = 0;
+
+    resetHighlights();
+    matches = [];
+    matchIdx = -1;
+
+    items.forEach(function(rec){
+      var okLevel = (current === "update") || level === "all" || lineKind(rec.el) === level;
+      var hit = !needle || rec.text.indexOf(needle) !== -1;
+      var show = okLevel && hit;
+      rec.el.style.display = show ? "" : "none";
+      rec.el.classList.remove("lcur");
+      if (show) shown++;
+      if (needle && show) matches.push(rec.el);
+    });
+
+    if (needle && current !== "update"){
+      matches.forEach(function(el){ paintHighlight(el, needle); });
+    }
+
+    var count = q("log-search-count");
+    if (count){
+      count.textContent = needle
+        ? (matches.length + " khớp · " + shown + "/" + items.length + " dòng")
+        : (items.length ? (items.length + " dòng") : "");
+    }
+    paintTabCounts(needle);
+    paintNav();
+  }
+
+  // per-tab hit counts while searching -> shows which tab actually holds the hit
+  function paintTabCounts(needle){
+    TABS.forEach(function(name){
+      var tab = document.querySelector('.tab[data-tab="' + name + '"]');
+      var badge = tab ? tab.querySelector(".tcount") : null;
+      if (!badge) return;
+      if (!needle){ badge.hidden = true; badge.textContent = ""; return; }
+      var recs = INDEX[name] || [];
+      var n = 0;
+      for (var i = 0; i < recs.length; i++){
+        // same level gate as applyFilter, else the badge promises hits the pane won't show
+        if (name !== "update" && level !== "all" && lineKind(recs[i].el) !== level) continue;
+        if (recs[i].text.indexOf(needle) !== -1) n++;
+      }
+      badge.hidden = false;
+      badge.textContent = String(n);
+    });
+  }
+
+  function paintNav(){
+    var prev = q("log-prev"), next = q("log-next");
+    var usable = matches.length > 0;
+    if (prev) prev.disabled = !usable;
+    if (next) next.disabled = !usable;
+  }
+
+  function goMatch(step){
+    if (!matches.length) return;
+    if (matchIdx >= 0 && matches[matchIdx]) matches[matchIdx].classList.remove("lcur");
+    matchIdx = (matchIdx + step + matches.length) % matches.length;
+    var el = matches[matchIdx];
+    el.classList.add("lcur");
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    var count = q("log-search-count");
+    if (count) count.textContent = (matchIdx + 1) + "/" + matches.length + " khớp";
+  }
+
+  // ---- tabs ----
+  function show(name){
+    if (TABS.indexOf(name) === -1) name = "doctor";
+    current = name;
+    // the header clear button always targets the tab in view
+    var sc = q("log-clear-scope"), cb = q("btn-clear-scope");
+    if (sc) sc.value = name;
+    if (cb) cb.setAttribute("data-confirm",
+      "Xóa " + name + " logs giải phóng đĩa? HÀNH ĐỘNG KHÔNG THỂ HOÀN TÁC.");
+    TABS.forEach(function(k){
+      var p = pane(k);
+      if (!p) return;
+      var on = (k === name);
+      p.hidden = !on;
+      p.classList.toggle("active", on);
+    });
+    Array.prototype.slice.call(document.querySelectorAll(".tab")).forEach(function(t){
       var on = (t.getAttribute("data-tab") === name);
       t.classList.toggle("active", on);
       t.setAttribute("aria-selected", on ? "true" : "false");
     });
-    applyFilter();
-  }
-  tabs.forEach(function(t){
-    t.addEventListener("click", function(){ show(t.getAttribute("data-tab")); });
-  });
-
-  // search filter on active tab
-  var search = document.getElementById("log-search");
-  var count = document.getElementById("log-search-count");
-  function applyFilter(){
-    var q = (search.value || "").toLowerCase();
-    var pane = panes[current];
-    var lines = pane.querySelectorAll(".logline");
-    var shown = 0, total = lines.length;
-    lines.forEach(function(el){
-      var hit = !q || (el.getAttribute("data-text") || "").toLowerCase().indexOf(q) !== -1;
-      el.style.display = hit ? "" : "none";
-      if (hit) shown++;
-    });
-    // history tab has no .logline: count runs instead
-    if (current === "update") {
-      var runs = pane.querySelectorAll(".history-run");
-      total = runs.length; shown = 0;
-      runs.forEach(function(el){
-        var hit = !q || (el.textContent || "").toLowerCase().indexOf(q) !== -1;
-        el.style.display = hit ? "" : "none";
-        if (hit) shown++;
+    // level chips are line-oriented; the update tab filters whole runs instead
+    var lv = q("log-levels");
+    if (lv){
+      lv.querySelectorAll(".fchip").forEach(function(c){
+        c.disabled = (name === "update");
+        c.title = (name === "update") ? "Tab Update lọc theo lần chạy — dùng ô tìm kiếm" : "";
       });
     }
-    count.textContent = q ? (shown + "/" + total) : "";
+    lsSet(K_TAB, name);
+    applyFilter();
+    var box = scrollBox();
+    if (box) box.scrollTop = 0;
   }
-  search.addEventListener("input", applyFilter);
-  show("doctor");
+
+  // ---- prefs: line numbers / wrap ----
+  function setNum(on){
+    Array.prototype.slice.call(document.querySelectorAll(".codewrap")).forEach(function(w){
+      w.classList.toggle("shownum", on);
+    });
+    var b = q("log-num");
+    if (b) b.setAttribute("aria-pressed", on ? "true" : "false");
+    lsSet(K_NUM, on ? "1" : "0");
+  }
+  function setWrap(on){
+    Array.prototype.slice.call(document.querySelectorAll(".codewrap")).forEach(function(w){
+      w.classList.toggle("nw", !on);
+    });
+    var b = q("log-wrap");
+    if (b) b.setAttribute("aria-pressed", on ? "true" : "false");
+    lsSet(K_WRAP, on ? "1" : "0");
+  }
+
+  // ---- copy payloads: built from data-text so a filtered view never truncates a copy ----
+  function textOf(preId){
+    var pre = q(preId);
+    if (!pre) return "";
+    var lines = pre.querySelectorAll(".logline");
+    if (lines.length){
+      return Array.prototype.map.call(lines, function(l){
+        return l.getAttribute("data-text") || "";
+      }).join("\n");
+    }
+    return pre.innerText || pre.textContent || "";
+  }
+
+  // Payload is resolved at click time, not baked into the attribute at load: a 10 MB log
+  // tree kept as data-copy strings lived in the DOM for the whole session.
+  function wire(btnId, srcId){
+    var btn = q(btnId);
+    if (btn) btn.setAttribute("data-copy-src", srcId);
+  }
+
+  function wireAll(){
+    wire("btn-copy-boot", "boot-log-pre");
+    wire("btn-copy-app", "app-log-pre");
+    wire("btn-copy-router", "router-log-pre");
+    wire("btn-copy-headroom", "headroom-log-pre");
+    wire("btn-copy-history", "history-container");
+    wire("btn-copy-all", "all-logs-export");
+  }
+
+  // Capture phase: materialise data-copy before base.html's bubble-phase copy handler reads it.
+  document.addEventListener("click", function(e){
+    var b = e.target && e.target.closest ? e.target.closest("[data-copy-src]") : null;
+    if (!b) return;
+    var srcId = b.getAttribute("data-copy-src");
+    var src = q(srcId);
+    b.setAttribute("data-copy", srcId.indexOf("-log-pre") !== -1
+      ? textOf(srcId)
+      : (src ? (src.innerText || src.textContent || "") : ""));
+  }, true);
+
+  function download(){
+    var srcId = { doctor: "boot-log-pre", app: "app-log-pre", router: "router-log-pre", headroom: "headroom-log-pre" }[current];
+    var text;
+    if (srcId) text = textOf(srcId);
+    else {
+      var box = q("history-container");
+      text = box ? (box.innerText || box.textContent || "") : "";
+    }
+    var stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "9router-" + current + "-" + stamp + ".txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+    if (window.toast) window.toast("Đã tải " + current + ".txt");
+  }
+
+  // ---- restore persisted view ----
+  function rehydrate(){
+    buildIndex();
+    setNum(lsGet(K_NUM) === "1");
+    setWrap(lsGet(K_WRAP) !== "0");
+    show(lsGet(K_TAB) || "doctor");
+    wireAll();
+  }
+
+  window.__9rLogsRehydrate = rehydrate;
+  rehydrate();
+
+  // ================= delegated handlers =================
+  document.addEventListener("click", function(e){
+    var t = e.target;
+    if (!t || !t.closest) return;
+
+    var tab = t.closest(".tab[data-tab]");
+    if (tab){ show(tab.getAttribute("data-tab")); return; }
+
+    var chip = t.closest("#log-levels .fchip[data-level]");
+    if (chip){
+      level = chip.getAttribute("data-level") || "all";
+      chip.parentNode.querySelectorAll(".fchip").forEach(function(c){ c.classList.toggle("on", c === chip); });
+      applyFilter();
+      return;
+    }
+
+    if (t.closest("#log-prev")){ goMatch(-1); return; }
+    if (t.closest("#log-next")){ goMatch(1); return; }
+    if (t.closest("#log-clear")){
+      var inp = q("log-search");
+      if (inp){ inp.value = ""; inp.focus(); }
+      query = "";
+      applyFilter();
+      return;
+    }
+    if (t.closest("#log-num")){ setNum(lsGet(K_NUM) !== "1"); return; }
+    if (t.closest("#log-wrap")){ setWrap(lsGet(K_WRAP) === "0"); return; }
+    if (t.closest("#log-bottom")){
+      var box = scrollBox();
+      if (box) box.scrollTop = box.scrollHeight;
+      return;
+    }
+    if (t.closest("#log-download")){ download(); return; }
+  });
+
+  document.addEventListener("input", function(e){
+    if (!e.target || e.target.id !== "log-search") return;
+    query = e.target.value;
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(applyFilter, 120);
+  });
+
+  document.addEventListener("keydown", function(e){
+    var inp = q("log-search");
+    if (!inp) return;
+    var tag = (document.activeElement || {}).tagName;
+    if (e.key === "/" && document.activeElement !== inp &&
+        tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT"){
+      e.preventDefault();
+      inp.focus();
+      inp.select();
+      return;
+    }
+    if (e.key === "Escape" && document.activeElement === inp){
+      inp.value = "";
+      query = "";
+      applyFilter();
+      inp.blur();
+      return;
+    }
+    if (e.key === "Enter" && document.activeElement === inp){
+      e.preventDefault();
+      goMatch(e.shiftKey ? -1 : 1);
+    }
+  });
+
+  // POST /logs/clear redirects back with ?cleared=N&freed=B -> report it, then clean the URL
+  // so a later F5 does not re-toast.
+  // base.html's script sets window.toast at the end of the <body>, so poll until defined.
+  (function reportCleared(){
+    var m = /[?&]cleared=(\d+)(?:&freed=(\d+))?/.exec(location.search);
+    if (!m) return;
+    var n = parseInt(m[1], 10);
+    var bytes = m[2] ? parseInt(m[2], 10) : 0;
+    try { history.replaceState(null, "", location.pathname); } catch(x){}
+    if (n <= 0) return;
+    var mb = bytes / (1024 * 1024);
+    var text = "Đã xóa " + n + " file log — giải phóng " +
+      (mb >= 0.1 ? mb.toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1024)) + " KB");
+    function fire(){
+      if (typeof window.toast === "function") { window.toast(text); return; }
+      setTimeout(fire, 50);
+    }
+    fire();
+  })();
 })();
 </script>
 {% endblock %}

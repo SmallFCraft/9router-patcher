@@ -118,7 +118,9 @@ def test_load_patches_real_file(patches):
     # P32 opencode-freetier-tool-signature removed 2026-09-22 (upstream 0.5.85 native Ke fix)
     # P36 muse-spark-freetier-tool-signature removed 2026-09-26 (poisoned tools[] -> default.Bash/Read InputValidationError)
     # P39 claude-tool-prefix-strip added 2026-09-25
-    assert len(patches) == 36
+    # P40 relay-strip-client-headers-deno added 2026-09-29
+    # 2026-10-01: removed relay-strip-client-headers-vercel + -cf (edge leaks IP, unfixable)
+    assert len(patches) == 37
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -133,7 +135,7 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 32  # 26 standalone + sse-hang + nonstream-sse-retry + claude-system-hoist + errbody-html-title + responses-thinking-history-400 + opencode-responses-maxtokens-floor + opencode-responses-noeffort-minimal + upstream-claude-sse-passthrough + topology-parallel-requests + 4xx-rotate-instead-of-abort + claude-tool-prefix-strip
+    assert len(grouped) == 33  # 31 standalone + 2 multi-patch groups (sse-hang, nonstream-sse-retry) = 37 patches
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
