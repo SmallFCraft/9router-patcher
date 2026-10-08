@@ -120,7 +120,8 @@ def test_load_patches_real_file(patches):
     # P39 claude-tool-prefix-strip added 2026-09-25
     # P40 relay-strip-client-headers-deno added 2026-09-29
     # 2026-10-01: removed relay-strip-client-headers-vercel + -cf (edge leaks IP, unfixable)
-    assert len(patches) == 37
+    # P41-P48 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen)
+    assert len(patches) == 45
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -135,7 +136,8 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    assert len(grouped) == 33  # 31 standalone + 2 multi-patch groups (sse-hang, nonstream-sse-retry) = 37 patches
+    # 39 standalone + 2 multi-patch groups (sse-hang, nonstream-sse-retry) = 45 patches
+    assert len(grouped) == 41
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -1034,27 +1036,27 @@ console.log("NON-SSE-METADATA-OK");
 # ---------- reasoning-effort body cap (p14) ----------
 
 def test_reasoning_effort_cap_mutates_the_body_that_is_sent(patches):
-    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite the sent body (`aj` in 0.5.91,
-    `ai` in 0.5.86). `aW` is the headroom RESPONSE, so capping it is a silent no-op.
-    The IIFE must also size-check the body, not `aW`."""
+    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite the sent body (`ak` in 0.5.95,
+    `aj` in 0.5.91, `ai` in 0.5.86). `aX` is the headroom RESPONSE, so capping it is a silent
+    no-op. The IIFE must also size-check the body, not `aX`."""
     p14 = by_id(patches, "reasoning-effort-body-cap")
     iife = p14.replace[p14.replace.index("(function(){"):]
-    assert "aW" not in iife, "cap still reads/writes aW (headroom response), not body"
+    assert "aX" not in iife, "cap still reads/writes aX (headroom response), not body"
     script = """
-const d={line:()=>{}}; const at="t", au="t";
-let aW={tokens_before:1,tokens_after:1};
-let aj={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
-let ai=aj;
+const d={line:()=>{}}; const av="t";
+let aX={tokens_before:1,tokens_after:1};
+let ak={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
+let ai=ak;
 %s
-if (aj.reasoning_effort !== "high") throw new Error("body not capped: " + aj.reasoning_effort);
-aj={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
-ai=aj;
+if (ak.reasoning_effort !== "high") throw new Error("body not capped: " + ak.reasoning_effort);
+ak={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
+ai=ak;
 %s
-if (aj.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
-aj={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
-ai=aj;
+if (ak.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
+ak={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
+ai=ak;
 %s
-if (aj.reasoning_effort !== "max") throw new Error("small body must not cap");
+if (ak.reasoning_effort !== "max") throw new Error("small body must not cap");
 console.log("P14-BODY-CAP-OK");
 """ % (iife, iife, iife)
     if shutil.which("node") is None:
@@ -1072,7 +1074,7 @@ def test_claude_tool_results_merged_into_next_user_message(patches):
     p19 = by_id(patches, "claude-tool-result-canonicalize")
     marker = "a.messages=(()=>{"
     start = p19.replace.index(marker) + len("a.messages=")
-    end = p19.replace.index("(),a}function t(a)", start) + 2
+    end = p19.replace.index("(),a.messages=x(a.messages,c)),a}function x(a,b)", start) + 2
     fn = p19.replace[start:end]
     script = """
 const canon = (messages) => { const a = {messages}; a.messages = %s; return a.messages; };
@@ -1441,12 +1443,12 @@ def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
     """P23: POST line no longer embeds the provider/model target, adds a 100-char
     cap and a 4-char ACC short label; the rebuilt statement must still parse as JS."""
     rep = _patch_replace(patches, "log-post-trim")
-    assert "→ ${aq}/${ar}" not in rep          # provider-uuid target dropped
+    assert "→ ${ar}/${as}" not in rep          # provider-uuid target dropped
     assert "slice(0,100)" in rep                # length cap present
     assert "slice(0,4)" in rep                  # ACC short label
     # wrap the emitted statement so node can syntax-check it in isolation
-    stmt = rep[rep.index("let aT=aS?av:aC;if(d?.line){"):]
-    script = ("function st(aS,av,aC,aj,a,d,ar,aq,c,Q,g,t,aK,au){"
+    stmt = rep[rep.index("let aU=aT?aw:aD;if(d?.line){"):]
+    script = ("function st(aT,aw,aD,ak,a,d,as,ar,c,Q,g,t,aL,av){"
               + stmt + "}\n")
     if shutil.which("node") is None:
         pytest.skip("node not installed")
@@ -1517,10 +1519,10 @@ def test_mcp_spawn_pair_applies_together(patches, tmp_path):
 
 def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
-    variable; guard reads `ai`, mutates in place, leaves the anchor statement intact."""
+    variable; guard reads `ak`, mutates in place, leaves the anchor statement intact."""
     p = by_id(patches, "max-tokens-floor")
-    assert p.find == 'let a_=(0,t.SB)(aq);'
-    assert p.replace.startswith('if(aj&&"number"==typeof aj.max_tokens&&aj.max_tokens<16)aj.max_tokens=16;')
+    assert p.find == 'let a0=(0,t.SB)(ar);'
+    assert p.replace.startswith('if(ak&&"number"==typeof ak.max_tokens&&ak.max_tokens<16)ak.max_tokens=16;')
     assert p.replace.endswith(p.find)
 
 
@@ -1539,7 +1541,7 @@ def test_post_headroom_tool_result_remerge_patch_exists(patches):
     """P28 regression: a post-headroom merge must be anchored after compression, because
     Claude→OpenAI→Claude makes one user message per tool_result."""
     p = by_id(patches, "tool-result-remerge-post-headroom")
-    assert p.find == 'let a0=aj.messages?.length'
+    assert p.find == 'let a1=ak.messages?.length'
     assert '"tool_result"===$b2' in p.replace
     assert '$ms2.splice($i2+1,$mg2.length,$kp2)' in p.replace
 
@@ -1602,7 +1604,7 @@ def test_responses_thinking_disabled_only_for_ambiguous_tool_history(patches):
     (thinking param, reasoning_effort, reasoning, output_config.effort) and every other
     provider must pass through untouched — Claude Code's native requests stay adaptive."""
     p = by_id(patches, "responses-thinking-history-400")
-    assert p.find == ('c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}'
+    assert p.find == ('c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}}'
                       'if(a.tools&&Array.isArray(a.tools)){')
     i = p.replace.index(";(function(){")
     j = p.replace.index("})();if(a.tools", i) + len("})();")
@@ -1728,7 +1730,7 @@ def test_upstream_claude_sse_passthrough_guard_logic(patches):
     OpenAI choices must still go through the converter (empty result), non-object
     and non-claude targets must fall through unchanged."""
     p = by_id(patches, "upstream-claude-sse-passthrough")
-    assert p.find == ('function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];')
+    assert p.find == ('function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];')
     script = """
 const j = { HR: (v) => v };
 const i = { F5: (c) => c };
@@ -1739,26 +1741,26 @@ const cl = (t) => ({type: t});
 for (const t of ["message_start", "content_block_start", "content_block_delta",
                  "content_block_stop", "message_delta", "message_stop", "ping"]) {
   const ev = cl(t);
-  const r = ap("openai", "claude", ev, {});
+  const r = aq("openai", "claude", ev, {});
   if (r.length !== 1 || r[0] !== ev) throw new Error(t + " not passed through");
 }
 
 // 2. claude target but already-openai-shaped object (choices, no .type) → falls through
 let fell = false;
 const Y8_stub = () => { fell = true; return []; };
-const src = ap.toString();
+const src = aq.toString();
 if (!src.includes("(0,i.F5)") || !src.includes("return[c]"))
   throw new Error("guard rewrote ap shape: " + src.slice(0, 200));
 
 // 3. non-claude target (openai) + claude event → NOT intercepted
 const ev2 = cl("message_stop");
-const r2 = ap("claude", "openai", ev2, {});
+const r2 = aq("claude", "openai", ev2, {});
 if (r2.length === 1 && r2[0] === ev2) throw new Error("openai target must not passthrough");
 
 // 4. null c on claude target → falls through, no crash
-ap("openai", "claude", null, {});
+aq("openai", "claude", null, {});
 console.log("P35-AP-GUARD-OK");
-""" % ("function ap(a,b,c,d){" + p.replace.split("function ap(a,b,c,d){", 1)[1])
+""" % ("function aq(a,b,c,d){" + p.replace.split("function aq(a,b,c,d){", 1)[1])
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
@@ -1788,7 +1790,7 @@ def test_p13_content_blocked_and_safety_checks_trigger_fallback(patches):
     # the final 400-status return) stays in the upstream file. Re-assemble the full body so
     # the guard is exercised the way it runs in production. The final return comes from P38
     # (not hardcoded) so the two patches cannot drift apart here.
-    tail = ('if(b.text&&f&&f.includes(b.text)||b.status&&b.status===a){'
+    tail = ('if((!b.provider||b.provider===f)&&(b.text&&g&&g.includes(b.text)||b.status&&b.status===a)){'
             'if(b.backoff){let a=Math.min(c+1,d.EQ.maxLevel);'
             'return{shouldFallback:!0,cooldownMs:function(a=0){let b=Math.max(0,a-1);'
             'return Math.min(d.EQ.base*Math.pow(2,b),d.EQ.max)}(a),newBackoffLevel:a}}'
@@ -2110,8 +2112,8 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
 def test_target_version_configured_and_matches_patches_toml():
     import config, engine
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.91"
-    assert engine.target_version() == "0.5.91"
+    assert config.TARGET_9ROUTER_VERSION == "0.5.95"
+    assert engine.target_version() == "0.5.95"
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):
@@ -2145,3 +2147,115 @@ def test_main_locate_latest_fetch_error_exits_2_and_cleans_up(monkeypatch, capsy
     assert rc == 2
     assert "registry down" in capsys.readouterr().err
     assert seen and not seen[0].exists()
+
+
+# ---------- P41-P48: proxy-pool deploy lifecycle ----------
+
+def test_proxy_pool_deploy_meta_anchors_hit_real_build(patches):
+    """P41-P44: moi anchor ton tai dung 1 lan trong build chua patch (chunk doi ten theo
+    version nen khong hardcode ten file)."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
+    for pid in ("proxy-pool-create-keeps-deploy-meta",
+                "proxy-pool-cf-deploy-meta",
+                "proxy-pool-vercel-deploy-meta",
+                "proxy-pool-deno-deploy-meta"):
+        p = by_id(patches, pid)
+        assert p.find not in p.replace and p.replace not in p.find, pid
+        places = _anchor_placements(build, p)
+        assert sum(places.values()) == 1, (pid, places)
+
+
+def test_proxy_pool_create_persists_token_without_returning_it(patches):
+    """P41: deployMeta phai di vao tham so cua k() (=> cot `data`) chu KHONG vao object
+    duoc tra ve. `e` chinh la {proxyPool:...} ma 3 route deploy xuat ra client, nen nhet
+    truong len `e` se ro accountId/apiToken/vercelToken/denoToken ra browser."""
+    import re
+    p = by_id(patches, "proxy-pool-create-keeps-deploy-meta")
+    assert re.search(r"return k\(b,\{[^}]*deployMeta:a\.deployMeta\}\),e\}", p.replace), p.replace
+    literal = p.replace[: p.replace.index("return k(b,")]
+    assert "deployMeta" not in literal, "deployMeta lot vao object tra ve"
+
+
+def test_proxy_pool_remote_teardown_anchor_hits_real_build(patches):
+    """P45: teardown teardown anchor dung 1 lan. So sanh voi DELETE handler goc:
+    khong trung voi bat ky get/proxy route nao khac."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
+    p = by_id(patches, "proxy-pool-remote-teardown-on-delete")
+    assert p.find not in p.replace and p.replace not in p.find
+    places = _anchor_placements(build, p)
+    assert sum(places.values()) == 1, places
+    rel = next(iter(places))
+    assert rel.endswith("proxy-pools/[id]/route.js"), places
+
+
+def test_proxy_pool_redact_anchors_hit_real_build(patches):
+    """P46-P48: 3 anchor redact, moi cai dung 1 lan. P46 o route list, P47/P48 o route [id]."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
+    expect = {
+        "proxy-pool-redact-token-list": "proxy-pools/route.js",
+        "proxy-pool-redact-token-detail": "proxy-pools/[id]/route.js",
+        "proxy-pool-redact-token-put": "proxy-pools/[id]/route.js",
+    }
+    for pid, suffix in expect.items():
+        p = by_id(patches, pid)
+        assert p.find not in p.replace and p.replace not in p.find, pid
+        places = _anchor_placements(build, p)
+        assert sum(places.values()) == 1, (pid, places)
+        assert next(iter(places)).endswith(suffix), (pid, places)
+
+
+def test_proxy_pool_teardown_calls_all_three_providers(patches, tmp_path):
+    """Unit tren replacement cua P45: moi nhanh provider co dung URL/HTTP method/headers.
+    Khong goi mang that: checker thay the global fetch bang stub."""
+    import re
+    src = by_id(patches, "proxy-pool-remote-teardown-on-delete").replace
+    for prov, url in (("cloudflare", "api.cloudflare.com/client/v4/accounts/"),
+                      ("vercel", "api.vercel.com/v9/projects/"),
+                      ("deno", "api.deno.com/v2/apps/")):
+        assert url in src, prov
+    assert src.count('method:"DELETE"') == 3, "moi provider mot DELETE"
+    # Moi loi remote bi nuot trong try/catch cua $teardown: ton tai canh try{...}catch(e)
+    assert re.search(r"async function \$teardown\(p\)\{try\{", src), "thieu try/catch"
+    # $teardown duoc goi TRUOC khi xoa local: vi tri await sau guard 409, truoc Yd
+    i_teardown = src.index("await $teardown($p)")
+    i_guard = src.index("currently in use")
+    i_delete = src.index("(0,e.Yd)(a)")
+    assert i_guard < i_teardown < i_delete, "teardown phai nam giua guard va xoa local"
+
+    # Thuc thi logic branch tren fake JS runtime: node --check chi xem cu phap chu khong
+    # xem nhanh nao chay. Chi lay phan $teardown: `h` trong `src` bi cat cut vi find cua
+    # P45 dung truoc `}catch(`, ghep nguyen no vao stub se ra ham try khong co catch.
+    teardown = src[: src.index("async function h")]
+    stub = tmp_path / "stub.mjs"
+    stub.write_text(
+        "globalThis.__calls=[];\n"
+        "globalThis.fetch=async(u,o)=>{__calls.push([u,o && o.method]);return {ok:!0};};\n"
+        "globalThis.AbortSignal={timeout:()=>null};\n"
+        # Ghi de `console` de tame canh warn trong $teardown, nhung phai giu lai `log`
+        # cua `console` cu (gia tri doc TRUOC khi assign nen van con sau assignment).
+        "globalThis.console={warn:()=>{},log:console.log};\n"
+        "const t = process.argv[2];\n"
+        + teardown
+        + "\nconst meta={type:t,accountId:'a',apiToken:'x',scriptName:'s',"
+        "vercelToken:'v',projectId:'p',projectName:'n',denoToken:'d',appId:'appid'};\n"
+        "await $teardown({deployMeta: meta});\n"
+        "if(__calls.length!==1)process.exit(9);\n"
+        "console.log(__calls[0][0], __calls[0][1], meta.seen);\n",
+        encoding="utf-8",
+    )
+    import subprocess
+    node = __import__("shutil").which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    for t, needle in (("cloudflare", "api.cloudflare.com"),
+                      ("vercel", "api.vercel.com"),
+                      ("deno", "api.deno.com")):
+        r = subprocess.run([node, str(stub), t], capture_output=True, text=True, timeout=30)
+        assert r.returncode == 0, (t, r.stderr or r.stdout)
+        assert needle in r.stdout, (t, r.stdout)

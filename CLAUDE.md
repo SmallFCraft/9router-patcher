@@ -25,7 +25,7 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (36 patches, 32 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
+- `patches.toml` — Single source of truth (45 patches, 41 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
@@ -94,7 +94,7 @@ CLI syntax: `impact` uses `-r/--repo` and `-d/--direction`; top-level commands l
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **9router-patcher** (2141 symbols, 7165 relationships, 191 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **9router-patcher** (2153 symbols, 7402 relationships, 192 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

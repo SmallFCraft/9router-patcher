@@ -1,30 +1,34 @@
-# 9router patches — nguồn duy nhất. Chuỗi find/replace HIỆN TẠI đo trên build 0.5.85,
-# verify sống nguyên trên 0.5.86 (34/34 clean trên tarball pristine 2026-09-23, audit 2cc9f4e).
-# 0.5.81 -> 0.5.85: re-minify TOÀN BỘ chunk. Chunk id đổi tên (318->5330, 37981->60210, 65377->
-# 8499) nhưng 26/34 anchor sống nguyên vì chúng nằm trên chuỗi literal/log text, không phải định
-# danh 1 chữ. 8 anchor chết vì dịch chuỗi định danh; đã remap CẢ find LẪN replace:
-#   p10: ao/ap/ah/an/aq/P/R/O/M/aX/as -> ap/aq/ai/ao/ar/Q/S/P/N/aZ/at; provider `aY`->`a$`,
-#        controller `a$`->`a0`, proxyOptions `a_`->`a1`, providerSessionId `ar`->`as`, clientTool `aM`->`aQ`
-#   p11: trackDone F->G, appendLog G->H, cục bộ K->L; log param J->K
-#   p14: aW->aY, aN/aM->aR/aQ, ah->ai, as->at
-#   p23: aO/aN/at/aA->aS/aR/au/aB, O->P, ao/ap->ap/aq, ah->ai, aF->aJ, as->at
-#   p27/p28: aY->a$, ah->ai, aZ->a_
-#   p34: I->G (hàm capability lookup trong 5330.js)
-#   p35: ao->ap, `i.F5`->`j.HR((0,i.F5)(...))` (wrapper mới), 8499.js
-# p32 (opencode-freetier-tool-signature) ĐÃ XOÁ 2026-09-22: upstream 0.5.85 viết lại hàm gom tool
-# trong 8499.js module 60210 (`Ke` -> h). Bản cũ gate `Array.isArray(b.tools)&&0!==b.tools.length||w(b,!0)`
-# chỉ bơm khi tools rỗng (nên phải vá); bản mới gọi `(0,m.Ke)(b,!0)` VÔ ĐIỀU KIỆN và luôn thêm đủ
-# `["bash","glob","grep","read"]` — patch trở thành thừa. Xác nhận chéo: opencode-zen-adapter docs
-# (gate free-tier 2026-09-19 đòi `tools` chứa `bash`+`read` chữ thường).
+# 9router patches — nguồn duy nhất.
+# 0.5.91 -> 0.5.95: re-minify dịch định danh +1 slot trong 8895.js/8499.js. 12 anchor chết.
+#   KHÔNG patch nào bị upstream hấp thụ (0 `applied` trên tarball pristine 0.5.95).
+#   Remap thuần rename (find + replace cùng nhau):
+#     p7  P -> Q                                        (sse-close-passthrough)
+#     p23 aT/aS/av/aC/aq/ar/aj/aK/au -> aU/aT/aw/aD/ar/as/ak/aL/av
+#     p27 a_/aq -> a0/ar, body aj -> ak
+#     p28 a0/aj -> a1/ak
+#     p35 ap -> aq                                      (8499.js)
+#     p39 a1/aj -> a2/ak
+#   Viết lại cấu trúc (đo byte, không suy đoán):
+#     p6  anchor sống nhưng replace gọi P() — 0.5.95 đổi tên hàm đó thành Q()
+#     p8  upstream TỰ THÊM completion timer và chiếm slot `P`; hàm once-only giờ là `Q`.
+#         replace chèn $G TRƯỚC Q để p6/p7/p9 vẫn gọi được. find mở rộng thành
+#         `O=!1,P=null,Q=()=>{if(P&&(clearTimeout(P),P=null),O)return;O=!0;`
+#     p10 cả cụm a4..a8 -> a5..a9, retry dùng a0/a2/a3/au/aS/ak (27 tên đổi)
+#     p13 upstream thêm tham số thứ 4 `f` (provider) và đổi biến cục bộ thành `g`
+#     p14 aZ/au/aS/aR/aj -> a$/av/aT/aS/ak
+#     p19 upstream chèn `,a.messages=x(a.messages,c)` trước closer; merge của p19
+#         chèn ngay trước lời gọi đó
+#     p31 k/j/q -> i/l/u
 #   CẠM BẪY đã sập một lần (sáng 2026-09-06): remap `find` mà giữ `replace` của version cũ.
 #   `replace` p8 khi đó khai `O=()=>{...}` (O phải là CỜ) và không bao giờ khai `P`, nên 4 lời gọi
 #   `P()` còn lại — kể cả 2 lời trong flush() — thành ReferenceError: `node --check` pass, SSE không
 #   đóng, gauge activeRequests kẹt. Remap `find` và `replace` CÙNG NHAU, không bao giờ riêng lẻ.
+#   (Audit 0.5.95: p8 lặp lại đúng hình dạng này — xem ghi chú p8 ở trên.)
 # `order` tường minh: áp theo 1->9.
 # `group`: các patch cùng group nằm cùng một file, áp/gỡ atomic (cả nhóm hoặc không cái nào).
 # `defines`: patch này định nghĩa symbol mà patch khác trong group gọi -> áp ĐẦU TIÊN, gỡ CUỐI CÙNG.
 
-target_version = "0.5.86"
+target_version = "0.5.95"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -73,7 +77,7 @@ group = "sse-hang"
 summary = "Đóng SSE sau terminal event (nhánh dịch)"
 why = "motomoto.lol giữ TCP mở sau message_stop nên Claude Code quay mãi; terminate() bỏ qua flush() nên phải tự phát tail event, ghi usage (P) và giảm gauge ($G)"
 find = 'N=!0,s&&(M=!0);continue}'
-replace = 'N=!0,s&&(M=!0);{let $z=(0,d.Y8)(c,o,null,C);if($z?.length>0)for(let $y of $z)null!=$y&&f.enqueue(k.encode((0,h.v8)($y,o)));}P(),$G();setTimeout(()=>{try{f.terminate()}catch{}},50);continue}'
+replace = 'N=!0,s&&(M=!0);{let $z=(0,d.Y8)(c,o,null,C);if($z?.length>0)for(let $y of $z)null!=$y&&f.enqueue(k.encode((0,h.v8)($y,o)));}Q(),$G();setTimeout(()=>{try{f.terminate()}catch{}},50);continue}'
 
 [[patch]]
 id = "sse-close-passthrough"
@@ -81,8 +85,8 @@ order = 7
 group = "sse-hang"
 summary = "Đóng SSE sau [DONE] (nhánh passthrough)"
 why = "client định dạng openai trên /v1/chat/completions dùng sentinel [DONE]"
-find = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&P();continue}'
-replace = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&P();if(b&&b.indexOf("[DONE]")>=0){N=!0,P(),$G(),setTimeout(()=>{try{f.terminate()}catch{}},50)}continue}'
+find = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&Q();continue}'
+replace = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&Q();if(b&&b.indexOf("[DONE]")>=0){N=!0,Q(),$G(),setTimeout(()=>{try{f.terminate()}catch{}},50)}continue}'
 
 [[patch]]
 id = "gauge-guard"
@@ -91,8 +95,8 @@ group = "sse-hang"
 defines = "$G"
 summary = "Giảm gauge in-flight đúng một lần ($G)"
 why = "stream kết thúc qua patch 6/7 vẫn phải xoá dòng calling trên trang Usage"
-find = 'O=!1,P=()=>{if(O)return;O=!0;'
-replace = 'O=!1,$g=!1,$G=()=>{if($g)return;$g=!0;try{(0,f.uw)(t,p,u,!1)}catch{}},P=()=>{if(O)return;O=!0;'
+find = 'O=!1,P=null,Q=()=>{if(P&&(clearTimeout(P),P=null),O)return;O=!0;'
+replace = 'O=!1,P=null,$g=!1,$G=()=>{if($g)return;$g=!0;try{(0,f.uw)(t,p,u,!1)}catch{}},Q=()=>{if(P&&(clearTimeout(P),P=null),O)return;O=!0;'
 
 [[patch]]
 id = "gauge-flush-route"
@@ -119,8 +123,8 @@ order = 10
 group = "nonstream-sse-retry"
 summary = "Nhả closure retry (execute stream:true) vào handler non-streaming"
 why = "chỉ caller (92500) có aY.execute; 5016 không tự fetch lại được"
-find = 'let a4={provider:aq,model:ar,body:a,stream:aK,translatedBody:aj,finalBody:ap,requestStartTime:as,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a$,reqTag:au,log:d},a5='
-replace = 'let a4={provider:aq,model:ar,body:a,stream:aK,translatedBody:aj,finalBody:ap,requestStartTime:as,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a$,reqTag:au,log:d,retry:async()=>{let $s2=a1.signal;try{typeof AbortSignal.any=="function"&&($s2=AbortSignal.any([a1.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await a_.execute({model:ar,body:typeof aj=="object"&&aj?{...aj,stream:!0}:aj,stream:!0,credentials:c,providerSessionId:at,clientTool:aR,signal:$s2,log:d,proxyOptions:a2});return $e&&$e.response||null}catch{return null}}},a5='
+find = 'let a5={provider:ar,model:as,body:a,stream:aL,translatedBody:ak,finalBody:aq,requestStartTime:at,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a_,reqTag:av,log:d},a6='
+replace = 'let a5={provider:ar,model:as,body:a,stream:aL,translatedBody:ak,finalBody:aq,requestStartTime:at,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a_,reqTag:av,log:d,retry:async()=>{let $s2=a2.signal;try{typeof AbortSignal.any=="function"&&($s2=AbortSignal.any([a2.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await a0.execute({model:as,body:typeof ak=="object"&&ak?{...ak,stream:!0}:ak,stream:!0,credentials:c,providerSessionId:au,clientTool:aS,signal:$s2,log:d,proxyOptions:a3});return $e&&$e.response||null}catch{return null}}},a6='
 
 [[patch]]
 id = "nonstream-retry-aggregate"
@@ -154,8 +158,8 @@ id = "service-error-fast-recover"
 order = 13
 summary = "400 service_error / content-blocked / content-safety: fallback ngay, khoá model 5s thay vì default 30s"
 why = "provider trả 400 tạm thời (code service_error) nhưng t2 không phân loại được → khoá model 30s chết hàng loạt; 5s đủ skip burst retry rồi tự thử lại. 2026-09-25: AgentRouter trả 400 {code:'content-blocked',type:'agent_router_api_error'} và relay trả 400 'flagged as high risk by model provider content safety check' — cũng không nằm trong t2 nên e() rơi xuống nhánh `400===a && !401/402/403/429` → shouldFallback:!1 → combo loop 8910.js `if(!i) return b` trả thẳng 400 cho client, Claude Code ngắt session, KHÔNG xoay provider kế tiếp"
-find = 'function e(a,b,c=0){let f=b?("string"==typeof b?b:JSON.stringify(b)).toLowerCase():"";for(let b of d.t2)'
-replace = 'function e(a,b,c=0){let f=(b instanceof Error?String(b.message||b):b?("string"==typeof b?b:JSON.stringify(b)):"").toLowerCase();if(b instanceof Error||400===a&&(f.includes("service_error")||f.includes("content-blocked")||f.includes("content_blocked")||f.includes("high risk")||f.includes("content safety")||f.includes("cyber security")||f.includes("agent_router_api_error"))||f.includes("upstream non-sse"))return{shouldFallback:!0,cooldownMs:5e3};for(let b of d.t2)'
+find = 'function e(a,b,c=0,f=null){let g=b?("string"==typeof b?b:JSON.stringify(b)).toLowerCase():"";for(let b of d.t2)'
+replace = 'function e(a,b,c=0,f=null){let g=(b instanceof Error?String(b.message||b):b?("string"==typeof b?b:JSON.stringify(b)):"").toLowerCase();if(b instanceof Error||400===a&&(g.includes("service_error")||g.includes("content-blocked")||g.includes("content_blocked")||g.includes("high risk")||g.includes("content safety")||g.includes("cyber security")||g.includes("agent_router_api_error"))||g.includes("upstream non-sse"))return{shouldFallback:!0,cooldownMs:5e3};for(let b of d.t2)'
 
 # P14 — cap effort theo body size (compact hang 7m19s > patience 5m client): body >448KB mà
 # effort ∈ {max,xhigh,ultra} → hạ "high". Chèn sau HEADROOM+PXPIPE (anchor "⚙" aW-line; CHÚ Ý
@@ -167,8 +171,8 @@ id = "reasoning-effort-body-cap"
 order = 14
 summary = "Body >448KB + effort max/xhigh/ultra → hạ high (chống compact treo 7 phút)"
 why = "xhigh trên ~185k token = 7m19s > patience 5 phút của client ZCode; hạ high còn ~2–3 phút thì kịp"
-find = 'aZ.length&&d?.line&&d.line(au,"⚙",aZ.join(" \xb7 ")),aS&&"claude"===aR&&(0,i._W)(aj);'
-replace = 'aZ.length&&d?.line&&d.line(au,"⚙",aZ.join(" \xb7 ")),aS&&"claude"===aR&&(0,i._W)(aj);(function(){try{let $z=["max","xhigh","ultra"],$cap=function(v){return "string"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!=="high"&&d?.line&&d.line(au,"⚙",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(aj).length/1024)}KB)`),"high"):v};let $big=JSON.stringify(aj).length>458752;if($big){if(aj&&"string"==typeof aj.reasoning_effort)aj.reasoning_effort=$cap(aj.reasoning_effort);if(aj&&aj.reasoning&&"object"==typeof aj.reasoning&&"string"==typeof aj.reasoning.effort)aj.reasoning.effort=$cap(aj.reasoning.effort)}}catch(e){}})();'
+find = 'a$.length&&d?.line&&d.line(av,"⚙",a$.join(" \xb7 ")),aT&&"claude"===aS&&(0,i._W)(ak);'
+replace = 'a$.length&&d?.line&&d.line(av,"⚙",a$.join(" \xb7 ")),aT&&"claude"===aS&&(0,i._W)(ak);(function(){try{let $z=["max","xhigh","ultra"],$cap=function(v){return "string"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!=="high"&&d?.line&&d.line(av,"⚙",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(ak).length/1024)}KB)`),"high"):v};let $big=JSON.stringify(ak).length>458752;if($big){if(ak&&"string"==typeof ak.reasoning_effort)ak.reasoning_effort=$cap(ak.reasoning_effort);if(ak&&ak.reasoning&&"object"==typeof ak.reasoning&&"string"==typeof ak.reasoning.effort)ak.reasoning.effort=$cap(ak.reasoning.effort)}}catch(e){}})();'
 
 # P15 — deadline tổng per-attempt: env 9R_ATTEMPT_DEADLINE_MS (default 240000, <=0 tắt);
 # cắt bằng c.handleError + c.abort() đúng cơ chế fallback. Watcher g() chỉ 1 bản trong 8895.js.
@@ -243,8 +247,8 @@ order = 19
 group = "claude-tool-result"
 summary = "Gộp user message tool_result bị tách nhiều message về 1 message chuẩn Anthropic"
 why = "agentrouter.org thi thoảng 400 tool_use-without-tool_result trên history tool nhiều vòng; chuẩn hoá shape để qua mọi backend, không mất dữ liệu"
-find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a}function t(a)'
-replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0))),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a}function t(a)'
+find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0)),a.messages=x(a.messages,c)),a}function x(a,b)'
+replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0)),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a.messages=x(a.messages,c)),a}function x(a,b)'
 # P21-24: log-render-improve group — cosmetic reformat upstream console logs. Does not change
 # any router behavior (classifier, fallback, retry, lock, routing). Idempotent on already-patched
 # build (each find is contained inside its own replace when already-patched, engine sees `clean`).
@@ -277,8 +281,8 @@ id = "log-post-trim"
 order = 23
 summary = "POST line: trim provider UUID, model prefix, length cap"
 why = "▶ POST claude-opus-5 → anthropic-compatible-107f4d88-50a4-41bc-8a77-501c54955883/glm-5.3 · FMT: claude (passthrough) · STREAM · 221 MSG · 99 TOOL · THINK:max · ACC:Key 1 is 142 chars — wraps terminal width. Model name is the human hook; UUID is noise."
-find = 'let aT=aS?av:aC;if(d?.line){let b=Q?.body?.model||`${aq}/${ar}`,e=aj.messages?.length||aj.input?.length||aj.contents?.length||a.messages?.length||a.input?.length||0,f=aj.tools?.length||a.tools?.length||0,h=aS?`FMT: ${av} (passthrough)`:`FMT: ${av}→${aC}`,i="grok-cli"!==aq||(0,u.Au)(ar)?d.fmtThink?.((0,g.sS)(aj)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${aq}/${ar}`,h,aK?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(au,"▶",k.join(" \xb7 "))}'
-replace = 'let aT=aS?av:aC;if(d?.line){let b=Q?.body?.model||`${ar}`,e=aj.messages?.length||aj.input?.length||aj.contents?.length||a.messages?.length||a.input?.length||0,f=aj.tools?.length||a.tools?.length||0,h=aS?`FMT: ${av} (passthrough)`:`FMT: ${av}→${aC}`,i="grok-cli"!==aq||(0,u.Au)(ar)?d.fmtThink?.((0,g.sS)(aj)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[];k.push(`▶ ${b} · ${h} · ${aK?"STREAM":"JSON"} · ${e}MSG${f?" · "+f+"TOOL":""}${i?" · "+`THINK:${i}`:""} · ${j?" · "+j.slice(0,4):""}`),k.length>0&&(k[0]=k[0].slice(0,100)),d.line(au,"▶",k.join(" "))}'
+find = 'let aU=aT?aw:aD;if(d?.line){let b=Q?.body?.model||`${ar}/${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aT?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aD}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ar}/${as}`,h,aL?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(av,"▶",k.join(" \xb7 "))}'
+replace = 'let aU=aT?aw:aD;if(d?.line){let b=Q?.body?.model||`${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aT?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aD}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[];k.push(`▶ ${b} · ${h} · ${aL?"STREAM":"JSON"} · ${e}MSG${f?" · "+f+"TOOL":""}${i?" · "+`THINK:${i}`:""} · ${j?" · "+j.slice(0,4):""}`),k.length>0&&(k[0]=k[0].slice(0,100)),d.line(av,"▶",k.join(" "))}'
 
 # P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
 # Anchor: 8910.js `if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b` around line 4570.
@@ -322,8 +326,8 @@ id = "max-tokens-floor"
 order = 27
 summary = "max_tokens < 16 → 16 trước khi gửi upstream (chống 400 gateway kén chọn)"
 why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2' → router 503 + khoá 30s; floor 16 vô hại với call thật (đều > 1k)"
-find = 'let a_=(0,t.SB)(aq);'
-replace = 'if(aj&&"number"==typeof aj.max_tokens&&aj.max_tokens<16)aj.max_tokens=16;let a_=(0,t.SB)(aq);'
+find = 'let a0=(0,t.SB)(ar);'
+replace = 'if(ak&&"number"==typeof ak.max_tokens&&ak.max_tokens<16)ak.max_tokens=16;let a0=(0,t.SB)(ar);'
 
 # P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
 # Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
@@ -337,8 +341,8 @@ id = "tool-result-remerge-post-headroom"
 order = 28
 summary = "Re-merge split tool_result user messages after headroom round-trip"
 why = "headroom Claude→OpenAI→Claude back-translate splits one user(2 tool_result) into N user msgs → agentrouter 400 tool_use-without-tool_result (log 18:50 2026-09-09); merge again post-headroom"
-find = 'let a0=aj.messages?.length'
-replace = 'if(aj&&Array.isArray(aj.messages)){let $ms2=aj.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let a0=aj.messages?.length'
+find = 'let a1=ak.messages?.length'
+replace = 'if(ak&&Array.isArray(ak.messages)){let $ms2=ak.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let a1=ak.messages?.length'
 
 # P29 — accept text/plain as SSE: some providers (agentrouter.org/glm-5.3) return valid SSE
 # body under content-type text/plain. The MIME guard blocks ANY non-SSE non-JSON response,
@@ -384,8 +388,8 @@ id = "responses-thinking-history-400"
 order = 31
 summary = "openai-responses + tool history → thinking:{type:disabled} (AgentRouter 400 thinking-replay)"
 why = "responses→claude translator không sinh thinking block, normalizer lại gate dummy-thinking sau thinking.type===\"enabled\" nên body không có thinking param; relay DeepSeek của agentrouter.org chạy thinking mặc định và 400 'content[].thinking must be passed back' cho mọi key"
-find = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}}if(a.tools&&Array.isArray(a.tools)){'
-replace = 'c.content=k,j&&!f&&a&&c.content.unshift(q(b))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
+find = 'c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}}if(a.tools&&Array.isArray(a.tools)){'
+replace = 'c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
 
 # P33/P34 — openai-responses param 400 trên opencode.ai/zen/v1/responses (muse-spark-*).
 # Cả hai lỗi phát sinh trong CÙNG transformRequest của class K (chunks/318.js) — bước cuối
@@ -429,8 +433,8 @@ id = "upstream-claude-sse-passthrough"
 order = 35
 summary = "Upstream openai-compatible trả SSE kiểu Claude → passthrough thay vì drop (chống 502 rỗng)"
 why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_block_delta (không phải OpenAI choices[].delta); Y8 emit 0 byte → peek P16 thấy stream rỗng → 502 + khóa key dù upstream đã tính token"
-find = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];'
-replace = 'function ap(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
+find = 'function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];'
+replace = 'function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
 
 # P38 — nhánh cuối của classifier `hk/e()` coi MỌI 4xx (trừ 401/402/403/429) là lỗi
 # phía client → `shouldFallback:!1`. Combo loop 8910.js `if(!i)return b` trả thẳng
@@ -495,8 +499,8 @@ id = "claude-tool-prefix-strip"
 order = 39
 summary = "Strip namespace prefix (vd default.Grep -> Grep) khỏi tool_use name nếu khớp tools[] thật"
 why = "Harness client vô tình ghi tool_use name có namespace (default.Grep/default.Bash/default.Read) vào history; Bedrock validate tool_use.name ∈ tools[] rất gắt và trả 400 Invalid tool use format trên mọi retry. Strip về tên chuẩn nếu tên sau dấu chấm có trong tools[]. Anchor tại điểm dispatch chung 8895.js vì nhánh passthrough KHÔNG đi qua normalizer 8499.js"
-find = 'let a1=(0,j.jd)({onDisconnect:a=>'
-replace = ';(function(){try{if(!aj||!Array.isArray(aj.tools)||!Array.isArray(aj.messages))return;let $T=new Set(aj.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of aj.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&"tool_use"===$b.type&&"string"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(".");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a1=(0,j.jd)({onDisconnect:a=>'
+find = 'let a2=(0,j.jd)({onDisconnect:a=>'
+replace = ';(function(){try{if(!ak||!Array.isArray(ak.tools)||!Array.isArray(ak.messages))return;let $T=new Set(ak.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of ak.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&"tool_use"===$b.type&&"string"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(".");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a2=(0,j.jd)({onDisconnect:a=>'
 
 # P40 - Deno Deploy relay: strip header danh tinh client.
 # Template deno-deploy: new Headers(request.headers) roi chi xoa 3 header.
@@ -524,3 +528,85 @@ replace = '''  newHeaders.delete("host");
   newHeaders.delete("x-real-ip");
   newHeaders.delete("forwarded");
   newHeaders.set("accept-encoding", "identity");'''
+
+# P41-P48: xoa proxy pool phai don ca tai nguyen da deploy tren Cloudflare/Vercel/Deno.
+# Root cause: DELETE /api/proxy-pools/[id] chi chay DELETE FROM proxyPools. Credential
+# deploy (accountId/apiToken/vercelToken/denoToken) truoc day chi song trong React state
+# cua dialog deploy, POST mot lan roi mat -> luc xoa khong con gi de goi API remote.
+# Cach lam: nhet credential + dinh danh tai nguyen vao object truyen cho ZO() khi deploy.
+# storeProxyPool() tach moi field ngoai {id,isActive,testStatus,createdAt,updatedAt} vao
+# cot `data` JSON nen KHONG can migrate schema (da do round-trip bang sqlite that).
+#   P41-P43 ghi credential (3 file deploy route khac nhau -> 3 anchor rieng).
+#   P48   createProxyPool() dung object TUONG MINH, khong spread `a`, nen phai noi rong
+#         o day; thieu no thi ca P41-P43 deu vo nghia (field bi nuot truoc khi vao DB).
+#         updateProxyPool() thi `{...j(d),...b}` da giu nguyen deployMeta -> khong can sua.
+#   P44   teardown remote truoc khi xoa local, best-effort: moi loi remote bi nuot trong
+#         try/catch cua $teardown nen khong bao gio chan viec xoa local.
+#   P45-P47 redact token khoi MOI response tra ve browser (list / detail / PUT echo);
+#         token chi con trong DB, dung cho teardown. UI khong doc body PUT (sau khi luu
+#         no refetch) nen redact khong doi hanh vi.
+
+[[patch]]
+id = "proxy-pool-create-keeps-deploy-meta"
+order = 41
+summary = "createProxyPool giu lai deployMeta thay vi nuot mat"
+why = "Ham create dung object tuong minh {id,name,proxyUrl,...} nen deployMeta bi bo truoc khi vao cot data; neu khong 3 patch P42-P44 deu vo nghia. Nhet deployMeta vao tham so cua k() chu khong vao e, vi `e` chinh la object duoc tra ve controller va 3 route deploy xuat no day du o {proxyPool:...} -> ro token. Giu truong len tren`e` thi ca tao tay (POST /api/proxy-pools) cung tra token. Khong can guard cho truong hop http: storeProxyPool luu bang JSON.stringify, key undefined tu bi bo."
+find = '''lastError:a.lastError||null,createdAt:c,updatedAt:c};return k(b,e),e}'''
+replace = '''lastError:a.lastError||null,createdAt:c,updatedAt:c};return k(b,{...e,deployMeta:a.deployMeta}),e}'''
+
+[[patch]]
+id = "proxy-pool-cf-deploy-meta"
+order = 42
+summary = "Luu accountId/apiToken/scriptName cua Cloudflare Worker vao proxy pool"
+why = "Xoa pool phai xoa duoc Worker tren Cloudflare. Response cua POST /workers/scripts khong tra ve accountId nen phai giu tu request. scriptName chinh la projectName da dung lam ten Worker."
+find = '''let o=await (0,e.ZO)({name:h,proxyUrl:m,type:"cloudflare",noProxy:"",isActive:!0,strictProxy:!1});'''
+replace = '''let o=await (0,e.ZO)({name:h,proxyUrl:m,type:"cloudflare",noProxy:"",isActive:!0,strictProxy:!1,deployMeta:{type:"cloudflare",accountId:c,apiToken:g,scriptName:h}});'''
+
+[[patch]]
+id = "proxy-pool-vercel-deploy-meta"
+order = 43
+summary = "Luu vercelToken/projectId cua Vercel deployment vao proxy pool"
+why = "DELETE /v9/projects/{idOrName} doi bearer token. projectId uu tien hon projectName de khong phu thuoc viec user doi ten project sau nay."
+find = '''let n=await h(l,c),o=`https://${n.url}`,p=await (0,e.ZO)({name:i,proxyUrl:o,type:"vercel",noProxy:"",isActive:!0,strictProxy:!1});'''
+replace = '''let n=await h(l,c),o=`https://${n.url}`,p=await (0,e.ZO)({name:i,proxyUrl:o,type:"vercel",noProxy:"",isActive:!0,strictProxy:!1,deployMeta:{type:"vercel",vercelToken:c,projectId:m,projectName:i}});'''
+
+[[patch]]
+id = "proxy-pool-deno-deploy-meta"
+order = 44
+summary = "Luu denoToken/orgDomain/appId cua Deno Deploy app vao proxy pool"
+why = "DELETE /v2/apps/{id} doi bearer token va app id (khong dung duoc slug). Route deno-deploy da co san mau goi DELETE nay luc deploy that bai nen dung dung hinh dang do."
+find = '''let r=h.split(".")[0],s=`https://${i}.${r}.deno.net`;console.log("Deno deployUrl:",s);let t=await (0,e.ZO)({name:i,proxyUrl:s,type:"deno",noProxy:"",isActive:!0,strictProxy:!1});'''
+replace = '''let r=h.split(".")[0],s=`https://${i}.${r}.deno.net`;console.log("Deno deployUrl:",s);let t=await (0,e.ZO)({name:i,proxyUrl:s,type:"deno",noProxy:"",isActive:!0,strictProxy:!1,deployMeta:{type:"deno",denoToken:c,orgDomain:h,appId:l.id,projectName:i}});'''
+
+[[patch]]
+id = "proxy-pool-remote-teardown-on-delete"
+order = 45
+summary = "Xoa tai nguyen da deploy tren Cloudflare/Vercel/Deno khi xoa proxy pool"
+why = "DELETE /api/proxy-pools/[id] truoc day chi xoa row trong DB, Worker/Project/App tren provider van song va van tinh quota. Teardown chay TRUOC khi xoa local va la best-effort: moi loi remote (token het han, mat mang, provider doi API) bi nuot trong try/catch cua $teardown nen khong bao gio chan viec xoa local. AbortSignal.timeout(15e3) de mot provider treo khong giu request xoa lau. force=true cho Cloudflare de xoa duoc Worker con binding. Doc $p mot lan qua (0,e.hr)(a) thay vi goi lai hai lan."
+find = '''async function h(a,{params:b}){try{let{id:a}=await b;if(!await (0,e.hr)(a))return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let c=await (0,e.getProviderConnections)(),f=function(a=[],b){return a.filter(a=>a?.providerSpecificData?.proxyPoolId===b).length}(c,a);if(f>0)return d.NextResponse.json({error:"Proxy pool is currently in use",boundConnectionCount:f},{status:409});return await (0,e.Yd)(a),d.NextResponse.json({success:!0})}'''
+replace = '''async function $teardown(p){try{let m=p&&p.deployMeta;if(!m)return;if("cloudflare"===m.type&&m.accountId&&m.apiToken&&m.scriptName)await fetch("https://api.cloudflare.com/client/v4/accounts/"+m.accountId+"/workers/scripts/"+encodeURIComponent(m.scriptName)+"?force=true",{method:"DELETE",headers:{Authorization:"Bearer "+m.apiToken},signal:AbortSignal.timeout(15e3)});else if("vercel"===m.type&&m.vercelToken&&(m.projectId||m.projectName))await fetch("https://api.vercel.com/v9/projects/"+encodeURIComponent(m.projectId||m.projectName),{method:"DELETE",headers:{Authorization:"Bearer "+m.vercelToken},signal:AbortSignal.timeout(15e3)});else if("deno"===m.type&&m.denoToken&&m.appId)await fetch("https://api.deno.com/v2/apps/"+encodeURIComponent(m.appId),{method:"DELETE",headers:{Authorization:"Bearer "+m.denoToken},signal:AbortSignal.timeout(15e3)})}catch(e){console.warn("[9router] remote teardown skipped:",e&&e.message)}}
+async function h(a,{params:b}){try{let{id:a}=await b;let $p=await (0,e.hr)(a);if(!$p)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let c=await (0,e.getProviderConnections)(),f=function(a=[],b){return a.filter(a=>a?.providerSpecificData?.proxyPoolId===b).length}(c,a);if(f>0)return d.NextResponse.json({error:"Proxy pool is currently in use",boundConnectionCount:f},{status:409});await $teardown($p);return await (0,e.Yd)(a),d.NextResponse.json({success:!0})}'''
+
+[[patch]]
+id = "proxy-pool-redact-token-list"
+order = 46
+summary = "Khong tra credential deploy ve browser o GET /api/proxy-pools"
+why = "deployMeta chua apiToken/vercelToken/denoToken. Tra nguyen object ve UI la ro secret (quy tac repo: khong lo API key/provider secret). $redact chay ngay sau (0,e.ui)(h) nen ca nhanh som (khong includeUsage) lan nhanh muon deu da sach; map lan hai chi them boundConnectionCount nen khong redact chong (redact chong se lat hasToken ve false)."
+find = '''let i=await (0,e.ui)(h);if(!g)return d.NextResponse.json({proxyPools:i});let j=await (0,e.getProviderConnections)(),k=function(a=[]){let b=new Map;for(let c of a){let a=c?.providerSpecificData?.proxyPoolId;a&&b.set(a,(b.get(a)||0)+1)}return b}(j),l=i.map(a=>({...a,boundConnectionCount:k.get(a.id)||0}));'''
+replace = '''let i=(await (0,e.ui)(h)).map(function $redact(p){if(!p||!p.deployMeta)return p;let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=p.deployMeta;return{...p,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}});if(!g)return d.NextResponse.json({proxyPools:i});let j=await (0,e.getProviderConnections)(),k=function(a=[]){let b=new Map;for(let c of a){let a=c?.providerSpecificData?.proxyPoolId;a&&b.set(a,(b.get(a)||0)+1)}return b}(j),l=i.map(a=>({...a,boundConnectionCount:k.get(a.id)||0}));'''
+
+[[patch]]
+id = "proxy-pool-redact-token-detail"
+order = 47
+summary = "Khong tra credential deploy ve browser o GET /api/proxy-pools/[id]"
+why = "Cung ro secret nhu P46 nhung o route chi tiet. Giu lai hasToken de UI biet pool nao con du credential de don tai nguyen remote."
+find = '''if(!c)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});return d.NextResponse.json({proxyPool:c})}catch(a){return console.log("Error fetching proxy pool:",a)'''
+replace = '''if(!c)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let $c=c;if($c.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=$c.deployMeta;$c={...$c,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}}return d.NextResponse.json({proxyPool:$c})}catch(a){return console.log("Error fetching proxy pool:",a)'''
+
+[[patch]]
+id = "proxy-pool-redact-token-put"
+order = 48
+summary = "Khong tra credential deploy ve browser o PUT /api/proxy-pools/[id]"
+why = "PUT echo lai chinh object vua ghi, tuc la ca deployMeta. UI khong dung body nay (sau khi luu no goi lai _() de refetch) nen redact khong anh huong hanh vi."
+find = '''let h=await (0,e.Q_)(c,g.updates);return d.NextResponse.json({proxyPool:h})}catch(a)'''
+replace = '''let h=await (0,e.Q_)(c,g.updates);let $h=h;if($h.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=$h.deployMeta;$h={...$h,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}}return d.NextResponse.json({proxyPool:$h})}catch(a)'''
