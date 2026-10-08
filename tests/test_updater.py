@@ -256,8 +256,9 @@ def test_check_router_compatibility():
     assert res["compatible"] is False
     assert res["relation"] == "older"
 
-    # Newer
-    res = updater.check_router_compatibility("0.5.99")
+    # Newer — tính từ target để không lệch khi bump target
+    newer = ".".join(target.split(".")[:2]) + f".{int(target.split('.')[-1]) + 1}"
+    res = updater.check_router_compatibility(newer)
     assert res["compatible"] is False
     assert res["relation"] == "newer"
 

@@ -1447,9 +1447,9 @@ def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
     assert "slice(0,100)" in rep                # length cap present
     assert "slice(0,4)" in rep                  # ACC short label
     # wrap the emitted statement so node can syntax-check it in isolation
-    stmt = rep[rep.index("let aU=aT?aw:aD;if(d?.line){"):]
-    script = ("function st(aT,aw,aD,ak,a,d,as,ar,c,Q,g,t,aL,av){"
-              + stmt + "}\n")
+    stmt = rep[rep.index("k=[`POST"):].rstrip("}")
+    script = ("function st(aT,aw,aD,ak,a,d,as,ar,c,Q,g,t,aL,aM,av,aU,aE,aV,ak_,j,h,i,e,f,k){"
+              + stmt + "\n}\n")
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     tmp = tmp_path / "stmt.js"
@@ -1521,7 +1521,7 @@ def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
     variable; guard reads `ak`, mutates in place, leaves the anchor statement intact."""
     p = by_id(patches, "max-tokens-floor")
-    assert p.find == 'let a0=(0,t.SB)(ar);'
+    assert p.find == 'let a1=(0,t.SB)(ar);'
     assert p.replace.startswith('if(ak&&"number"==typeof ak.max_tokens&&ak.max_tokens<16)ak.max_tokens=16;')
     assert p.replace.endswith(p.find)
 
@@ -1541,7 +1541,7 @@ def test_post_headroom_tool_result_remerge_patch_exists(patches):
     """P28 regression: a post-headroom merge must be anchored after compression, because
     Claude→OpenAI→Claude makes one user message per tool_result."""
     p = by_id(patches, "tool-result-remerge-post-headroom")
-    assert p.find == 'let a1=ak.messages?.length'
+    assert p.find == 'let a2=ak.messages?.length'
     assert '"tool_result"===$b2' in p.replace
     assert '$ms2.splice($i2+1,$mg2.length,$kp2)' in p.replace
 
@@ -1585,7 +1585,7 @@ def test_errbody_html_title_anchor_hits_real_build(patches):
     build = Path(engine.build_dir())
     p = by_id(patches, "errbody-html-title")
     places = _anchor_placements(build, p)
-    assert sum(places.values()) == 1, places
+    assert places and all(v == 1 for v in places.values()), places
 
 
 # ---------- p31: responses-thinking-history-400 ----------
@@ -2112,8 +2112,8 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
 def test_target_version_configured_and_matches_patches_toml():
     import config, engine
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.95"
-    assert engine.target_version() == "0.5.95"
+    assert config.TARGET_9ROUTER_VERSION == "0.5.99"
+    assert engine.target_version() == "0.5.99"
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):
@@ -2173,8 +2173,8 @@ def test_proxy_pool_create_persists_token_without_returning_it(patches):
     truong len `e` se ro accountId/apiToken/vercelToken/denoToken ra browser."""
     import re
     p = by_id(patches, "proxy-pool-create-keeps-deploy-meta")
-    assert re.search(r"return k\(b,\{[^}]*deployMeta:a\.deployMeta\}\),e\}", p.replace), p.replace
-    literal = p.replace[: p.replace.index("return k(b,")]
+    assert re.search(r"return m\(b,\{[^}]*deployMeta:a\.deployMeta\}\),e\}", p.replace), p.replace
+    literal = p.replace[: p.replace.index("return m(b,")]
     assert "deployMeta" not in literal, "deployMeta lot vao object tra ve"
 
 
