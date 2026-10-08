@@ -10,12 +10,12 @@ Authoritative rules live in [CLAUDE.md](CLAUDE.md). Read it first; this file is 
 - **Build Executable**: `python build_app.py` -> `dist\9router-patch.exe` (publish ~18 MB zstd; dev loop: add `--fast`)
 - **Dashboard Port**: `127.0.0.1:20129` (local-only, CSRF-guarded)
 - **GitNexus Repo**: `--repo 9router-patcher` on every call (16 repos indexed; bare tool names `impact`/`context`/`query`/`detect_changes` — never `gitnexus_*` prefix. CLI: prefer `npx gitnexus` / explicit `node E:\Apps\npm-global\node_modules\gitnexus\dist\cli\index.js`; PATH `gitnexus.CMD` is stale 1.6.4-rc.48)
-- **Patches**: `patches.toml` single source (36 patches, 32 groups); after edit run `python tools\make_patches_blob.py`
+- **Patches**: `patches.toml` single source (45 patches, 41 groups); after edit run `python tools\make_patches_blob.py`
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **9router-patcher** (2141 symbols, 7165 relationships, 191 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **9router-patcher** (2153 symbols, 7402 relationships, 192 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
