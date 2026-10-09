@@ -1288,7 +1288,10 @@ def test_update_pinned_badge_when_npm_newer_than_target(web, monkeypatch):
     nói đúng 'ghim bản chuẩn', không mâu thuẫn cạnh badge 'khớp bản chuẩn'."""
     target = engine.target_version()
     monkeypatch.setattr(main.updater, "current_version", lambda: target)
-    monkeypatch.setattr(main.updater, "latest_version", lambda: "0.5.99")  # > target
+    import self_update
+    ma, mi, pa, *_ = self_update.parse_version(target)
+    newer = f"{ma}.{mi}.{pa + 1}"
+    monkeypatch.setattr(main.updater, "latest_version", lambda: newer)  # > target
     main._forget_versions()
     html = web["client"].get("/update").text
     assert "khớp bản chuẩn" in html

@@ -257,7 +257,9 @@ def test_check_router_compatibility():
     assert res["relation"] == "older"
 
     # Newer — tính từ target để không lệch khi bump target
-    newer = ".".join(target.split(".")[:2]) + f".{int(target.split('.')[-1]) + 1}"
+    import self_update
+    ma, mi, pa, *_ = self_update.parse_version(target)
+    newer = f"{ma}.{mi}.{pa + 1}"
     res = updater.check_router_compatibility(newer)
     assert res["compatible"] is False
     assert res["relation"] == "newer"

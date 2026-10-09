@@ -28,7 +28,7 @@
 # `group`: các patch cùng group nằm cùng một file, áp/gỡ atomic (cả nhóm hoặc không cái nào).
 # `defines`: patch này định nghĩa symbol mà patch khác trong group gọi -> áp ĐẦU TIÊN, gỡ CUỐI CÙNG.
 
-target_version = "0.5.95"
+target_version = "0.5.99"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -281,8 +281,8 @@ id = "log-post-trim"
 order = 23
 summary = "POST line: trim provider UUID, model prefix, length cap"
 why = "▶ POST claude-opus-5 → anthropic-compatible-107f4d88-50a4-41bc-8a77-501c54955883/glm-5.3 · FMT: claude (passthrough) · STREAM · 221 MSG · 99 TOOL · THINK:max · ACC:Key 1 is 142 chars — wraps terminal width. Model name is the human hook; UUID is noise."
-find = 'k=[`POST ${b} → ${ar}/${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(av,"▶",k.join(" \xb7 "))}'
-replace = 'k=[`POST ${b} → ${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${String(j).slice(0,4)}`),d.line(av,"▶",k.join(" \xb7 ").slice(0,100))}'
+find = 'let b=Q?.body?.model||`${ar}/${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aU?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aE}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ar}/${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(av,"▶",k.join(" \xb7 "))}'
+replace = 'let b=Q?.body?.model||`${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aU?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aE}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${String(j).slice(0,4)}`),k[0]=k[0].slice(0,100),d.line(av,"▶",k.join(" \xb7 "))}'
 
 # P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
 # Anchor: 8910.js `if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b` around line 4570.
