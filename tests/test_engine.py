@@ -120,8 +120,10 @@ def test_load_patches_real_file(patches):
     # P39 claude-tool-prefix-strip added 2026-09-25
     # P40 relay-strip-client-headers-deno added 2026-09-29
     # 2026-10-01: removed relay-strip-client-headers-vercel + -cf (edge leaks IP, unfixable)
-    # P41-P48 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen)
-    assert len(patches) == 45
+    # P41-P42 netlify relay strip + drop content-encoding added 2026-10-10
+    # P43-P52 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen);
+    #             netlify SSO-off + deploy-meta added 2026-10-10
+    assert len(patches) == 50
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -136,8 +138,8 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 39 standalone + 2 multi-patch groups (sse-hang, nonstream-sse-retry) = 45 patches
-    assert len(grouped) == 41
+    # 43 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 49 patches
+    assert len(grouped) == 46
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -2149,10 +2151,10 @@ def test_main_locate_latest_fetch_error_exits_2_and_cleans_up(monkeypatch, capsy
     assert seen and not seen[0].exists()
 
 
-# ---------- P41-P48: proxy-pool deploy lifecycle ----------
+# ---------- P43-P52: proxy-pool deploy lifecycle ----------
 
 def test_proxy_pool_deploy_meta_anchors_hit_real_build(patches):
-    """P41-P44: moi anchor ton tai dung 1 lan trong build chua patch (chunk doi ten theo
+    """P43-P48: moi anchor ton tai dung 1 lan trong build chua patch (chunk doi ten theo
     version nen khong hardcode ten file)."""
     if _target_mismatch():
         pytest.skip("install version does not match patches target_version")
@@ -2160,11 +2162,113 @@ def test_proxy_pool_deploy_meta_anchors_hit_real_build(patches):
     for pid in ("proxy-pool-create-keeps-deploy-meta",
                 "proxy-pool-cf-deploy-meta",
                 "proxy-pool-vercel-deploy-meta",
-                "proxy-pool-deno-deploy-meta"):
+                "proxy-pool-deno-deploy-meta",
+                "proxy-pool-netlify-sso-off",
+                "proxy-pool-netlify-deploy-meta"):
         p = by_id(patches, pid)
-        assert p.find not in p.replace and p.replace not in p.find, pid
+        assert p.replace not in p.find, pid
+        # replace phai giu nguyen phan dau cua anchor (kieu chen giua): chan truong hop
+        # replace bo/ghi de gan het anchor ma van qua vi anchor chi can unique.
+        assert p.replace.startswith(p.find[:32]), pid
         places = _anchor_placements(build, p)
         assert sum(places.values()) == 1, (pid, places)
+
+
+def test_relay_strip_anchors_hit_real_build(patches):
+    """P40/P41/P42/P42b: anchor strip header + drop content-encoding, moi cai dung 1 lan
+    va nam dung file deploy route cua provider tuong ung."""
+    if _target_mismatch():
+        pytest.skip("install version does not match patches target_version")
+    build = Path(engine.build_dir())
+    expect = {
+        "relay-strip-client-headers-deno": "deno-deploy/route.js",
+        "relay-strip-client-headers-netlify": "netlify-deploy/route.js",
+        "relay-drop-content-encoding-netlify": "netlify-deploy/route.js",
+        "relay-strip-client-headers-cf": "cloudflare-deploy/route.js",
+    }
+    for pid, suffix in expect.items():
+        p = by_id(patches, pid)
+        assert p.find != p.replace, pid
+        places = _anchor_placements(build, p)
+        assert sum(places.values()) == 1, (pid, places)
+        assert next(iter(places)).endswith(suffix), (pid, places)
+
+
+def test_relay_strip_finds_are_single_line(patches):
+    """Anchor cua moi patch relay-strip phai la 1 DONG: find nhieu dong vo khi tarball
+    gate ghep find vao mot file bang \\n (Windows write_text doi thanh \\r\\n)."""
+    for pid in ("relay-strip-client-headers-deno",
+                "relay-strip-client-headers-netlify",
+                "relay-drop-content-encoding-netlify",
+                "relay-strip-client-headers-cf"):
+        p = by_id(patches, pid)
+        assert "\n" not in p.find, (pid, "find phai la 1 dong")
+
+
+def test_netlify_relay_strip_covers_every_identity_header(patches):
+    """P41: template netlify phai xoa du 7 header danh tinh (ke ca x-nf-client-connection-ip
+    do Netlify tu tiem, va client-ip). Thieu mot cai la IP that lot ra upstream -> block 401/403."""
+    p = by_id(patches, "relay-strip-client-headers-netlify")
+    for h in ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+              "x-real-ip", "forwarded", "client-ip", "x-nf-client-connection-ip"):
+        assert f'lower === "{h}"' in p.replace, h
+    # khong duoc bo mat 3 header goc cua upstream
+    for h in ("x-relay-target", "x-relay-path", "host"):
+        assert f'lower === "{h}"' in p.replace, h
+    assert p.replace.startswith(p.find.rstrip(') {')), "replace phai giu nguyen phan dau cua if"
+    assert p.replace.endswith(') {'), "replace phai ket thuc bang ') {'"
+
+
+def test_cf_relay_strip_covers_every_identity_header(patches):
+    """P42b: template CF phai xoa du 14 header danh tinh. Do 2026-10-11 tren production:
+    stock worker ro Cf-Connecting-Ip (IP that); goi THAT key TokenHarbor qua relay CF sau
+    strip tra ve 200 JSON Claude hop le, trong khi truc tiep tu IP VN tra 403."""
+    p = by_id(patches, "relay-strip-client-headers-cf")
+    for h in ("cf-connecting-ip", "cf-connecting-ipv6", "cf-pseudo-ipv4", "true-client-ip",
+              "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "x-forwarded-port",
+              "x-forwarded-ssl", "x-forwarded-server", "x-real-ip", "client-ip",
+              "forwarded", "cf-worker"):
+        assert f'"{h}"' in p.replace, h
+    # $ prefix de khong va cham ten bien minifier
+    assert "for (const $h of [" in p.replace
+    # khong duoc bo mat 3 header goc cua upstream
+    assert p.find in p.replace, "replace phai giu nguyen anchor delete host"
+    # worker nay KHONG duoc strip content-encoding: do 2026-10-11 thay response CF
+    # khong co header do (body plaintext dung) — khac bug cua Netlify.
+    assert "content-encoding" not in p.replace.lower()
+
+
+def test_netlify_drops_content_encoding(patches):
+    """P42: undici tu giai nen body nhung giu header content-encoding; khong xoa thi
+    client giai nen lan 2 -> 'Not a gzipped file'. Phai xoa CA hai cach viet hoa."""
+    p = by_id(patches, "relay-drop-content-encoding-netlify")
+    assert 'responseHeaders["content-encoding"]' in p.replace
+    assert 'responseHeaders["Content-Encoding"]' in p.replace
+    assert p.replace.index("delete responseHeaders") < p.replace.index("const contentType"), \
+        "phai xoa header TRUOC khi doc content-type"
+
+
+def test_netlify_sso_off_runs_before_deploy_metadata(patches):
+    """P47: PATCH sso_login:false phai nam ngay sau khi co site id va TRUOC khi goi ZO(),
+    neu khong site da luu vao pool ma van bi 401 Login Redirect."""
+    p = by_id(patches, "proxy-pool-netlify-sso-off")
+    assert 'method:"PATCH"' in p.replace
+    assert 'sso_login:!1' in p.replace
+    assert "${g}/sites/${w}" in p.replace, "phai dung dung bien g va w cua route"
+    # nuot loi: try/catch, khong duoc nem ra ngoai lam hong deploy
+    assert p.replace.index("try{await fetch") < p.replace.index("}catch(e){}")
+    assert p.find in p.replace, "replace phai giu nguyen anchor de con idempotent"
+
+
+def test_netlify_deploy_meta_keeps_token_and_site_id(patches):
+    """P48: deployMeta phai chua netlifyToken + siteId thi $teardown moi xoa duoc site."""
+    p = by_id(patches, "proxy-pool-netlify-deploy-meta")
+    for field in ("type:\"netlify\"", "netlifyToken:r", "siteId:w", "projectName:s"):
+        assert field in p.replace, field
+    assert p.find != p.replace, "replace phai dai hon find"
+    # replace noi dai tu find (append deployMeta vao ZO call) chu khong viet lai anchor
+    head, tail = p.replace.split("deployMeta:{", 1)
+    assert p.find.startswith(head.rstrip(",")), "replace phai giu nguyen phan dau cua anchor"
 
 
 def test_proxy_pool_create_persists_token_without_returning_it(patches):
@@ -2210,16 +2314,17 @@ def test_proxy_pool_redact_anchors_hit_real_build(patches):
         assert next(iter(places)).endswith(suffix), (pid, places)
 
 
-def test_proxy_pool_teardown_calls_all_three_providers(patches, tmp_path):
-    """Unit tren replacement cua P45: moi nhanh provider co dung URL/HTTP method/headers.
+def test_proxy_pool_teardown_calls_all_four_providers(patches, tmp_path):
+    """Unit tren replacement cua P48: moi nhanh provider co dung URL/HTTP method/headers.
     Khong goi mang that: checker thay the global fetch bang stub."""
     import re
     src = by_id(patches, "proxy-pool-remote-teardown-on-delete").replace
     for prov, url in (("cloudflare", "api.cloudflare.com/client/v4/accounts/"),
                       ("vercel", "api.vercel.com/v9/projects/"),
-                      ("deno", "api.deno.com/v2/apps/")):
+                      ("deno", "api.deno.com/v2/apps/"),
+                      ("netlify", "api.netlify.com/api/v1/sites/")):
         assert url in src, prov
-    assert src.count('method:"DELETE"') == 3, "moi provider mot DELETE"
+    assert src.count('method:"DELETE"') == 4, "moi provider mot DELETE"
     # Moi loi remote bi nuot trong try/catch cua $teardown: ton tai canh try{...}catch(e)
     assert re.search(r"async function \$teardown\(p\)\{try\{", src), "thieu try/catch"
     # $teardown duoc goi TRUOC khi xoa local: vi tri await sau guard 409, truoc Yd
@@ -2230,7 +2335,7 @@ def test_proxy_pool_teardown_calls_all_three_providers(patches, tmp_path):
 
     # Thuc thi logic branch tren fake JS runtime: node --check chi xem cu phap chu khong
     # xem nhanh nao chay. Chi lay phan $teardown: `h` trong `src` bi cat cut vi find cua
-    # P45 dung truoc `}catch(`, ghep nguyen no vao stub se ra ham try khong co catch.
+    # P48 dung truoc `}catch(`, ghep nguyen no vao stub se ra ham try khong co catch.
     teardown = src[: src.index("async function h")]
     stub = tmp_path / "stub.mjs"
     stub.write_text(
@@ -2243,10 +2348,11 @@ def test_proxy_pool_teardown_calls_all_three_providers(patches, tmp_path):
         "const t = process.argv[2];\n"
         + teardown
         + "\nconst meta={type:t,accountId:'a',apiToken:'x',scriptName:'s',"
-        "vercelToken:'v',projectId:'p',projectName:'n',denoToken:'d',appId:'appid'};\n"
+        "vercelToken:'v',projectId:'p',projectName:'n',denoToken:'d',appId:'appid',"
+        "netlifyToken:'nt',siteId:'sid'};\n"
         "await $teardown({deployMeta: meta});\n"
         "if(__calls.length!==1)process.exit(9);\n"
-        "console.log(__calls[0][0], __calls[0][1], meta.seen);\n",
+        "console.log(__calls[0][0], __calls[0][1]);\n",
         encoding="utf-8",
     )
     import subprocess
@@ -2255,7 +2361,8 @@ def test_proxy_pool_teardown_calls_all_three_providers(patches, tmp_path):
         pytest.skip("node not installed")
     for t, needle in (("cloudflare", "api.cloudflare.com"),
                       ("vercel", "api.vercel.com"),
-                      ("deno", "api.deno.com")):
+                      ("deno", "api.deno.com"),
+                      ("netlify", "api.netlify.com")):
         r = subprocess.run([node, str(stub), t], capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, (t, r.stderr or r.stdout)
         assert needle in r.stdout, (t, r.stdout)

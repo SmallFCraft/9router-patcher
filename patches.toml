@@ -508,12 +508,21 @@ replace = ';(function(){try{if(!ak||!Array.isArray(ak.tools)||!Array.isArray(ak.
 # x-forwarded-for/x-real-ip/forwarded la du de upstream thay IP that - va x-relay
 # chay tren deno deploy van copy nguyen.
 # Anchor 1 DONG, unique 1 ban / 1 file tren build hien tai (da do bang engine._js_files).
-# 2026-10-01: P41 (vercel) va P42 (cloudflare) da GO BO. Ly do do song:
-#   - Vercel: edge tu tiem "Forwarded: for=<IP that>" luc egress, khong the strip
-#     tu code handler -> upstream luon thay IP client. Vo dung cho muc dich che IP.
-#   - Cloudflare: egress la IPv6 anycast 2a06:98c0:3600::/40 cua CF, TokenHarbor
-#     geo-block ca dai -> 403 region. Worker khong doi duoc egress IP (tru Enterprise).
-# Chi con Deno Deploy che duoc IP (egress IP sach, US).
+#
+# 2026-10-11: da DO LAI tren production (khong con suy doan tu note cu 2026-10-01).
+#   - Vercel: VAN KHONG che duoc IP. Edge tu tiem "Forwarded: for=<IP that>;...;sig=..."
+#     luc egress. Handler set x-real-ip=0.0.0.0 thi upstream giu 0.0.0.0, nhung header
+#     Forwarded bi Vercel GHI DE HOAN TOAN (co chu ky sig=, khong the override tu code).
+#     => P41/P42 (vercel) van GO BO. Dung.
+#   - Cloudflare: TRUOC DAY KET LUAN SAI ("geo-block ca dai -> 403"). Do lai 2026-10-11:
+#     stock worker ro Cf-Connecting-Ip; sau khi strip 14 header danh tinh thi upstream
+#     chi con egress anycast 2a06:98c0:3600::103. Goi THAT key TokenHarbor qua relay CF
+#     tra ve 200 + JSON Claude hop le (msg_..., model claude-haiku-5.5), trong khi goi
+#     truc tiep tu IP VN tra 403 request_forbidden. => CF CHE DUOC IP, patch da duoc
+#     khoi phuc o P42 (relay-strip-client-headers-cf).
+#   - CF KHONG dinh bug gzip nhu Netlify: response khong co header Content-Encoding,
+#     body plaintext dung => khong can patch drop-content-encoding cho CF.
+# Chi tiet bug content-encoding: xem P41b (relay-drop-content-encoding-netlify).
 
 [[patch]]
 id = "relay-strip-client-headers-deno"
@@ -529,34 +538,75 @@ replace = '''  newHeaders.delete("host");
   newHeaders.delete("forwarded");
   newHeaders.set("accept-encoding", "identity");'''
 
-# P41-P48: xoa proxy pool phai don ca tai nguyen da deploy tren Cloudflare/Vercel/Deno.
+# P41 - Netlify relay: strip header danh tinh client + set accept-encoding identity.
+# Template netlify copy { ...event.headers } roi chi xoa x-relay-target/path va host.
+# Netlify Functions tiêm x-nf-client-connection-ip (chứa IP thật của client) và forward
+# cả client-ip / x-forwarded-* / forwarded do client tự gửi sang upstream, khiến TokenHarbor
+# hoặc provider chặn theo IP (401/403). Strip toàn bộ các header này tại code handler của
+# Lambda để upstream chỉ thấy egress IP của AWS/Netlify (us-east-2).
+# Đồng thời ép accept-encoding: identity để tránh lỗi upstream trả gzip/br nhưng template
+# ép sang string utf8 gây rác byte.
+
+[[patch]]
+id = "relay-strip-client-headers-netlify"
+order = 41
+summary = "Netlify relay khong forward header danh tinh client ra upstream"
+why = "Template netlify forward ca x-nf-client-connection-ip (Netlify inject, chua IP that), client-ip, x-forwarded-* va forwarded sang upstream khien TokenHarbor/AI provider thay IP VN va block (401/403). Strip cac header do de upstream chi thay egress IP Netlify/AWS (us-east-2). Single-line anchor tranh lech byte tren Windows/tarball."
+find = 'if (lower === "x-relay-target" || lower === "x-relay-path" || lower === "host") {'
+replace = 'if (lower === "x-relay-target" || lower === "x-relay-path" || lower === "host" || lower === "x-forwarded-for" || lower === "x-forwarded-host" || lower === "x-forwarded-proto" || lower === "x-real-ip" || lower === "forwarded" || lower === "client-ip" || lower === "x-nf-client-connection-ip") {'
+
+[[patch]]
+id = "relay-drop-content-encoding-netlify"
+order = 42
+summary = "Xoa content-encoding khoi response Netlify vi fetch da tu giai nen"
+why = "Node fetch (undici) trong Netlify Lambda tu dong giai nen body gzip/br nhung giu nguyen header content-encoding trong upstream.headers. Lambda copy nguyen header sang responseHeaders va tra body plaintext, khien client (curl/9router) tuong van la gzip nen giai nen lan 2 va crash 'Not a gzipped file' / 502. Xoa header nay de responseHeaders khop voi body plaintext thuc te."
+find = 'const contentType = upstream.headers.get("content-type") || "";'
+replace = 'delete responseHeaders["content-encoding"];delete responseHeaders["Content-Encoding"];const contentType = upstream.headers.get("content-type") || "";'
+
+# P42b - Cloudflare Worker relay: strip header danh tinh client (khoi phuc 2026-10-11).
+# NOTE: order 53 thay vi 43 vi cac patch 43-52 da co (proxy-pool lifecycle). Order chi
+# quyet dinh thu tu apply va day deu la cac patch doc lap tren file khac nhau nen khong can don.
+# Template CF (worker index.js): new Headers(request.headers) roi chi xoa 3 header
+# x-relay-target/x-relay-path/host. Do 2026-10-11: stock ro Cf-Connecting-Ip = IP that.
+# Danh sach 14 header nay la cai do duoc do: strip no thi upstream chi con thay egress
+# anycast 2a06:98c0:3600::103 (khong con IP VN). Khong can patch content-encoding cho CF
+# vi response khong co header do (da do, body plaintext dung). $h de tranh va cham minifier.
+
+[[patch]]
+id = "relay-strip-client-headers-cf"
+order = 53
+summary = "Cloudflare Worker relay khong forward header danh tinh client ra upstream"
+why = "Template CF copy new Headers(request.headers) chi xoa 3 header, nen Cf-Connecting-Ip (CF tu tiem, chua IP that cua client) va cac x-forwarded-*/forwarded/client-ip duoc forward ra upstream. Do 2026-10-11: goi THAT tokenharbor qua relay CF sau strip tra ve 200 JSON Claude hop le, truc tiep tu IP VN tra 403 request_forbidden -> CF che duoc IP bang cach strip header nay."
+find = '''newRequestInit.headers.delete("host");'''
+replace = '''newRequestInit.headers.delete("host");
+    for (const $h of ["cf-connecting-ip","cf-connecting-ipv6","cf-pseudo-ipv4","true-client-ip","x-forwarded-for","x-forwarded-proto","x-forwarded-host","x-forwarded-port","x-forwarded-ssl","x-forwarded-server","x-real-ip","client-ip","forwarded","cf-worker"]) newRequestInit.headers.delete($h);'''
+
+# P43-P52: xoa proxy pool phai don ca tai nguyen da deploy tren Cloudflare/Vercel/Deno/Netlify.
 # Root cause: DELETE /api/proxy-pools/[id] chi chay DELETE FROM proxyPools. Credential
-# deploy (accountId/apiToken/vercelToken/denoToken) truoc day chi song trong React state
-# cua dialog deploy, POST mot lan roi mat -> luc xoa khong con gi de goi API remote.
+# deploy (accountId/apiToken/vercelToken/denoToken/netlifyToken) truoc day chi song trong
+# React state cua dialog deploy, POST mot lan roi mat -> luc xoa khong con gi de goi API remote.
 # Cach lam: nhet credential + dinh danh tai nguyen vao object truyen cho ZO() khi deploy.
 # storeProxyPool() tach moi field ngoai {id,isActive,testStatus,createdAt,updatedAt} vao
 # cot `data` JSON nen KHONG can migrate schema (da do round-trip bang sqlite that).
-#   P41-P43 ghi credential (3 file deploy route khac nhau -> 3 anchor rieng).
-#   P48   createProxyPool() dung object TUONG MINH, khong spread `a`, nen phai noi rong
-#         o day; thieu no thi ca P41-P43 deu vo nghia (field bi nuot truoc khi vao DB).
-#         updateProxyPool() thi `{...j(d),...b}` da giu nguyen deployMeta -> khong can sua.
-#   P44   teardown remote truoc khi xoa local, best-effort: moi loi remote bi nuot trong
+#   P43-P48 ghi credential (4 route deploy rieng). Netlify co them patch P47 tat SSO site.
+#   P43   createProxyPool() dung object TUONG MINH, khong spread `a`, nen phai noi rong
+#         o day; thieu no thi cac patch deploy-meta deu vo nghia (field bi nuot truoc khi vao DB).
+#   P47   Netlify tu dong ke thua team SSO khien site moi bi 401 Login Redirect; PATCH sso_login:false.
+#   P49   teardown remote truoc khi xoa local, best-effort: moi loi remote bi nuot trong
 #         try/catch cua $teardown nen khong bao gio chan viec xoa local.
-#   P45-P47 redact token khoi MOI response tra ve browser (list / detail / PUT echo);
-#         token chi con trong DB, dung cho teardown. UI khong doc body PUT (sau khi luu
-#         no refetch) nen redact khong doi hanh vi.
+#   P50-P52 redact token khoi MOI response tra ve browser (list / detail / PUT echo).
 
 [[patch]]
 id = "proxy-pool-create-keeps-deploy-meta"
-order = 41
+order = 43
 summary = "createProxyPool giu lai deployMeta thay vi nuot mat"
-why = "Ham create dung object tuong minh {id,name,proxyUrl,...} nen deployMeta bi bo truoc khi vao cot data; neu khong 3 patch P42-P44 deu vo nghia. Nhet deployMeta vao tham so cua k() chu khong vao e, vi `e` chinh la object duoc tra ve controller va 3 route deploy xuat no day du o {proxyPool:...} -> ro token. Giu truong len tren`e` thi ca tao tay (POST /api/proxy-pools) cung tra token. Khong can guard cho truong hop http: storeProxyPool luu bang JSON.stringify, key undefined tu bi bo."
+why = "Ham create dung object tuong minh {id,name,proxyUrl,...} nen deployMeta bi bo truoc khi vao cot data; neu khong cac patch deploy-meta deu vo nghia. Nhet deployMeta vao tham so cua k() chu khong vao e, vi `e` chinh la object duoc tra ve controller va cac route deploy xuat no day du o {proxyPool:...} -> ro token."
 find = '''lastError:a.lastError||null,createdAt:c,updatedAt:c};return m(b,e),e}'''
 replace = '''lastError:a.lastError||null,createdAt:c,updatedAt:c};return m(b,{...e,deployMeta:a.deployMeta}),e}'''
 
 [[patch]]
 id = "proxy-pool-cf-deploy-meta"
-order = 42
+order = 44
 summary = "Luu accountId/apiToken/scriptName cua Cloudflare Worker vao proxy pool"
 why = "Xoa pool phai xoa duoc Worker tren Cloudflare. Response cua POST /workers/scripts khong tra ve accountId nen phai giu tu request. scriptName chinh la projectName da dung lam ten Worker."
 find = '''let o=await (0,e.ZO)({name:h,proxyUrl:m,type:"cloudflare",noProxy:"",isActive:!0,strictProxy:!1});'''
@@ -564,7 +614,7 @@ replace = '''let o=await (0,e.ZO)({name:h,proxyUrl:m,type:"cloudflare",noProxy:"
 
 [[patch]]
 id = "proxy-pool-vercel-deploy-meta"
-order = 43
+order = 45
 summary = "Luu vercelToken/projectId cua Vercel deployment vao proxy pool"
 why = "DELETE /v9/projects/{idOrName} doi bearer token. projectId uu tien hon projectName de khong phu thuoc viec user doi ten project sau nay."
 find = '''let n=await h(l,c),o=`https://${n.url}`,p=await (0,e.ZO)({name:i,proxyUrl:o,type:"vercel",noProxy:"",isActive:!0,strictProxy:!1});'''
@@ -572,41 +622,58 @@ replace = '''let n=await h(l,c),o=`https://${n.url}`,p=await (0,e.ZO)({name:i,pr
 
 [[patch]]
 id = "proxy-pool-deno-deploy-meta"
-order = 44
+order = 46
 summary = "Luu denoToken/orgDomain/appId cua Deno Deploy app vao proxy pool"
 why = "DELETE /v2/apps/{id} doi bearer token va app id (khong dung duoc slug). Route deno-deploy da co san mau goi DELETE nay luc deploy that bai nen dung dung hinh dang do."
 find = '''let r=h.split(".")[0],s=`https://${i}.${r}.deno.net`;console.log("Deno deployUrl:",s);let t=await (0,e.ZO)({name:i,proxyUrl:s,type:"deno",noProxy:"",isActive:!0,strictProxy:!1});'''
 replace = '''let r=h.split(".")[0],s=`https://${i}.${r}.deno.net`;console.log("Deno deployUrl:",s);let t=await (0,e.ZO)({name:i,proxyUrl:s,type:"deno",noProxy:"",isActive:!0,strictProxy:!1,deployMeta:{type:"deno",denoToken:c,orgDomain:h,appId:l.id,projectName:i}});'''
 
 [[patch]]
+id = "proxy-pool-netlify-sso-off"
+order = 47
+summary = "Tat SSO cua site Netlify ngay sau khi tao de relay khong bi 401 Login Redirect"
+why = "POST /sites tao site moi mac dinh ke thua account_sso_login=true tu team khien moi request toi relay bi 401 HTML Login Redirect. PATCH sso_login:false ngay sau khi tao site de site va relay function truy cap duoc cong khai."
+find = '''let v=await u.json(),w=v.id||v.site_id,x=v.ssl_url||v.url;if(!w||!x)return d.NextResponse.json({error:"Netlify site created but no site URL returned"},{status:502});'''
+replace = '''let v=await u.json(),w=v.id||v.site_id,x=v.ssl_url||v.url;if(!w||!x)return d.NextResponse.json({error:"Netlify site created but no site URL returned"},{status:502});try{await fetch(`${g}/sites/${w}`,{method:"PATCH",headers:t,body:JSON.stringify({sso_login:!1})})}catch(e){}'''
+
+[[patch]]
+id = "proxy-pool-netlify-deploy-meta"
+order = 48
+summary = "Luu netlifyToken/siteId cua Netlify site vao proxy pool"
+why = "DELETE /api/v1/sites/{site_id} can bearer token va siteId de xoa site tren Netlify khi user xoa proxy pool."
+find = '''let H=`${String(x||"").replace(/\/$/,"")}/.netlify/functions/relay`,I=await (0,e.ZO)({name:s,proxyUrl:H,type:"netlify",noProxy:"",isActive:!0,strictProxy:!1});'''
+replace = '''let H=`${String(x||"").replace(/\/$/,"")}/.netlify/functions/relay`,I=await (0,e.ZO)({name:s,proxyUrl:H,type:"netlify",noProxy:"",isActive:!0,strictProxy:!1,deployMeta:{type:"netlify",netlifyToken:r,siteId:w,projectName:s}});'''
+
+[[patch]]
 id = "proxy-pool-remote-teardown-on-delete"
-order = 45
-summary = "Xoa tai nguyen da deploy tren Cloudflare/Vercel/Deno khi xoa proxy pool"
-why = "DELETE /api/proxy-pools/[id] truoc day chi xoa row trong DB, Worker/Project/App tren provider van song va van tinh quota. Teardown chay TRUOC khi xoa local va la best-effort: moi loi remote (token het han, mat mang, provider doi API) bi nuot trong try/catch cua $teardown nen khong bao gio chan viec xoa local. AbortSignal.timeout(15e3) de mot provider treo khong giu request xoa lau. force=true cho Cloudflare de xoa duoc Worker con binding. Doc $p mot lan qua (0,e.hr)(a) thay vi goi lai hai lan."
+order = 49
+summary = "Xoa tai nguyen da deploy tren Cloudflare/Vercel/Deno/Netlify khi xoa proxy pool"
+why = "DELETE /api/proxy-pools/[id] truoc day chi xoa row trong DB, Worker/Project/App/Site tren provider van song va van tinh quota. Teardown chay TRUOC khi xoa local va la best-effort: moi loi remote bi nuot trong try/catch cua $teardown nen khong bao gio chan viec xoa local. AbortSignal.timeout(15e3) de mot provider treo khong giu request xoa lau."
 find = '''async function h(a,{params:b}){try{let{id:a}=await b;if(!await (0,e.hr)(a))return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let c=await (0,e.getProviderConnections)(),f=function(a=[],b){return a.filter(a=>a?.providerSpecificData?.proxyPoolId===b).length}(c,a);if(f>0)return d.NextResponse.json({error:"Proxy pool is currently in use",boundConnectionCount:f},{status:409});return await (0,e.Yd)(a),d.NextResponse.json({success:!0})}'''
-replace = '''async function $teardown(p){try{let m=p&&p.deployMeta;if(!m)return;if("cloudflare"===m.type&&m.accountId&&m.apiToken&&m.scriptName)await fetch("https://api.cloudflare.com/client/v4/accounts/"+m.accountId+"/workers/scripts/"+encodeURIComponent(m.scriptName)+"?force=true",{method:"DELETE",headers:{Authorization:"Bearer "+m.apiToken},signal:AbortSignal.timeout(15e3)});else if("vercel"===m.type&&m.vercelToken&&(m.projectId||m.projectName))await fetch("https://api.vercel.com/v9/projects/"+encodeURIComponent(m.projectId||m.projectName),{method:"DELETE",headers:{Authorization:"Bearer "+m.vercelToken},signal:AbortSignal.timeout(15e3)});else if("deno"===m.type&&m.denoToken&&m.appId)await fetch("https://api.deno.com/v2/apps/"+encodeURIComponent(m.appId),{method:"DELETE",headers:{Authorization:"Bearer "+m.denoToken},signal:AbortSignal.timeout(15e3)})}catch(e){console.warn("[9router] remote teardown skipped:",e&&e.message)}}
+replace = '''async function $teardown(p){try{let m=p&&p.deployMeta;if(!m)return;if("cloudflare"===m.type&&m.accountId&&m.apiToken&&m.scriptName)await fetch("https://api.cloudflare.com/client/v4/accounts/"+m.accountId+"/workers/scripts/"+encodeURIComponent(m.scriptName)+"?force=true",{method:"DELETE",headers:{Authorization:"Bearer "+m.apiToken},signal:AbortSignal.timeout(15e3)});else if("vercel"===m.type&&m.vercelToken&&(m.projectId||m.projectName))await fetch("https://api.vercel.com/v9/projects/"+encodeURIComponent(m.projectId||m.projectName),{method:"DELETE",headers:{Authorization:"Bearer "+m.vercelToken},signal:AbortSignal.timeout(15e3)});else if("deno"===m.type&&m.denoToken&&m.appId)await fetch("https://api.deno.com/v2/apps/"+encodeURIComponent(m.appId),{method:"DELETE",headers:{Authorization:"Bearer "+m.denoToken},signal:AbortSignal.timeout(15e3)});else if("netlify"===m.type&&m.netlifyToken&&m.siteId)await fetch("https://api.netlify.com/api/v1/sites/"+encodeURIComponent(m.siteId),{method:"DELETE",headers:{Authorization:"Bearer "+m.netlifyToken},signal:AbortSignal.timeout(15e3)})}catch(e){console.warn("[9router] remote teardown skipped:",e&&e.message)}}
 async function h(a,{params:b}){try{let{id:a}=await b;let $p=await (0,e.hr)(a);if(!$p)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let c=await (0,e.getProviderConnections)(),f=function(a=[],b){return a.filter(a=>a?.providerSpecificData?.proxyPoolId===b).length}(c,a);if(f>0)return d.NextResponse.json({error:"Proxy pool is currently in use",boundConnectionCount:f},{status:409});await $teardown($p);return await (0,e.Yd)(a),d.NextResponse.json({success:!0})}'''
 
 [[patch]]
 id = "proxy-pool-redact-token-list"
-order = 46
+order = 50
 summary = "Khong tra credential deploy ve browser o GET /api/proxy-pools"
-why = "deployMeta chua apiToken/vercelToken/denoToken. Tra nguyen object ve UI la ro secret (quy tac repo: khong lo API key/provider secret). $redact chay ngay sau (0,e.ui)(h) nen ca nhanh som (khong includeUsage) lan nhanh muon deu da sach; map lan hai chi them boundConnectionCount nen khong redact chong (redact chong se lat hasToken ve false)."
+why = "deployMeta chua apiToken/vercelToken/denoToken/netlifyToken. Tra nguyen object ve UI la ro secret (quy tac repo: khong lo API key/provider secret). $redact chay ngay sau (0,e.ui)(h) nen ca nhanh som (khong includeUsage) lan nhanh muon deu da sach."
 find = '''let i=await (0,e.ui)(h);if(!g)return d.NextResponse.json({proxyPools:i});let j=await (0,e.getProviderConnections)(),k=function(a=[]){let b=new Map;for(let c of a){let a=c?.providerSpecificData?.proxyPoolId;a&&b.set(a,(b.get(a)||0)+1)}return b}(j),l=i.map(a=>({...a,boundConnectionCount:k.get(a.id)||0}));'''
-replace = '''let i=(await (0,e.ui)(h)).map(function $redact(p){if(!p||!p.deployMeta)return p;let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=p.deployMeta;return{...p,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}});if(!g)return d.NextResponse.json({proxyPools:i});let j=await (0,e.getProviderConnections)(),k=function(a=[]){let b=new Map;for(let c of a){let a=c?.providerSpecificData?.proxyPoolId;a&&b.set(a,(b.get(a)||0)+1)}return b}(j),l=i.map(a=>({...a,boundConnectionCount:k.get(a.id)||0}));'''
+replace = '''let i=(await (0,e.ui)(h)).map(function $redact(p){if(!p||!p.deployMeta)return p;let{apiToken:$a,vercelToken:$v,denoToken:$d,netlifyToken:$n,...$m}=p.deployMeta;return{...p,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d&&!$n)}}});if(!g)return d.NextResponse.json({proxyPools:i});let j=await (0,e.getProviderConnections)(),k=function(a=[]){let b=new Map;for(let c of a){let a=c?.providerSpecificData?.proxyPoolId;a&&b.set(a,(b.get(a)||0)+1)}return b}(j),l=i.map(a=>({...a,boundConnectionCount:k.get(a.id)||0}));'''
 
 [[patch]]
 id = "proxy-pool-redact-token-detail"
-order = 47
+order = 51
 summary = "Khong tra credential deploy ve browser o GET /api/proxy-pools/[id]"
-why = "Cung ro secret nhu P46 nhung o route chi tiet. Giu lai hasToken de UI biet pool nao con du credential de don tai nguyen remote."
+why = "Cung ro secret nhu P50 nhung o route chi tiet. Giu lai hasToken de UI biet pool nao con du credential de don tai nguyen remote."
 find = '''if(!c)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});return d.NextResponse.json({proxyPool:c})}catch(a){return console.log("Error fetching proxy pool:",a)'''
-replace = '''if(!c)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let $c=c;if($c.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=$c.deployMeta;$c={...$c,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}}return d.NextResponse.json({proxyPool:$c})}catch(a){return console.log("Error fetching proxy pool:",a)'''
+replace = '''if(!c)return d.NextResponse.json({error:"Proxy pool not found"},{status:404});let $c=c;if($c.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,netlifyToken:$n,...$m}=$c.deployMeta;$c={...$c,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d&&!$n)}}}return d.NextResponse.json({proxyPool:$c})}catch(a){return console.log("Error fetching proxy pool:",a)'''
 
 [[patch]]
 id = "proxy-pool-redact-token-put"
-order = 48
+order = 52
 summary = "Khong tra credential deploy ve browser o PUT /api/proxy-pools/[id]"
 why = "PUT echo lai chinh object vua ghi, tuc la ca deployMeta. UI khong dung body nay (sau khi luu no goi lai _() de refetch) nen redact khong anh huong hanh vi."
 find = '''let h=await (0,e.Q_)(c,g.updates);return d.NextResponse.json({proxyPool:h})}catch(a)'''
-replace = '''let h=await (0,e.Q_)(c,g.updates);let $h=h;if($h.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,...$m}=$h.deployMeta;$h={...$h,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d)}}}return d.NextResponse.json({proxyPool:$h})}catch(a)'''
+replace = '''let h=await (0,e.Q_)(c,g.updates);let $h=h;if($h.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,netlifyToken:$n,...$m}=$h.deployMeta;$h={...$h,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d&&!$n)}}}return d.NextResponse.json({proxyPool:$h})}catch(a)'''
+

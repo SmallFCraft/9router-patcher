@@ -25,17 +25,17 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (45 patches, 41 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
+- `patches.toml` — Single source of truth (50 patches, 46 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
-## Verified Baselines (2026-09-27, re-verified live)
+## Verified Baselines (2026-10-11, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q` → **417 passed, 5 skipped**.
-  Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.91 → patch states legitimately differ), `318.js` not in current build, `test_tray` non-Windows no-op paths.
-- Engine tests: `python -m pytest tests/test_engine.py -q` → **105 passed, 2 skipped**.
-- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **68 passed, 2 skipped**.
+- Full test suite: `python -m pytest tests/ -q` → **439 passed, 5 skipped**.
+  Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.99 → patch states legitimately differ), `318.js` not in current build, `test_tray` non-Windows no-op paths.
+- Engine tests: `python -m pytest tests/test_engine.py -q` → **117 passed, 2 skipped**.
+- App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q` → **72 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
 
 ## Standalone Distribution (Executable)
@@ -94,29 +94,30 @@ CLI syntax: `impact` uses `-r/--repo` and `-d/--direction`; top-level commands l
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **9router-patcher** (2153 symbols, 7402 relationships, 192 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **9router-patcher** (1358 symbols, 3788 relationships, 120 execution flows).
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+> Index stale? Run `node .gitnexus/run.cjs analyze --index-only` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- **MUST run impact before editing.** Use `impact({target: "symbolName", direction: "upstream"})` or `node .gitnexus/run.cjs impact "symbolName" --direction upstream --repo .`; report callers, processes, and risk. Never substitute grep for graph analysis.
+- **MUST analyze graph changes before committing.** Use `detect_changes({scope: "all"})` (MCP) or `node .gitnexus/run.cjs detect-changes --scope all --repo .` (CLI fallback). `partial: true` or `truncated: true` is not a clean check — a zero means unseen, not unaffected; re-run it. For regression review: `detect_changes({scope: "compare", base_ref: "main"})` or `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --repo .`.
+- MUST warn on HIGH/CRITICAL `risk` pre-edit; never use `riskSharedAxes` to waive a HIGH/CRITICAL `risk` warning. Compare File/symbol: MCP File omits axes; Graph-RAG expands File.
+- **MUST treat `risk: UNKNOWN` as unresolved, not as low.** An empty caller set is not evidence the symbol is unused — it can also mean the callers are not resolvable by the index (plain-object property access, dynamic dispatch, cross-language calls). `impact` pairs `UNKNOWN` with a `riskNote` saying so. Confirm with a text search before treating the symbol as safe to change or delete; do not proceed on the strength of a zero.
+- **MUST use `query({search_query: "concept"})` for concepts/flows, `context({name: "symbolName"})` for a named symbol, or `impact` for blast radius, on read-only callers, dependencies, imports, or execution flow.** Graph first; text search only for empty/`UNKNOWN`/literals.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER edit a function, class, or method before MCP/CLI impact analysis.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis, and never read `UNKNOWN` as an all-clear — it means the walk could not answer, which is the one verdict that requires confirming by other means.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit before MCP/CLI graph change analysis.
 
 ## Resources
 
 | Resource | Use for |
-|----------|---------|
+| --- | --- |
 | `gitnexus://repo/9router-patcher/context` | Codebase overview, check index freshness |
 | `gitnexus://repo/9router-patcher/clusters` | All functional areas |
 | `gitnexus://repo/9router-patcher/processes` | All execution flows |
@@ -125,13 +126,13 @@ This project is indexed by GitNexus as **9router-patcher** (2153 symbols, 7402 r
 ## CLI
 
 | Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| --- | --- |
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 (Plugin regenerates content between the markers above. Authoritative GitNexus rules are the section above — if the regenerated block disagrees, the section above wins.)
