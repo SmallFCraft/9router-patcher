@@ -197,8 +197,15 @@ def status_line(text: str) -> None:
     p = palette()
     limit = width() - 4
     if len(text) > limit:
-        text = text[:limit - 1].rstrip() + "…"
-    print(f"  {p.gray}{text}{p.reset}", flush=True)
+        text = text[:limit - 1].rstrip() + ("…" if unicode_ok() else "...")
+    try:
+        print(f"  {p.gray}{text}{p.reset}", flush=True)
+    except OSError:
+        # Console exe onefile (--windows-console-mode=force) thỉnh thoảng từ chối write
+        # với OSError 22 (Invalid argument). Dòng trạng thái chỉ trang trí — nuốt lỗi
+        # như boot_doctor.log_boot, không được để nó làm sập boot (bug 2026-10-10:
+        # app.py:main → status_line → OSError → _fatal dialog, dashboard tắt).
+        pass
 
 
 def detail(icon: str, text: str) -> None:

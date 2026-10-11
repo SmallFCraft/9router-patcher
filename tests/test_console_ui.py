@@ -175,6 +175,21 @@ def test_status_line_never_exceeds_width(capsys, monkeypatch):
     console_ui._VT = None
 
 
+def test_status_line_swallows_console_oserror(monkeypatch):
+    """Hồi quy 2026-10-10: exe onefile console từ chối write với OSError 22.
+    status_line là dòng trang trí — nuốt OSError, không được để sập boot. app.py
+    gọi lần hai trong except, nếu status_line ném lại thì lọt ra _fatal."""
+    monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)
+    console_ui._VT = None
+
+    def boom(*a, **k):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr("builtins.print", boom)
+    console_ui.status_line("Đang chạy · Enter mở dashboard")   # không được ném
+    console_ui._VT = None
+
+
 def test_download_run_renders_progress_non_tty(capsys, monkeypatch):
     """Môi trường non-TTY (pipe/log file): in mốc sạch 25/50/75/100%, không escape \\r."""
     monkeypatch.setattr(console_ui.sys.stdout, "isatty", lambda: False)

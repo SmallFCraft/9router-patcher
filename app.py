@@ -47,11 +47,17 @@ def _console_banner(url: str) -> None:
     """
     import console_ui
     console_ui.enable_vt()
-    console_ui.panel(
-        [("Dashboard", url), ("Logs", f"{url}/logs")],
-        keys=[("Enter", "Mở Dashboard"), ("L", "Xem Logs"),
-              ("H", "Ẩn Console"), ("Q", "Thoát")],
-    )
+    try:
+        console_ui.panel(
+            [("Dashboard", url), ("Logs", f"{url}/logs")],
+            keys=[("Enter", "Mở Dashboard"), ("L", "Xem Logs"),
+                  ("H", "Ẩn Console"), ("Q", "Thoát")],
+        )
+    except OSError:
+        # Console exe onefile (--windows-console-mode=force) thỉnh thoảng từ chối
+        # write với OSError 22 (bug 2026-10-10: status_line ném tương tự). Banner
+        # chỉ trang trí — nuốt lỗi để boot tiếp tục, dashboard vẫn sống.
+        pass
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
