@@ -121,9 +121,14 @@ def test_load_patches_real_file(patches):
     # P40 relay-strip-client-headers-deno added 2026-09-29
     # 2026-10-01: removed relay-strip-client-headers-vercel + -cf (edge leaks IP, unfixable)
     # P41-P42 netlify relay strip + drop content-encoding added 2026-10-10
-    # P43-P52 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen);
+    # P43-P53 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen);
     #             netlify SSO-off + deploy-meta added 2026-10-10
-    assert len(patches) == 50
+    # P53 openai-content-text-blocks-flatten added 2026-10-13 (devora 422 upstream_rejected_request)
+    assert len(patches) == 51
+    assert [p.order for p in patches] == sorted(p.order for p in patches)
+    assert patches[0].id == "connect-timeout-180s"
+    # P53 anchor lands on 0.5.99 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
+    assert by_id(patches, "openai-content-text-blocks-flatten").order == 53
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -138,8 +143,8 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 43 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 49 patches
-    assert len(grouped) == 46
+    # 44 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 50 patches
+    assert len(grouped) == 47
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -2366,3 +2371,47 @@ def test_proxy_pool_teardown_calls_all_four_providers(patches, tmp_path):
         r = subprocess.run([node, str(stub), t], capture_output=True, text=True, timeout=30)
         assert r.returncode == 0, (t, r.stderr or r.stdout)
         assert needle in r.stdout, (t, r.stdout)
+
+
+def test_openai_content_text_blocks_flatten(patches, tmp_path):
+    """P53: content la mang toan text blocks -> gop thanh string don; co image_url -> giu nguyen.
+    Node runtime: node --check chi xem cu phap, khong xem nhanh nao chay."""
+    p53 = by_id(patches, "openai-content-text-blocks-flatten")
+    # extract the IIFE body from replace: between the last `;` after find and the final `;`
+    # replace = find + IIFE; IIFE starts at `(function(){try{` and ends with `}})();`
+    iife_start = p53.replace.index("(function(){try{")
+    iife_end = p53.replace.index("}})();", iife_start) + len("}})();")
+    iife = p53.replace[iife_start:iife_end]
+    assert iife.endswith("}})();"), iife[-30:]
+    stub = (
+        "const aV = 'openai';\n"
+        "const ak = {\n"
+        "  messages: [\n"
+        "    { role: 'system', content: 'sys' },\n"
+        "    { role: 'user', content: [{ type: 'text', text: 'part1' }, { type: 'text', text: 'part2' }] },\n"
+        "    { role: 'user', content: [{ type: 'image_url', image_url: { url: 'http://x' } }] },\n"
+        "    { role: 'assistant', content: [{ type: 'text', text: 'reply' }], tool_calls: [] },\n"
+        "    { role: 'user', content: [{ text: 'bare' }] },\n"
+        "    { role: 'user', content: 'plain' },\n"
+        "  ],\n"
+        "};\n"
+        + iife
+        + "\n"
+        "const m = ak.messages;\n"
+        "if (m[1].content !== 'part1\\n\\npart2') throw new Error('text blocks not flattened: ' + JSON.stringify(m[1].content));\n"
+        "if (!Array.isArray(m[2].content)) throw new Error('image_url array must stay array');\n"
+        "if (m[3].content !== 'reply') throw new Error('assistant text not flattened');\n"
+        "if (m[4].content !== 'bare') throw new Error('bare text block not flattened');\n"
+        "if (m[5].content !== 'plain') throw new Error('plain string must stay string');\n"
+        "console.log('P53 OK');\n"
+    )
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed")
+    path = tmp_path / "p53.mjs"
+    path.write_text(stub, encoding="utf-8")
+    r = subprocess.run([node, str(path)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr or r.stdout
+    assert "P53 OK" in r.stdout

@@ -677,3 +677,20 @@ why = "PUT echo lai chinh object vua ghi, tuc la ca deployMeta. UI khong dung bo
 find = '''let h=await (0,e.Q_)(c,g.updates);return d.NextResponse.json({proxyPool:h})}catch(a)'''
 replace = '''let h=await (0,e.Q_)(c,g.updates);let $h=h;if($h.deployMeta){let{apiToken:$a,vercelToken:$v,denoToken:$d,netlifyToken:$n,...$m}=$h.deployMeta;$h={...$h,deployMeta:{...$m,hasToken:!(!$a&&!$v&&!$d&&!$n)}}}return d.NextResponse.json({proxyPool:$h})}catch(a)'''
 
+# P53 - Flatten array-of-text-blocks thanh string don trong messages cua OpenAI-format request.
+# Khi client/harness (Claude Code, SDK) gui turn mang nhieu block text (nhu system-reminder,
+# command caveat, session summary...), format converter giu nguyen dang Array[{type:'text',text:'...'}].
+# Nhieu upstream chat/completions (Devora/DeepSeek-V4.1-flash, v.v.) khong chap nhan content dang array
+# va tra 422 {"code":"upstream_rejected_request","message":"The model provider rejected this request"}.
+# Chuan OpenAI cho phep content la string; neu tat ca block trong content deu la text thi gop
+# thanh string don bang "\n\n" la 100% hop le, tranh 422 ma khong lam hong multimodal (image_url duoc giu nguyen).
+# Cung tai vi tri dispatch chung 8895.js, chi chay khi dich la format openai.
+
+[[patch]]
+id = "openai-content-text-blocks-flatten"
+order = 53
+summary = "Flatten content dang mang text blocks thanh string don cho request OpenAI-format (tranh 422 Devora/DeepSeek)"
+why = "Devora deepseek-v4.1-flash va mot so provider openai-compatible tu choi (422 upstream_rejected_request) khi message content la mang text blocks thay vi string. Hop nhat text blocks thanh string neu tat ca block deu la text, giu nguyen array neu co image_url."
+find = 'let a5=aE;try{let a=await a1.execute({'
+replace = '(function(){try{if(ak&&Array.isArray(ak.messages)&&("openai"===aV||!aV)){for(let $m of ak.messages){if($m&&Array.isArray($m.content)){let $all=$m.content.every($b=>$b&&("string"==typeof $b||"text"===$b.type||("string"==typeof $b.text&&!$b.type)));if($all){$m.content=$m.content.map($b=>"string"==typeof $b?$b:$b.text||"").join("\n\n")}}}}}catch(e){}})();let a5=aE;try{let a=await a1.execute({'
+
