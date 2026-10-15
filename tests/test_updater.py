@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1299,3 +1300,62 @@ def test_dryrun_diagnosis_failure_does_not_break_the_gate(monkeypatch, tmp_path)
     monkeypatch.setattr(updater.engine, "locate", raiser(RuntimeError("boom")))
     s = updater.dryrun_anchors()
     assert s.ok is False and "dead-anchor" in s.log
+
+
+# ---------- spawn trùng khi cổng chưa bind (Errno 10048) ----------
+
+def test_launch_skips_duplicate_while_port_still_closing_up(monkeypatch, tmp_path):
+    """Headroom cold-start 40-60s, cổng chưa LISTEN -> pid_on_port trả None -> click Bật lần
+    hai spawn bản trùng rồi chết Errno 10048 (repro 2026-10-13). Lần hai phải bỏ qua."""
+    monkeypatch.setattr(updater, "_LAUNCHING", {})
+    monkeypatch.setattr(updater, "RESTART_LOG_DIR", tmp_path)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: False)   # cổng chưa lên
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+
+    events = []
+    updater._launch_port_cmd("headroom", updater.HEADROOM_PORT, "cmd", None, events.append)
+    assert len(pops) == 1, pops
+    assert updater._launch_port_cmd("headroom", updater.HEADROOM_PORT, "cmd", None, events.append)
+    assert len(pops) == 1, pops
+    assert any("tránh spawn trùng" in e["text"] for e in events)
+
+
+def test_launch_allows_respawn_after_cold_start_window(monkeypatch, tmp_path):
+    """Quá COLD_START_WINDOW thì coi bản cũ như chết — bấm Bật phải spawn lại được."""
+    monkeypatch.setattr(updater, "_LAUNCHING", {updater.HEADROOM_PORT: time.monotonic() - 999})
+    monkeypatch.setattr(updater, "RESTART_LOG_DIR", tmp_path)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+    assert updater._launch_port_cmd("headroom", updater.HEADROOM_PORT, "cmd", None, lambda e: None)
+    assert len(pops) == 1, pops
+
+
+def test_launch_clears_guard_once_port_bound(monkeypatch, tmp_path):
+    """Cổng đã bind thì guard phải nhả, không giữ _LAUNCHING mãi."""
+    monkeypatch.setattr(updater, "_LAUNCHING", {})
+    monkeypatch.setattr(updater, "RESTART_LOG_DIR", tmp_path)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: type("P", (), {"pid": 1})())
+    assert updater._launch_port_cmd("headroom", updater.HEADROOM_PORT, "cmd", None, lambda e: None)
+    assert updater._LAUNCHING == {}
+
+
+def test_launch_guard_not_shared_between_ports(monkeypatch, tmp_path):
+    """Guard theo port: router đang bay không được chặn headroom."""
+    monkeypatch.setattr(updater, "_LAUNCHING", {updater.ROUTER_PORT: time.monotonic()})
+    monkeypatch.setattr(updater, "RESTART_LOG_DIR", tmp_path)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+    assert updater._launch_port_cmd("headroom", updater.HEADROOM_PORT, "cmd", None, lambda e: None)
+    assert len(pops) == 1, pops

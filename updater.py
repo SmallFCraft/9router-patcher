@@ -636,10 +636,39 @@ def _kill_port(port: int, name: str, emit) -> bool:
     return closed
 
 
+# Spawn đang bay theo port: monotonic time lúc spawn. Headroom cold-start 40-60s mà cổng
+# chưa LISTEN, pid_on_port trả None -> click "Bật" thứ hai trong cửa sổ đó spawn bản trùng
+# rồi chết bằng Errno 10048 (repro 2026-10-13). Guard chặn spawn thứ hai tới khi cổng bind
+# hoặc quá COLD_START_WINDOW.
+_LAUNCHING: dict[int, float] = {}
+_LAUNCH_LOCK = threading.Lock()
+COLD_START_WINDOW = 90.0
+
+
+def _launch_in_flight(port: int) -> bool:
+    """True nếu spawn trước đó chưa xong: cổng chưa bind và còn trong cửa sổ cold-start."""
+    if pid_on_port(port) is not None:
+        with _LAUNCH_LOCK:
+            _LAUNCHING.pop(port, None)      # đã bind — guard hết ý nghĩa
+        return False
+    t = _LAUNCHING.get(port)
+    if t is None:
+        return False
+    if time.monotonic() - t > COLD_START_WINDOW:
+        with _LAUNCH_LOCK:
+            _LAUNCHING.pop(port, None)      # quá hạn — coi như chết, cho spawn lại
+        return False
+    return True
+
+
 def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit,
                      wait: float = STACK_PORT_WAIT) -> bool:
     if pid_on_port(port) is not None:
         emit({"type": "line", "text": f"  {kind} đang chạy sẵn ở cổng {port} — bỏ qua"})
+        return True
+    if _launch_in_flight(port):
+        emit({"type": "line",
+              "text": f"  {kind} đang khởi động trong nền ở cổng {port} — bỏ qua (tránh spawn trùng)"})
         return True
     emit({"type": "line", "text": f"  khởi động {kind} ở cổng {port}"})
     env = dict(os.environ)
@@ -656,7 +685,12 @@ def _launch_port_cmd(kind: str, port: int, cmd: str, cwd: Path | None, emit,
     except (OSError, subprocess.SubprocessError) as e:
         emit({"type": "line", "text": f"  → KHÔNG khởi động được: {type(e).__name__}: {e}"})
         return False
+    with _LAUNCH_LOCK:
+        _LAUNCHING[port] = time.monotonic()
     up = _wait_port(port, wait)
+    if up:
+        with _LAUNCH_LOCK:
+            _LAUNCHING.pop(port, None)
     emit({"type": "line",
           "text": f"  cổng {port}: {'ĐÃ LÊN' if up else 'chưa nghe — xem log trong logs/'}"})
     return up
