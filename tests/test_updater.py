@@ -1237,12 +1237,12 @@ def test_fetch_latest_build_returns_version_and_build_dir(monkeypatch, tmp_path)
     """Tarball -> (version, <dest>/package/app/.next-cli-build), the one path both the
     dry-run gate and the locate CLI need."""
     monkeypatch.setattr(updater, "_registry_meta",
-                        lambda: {"version": "0.5.99",
+                        lambda: {"version": engine.target_version(),
                                  "dist": {"tarball": "https://registry.npmjs.org/9router/-/x.tgz"}})
     monkeypatch.setattr(updater, "_fetch_tarball",
                         lambda url, d: _make_tgz(d, "server/chunks/a.js", "hello"))
     ver, build = updater.fetch_latest_build(tmp_path)
-    assert ver == "0.5.99"
+    assert ver == engine.target_version()
     assert build == tmp_path / "package" / "app" / ".next-cli-build"
     assert (build / "server" / "chunks" / "a.js").is_file()
 
@@ -1256,7 +1256,7 @@ def test_fetch_latest_build_raises_when_build_dir_missing(monkeypatch, tmp_path)
     with tarfile.open(tgz, "w:gz") as tf:
         tf.add(tmp_path / "pkgroot" / "package", arcname="package")
     monkeypatch.setattr(updater, "_registry_meta",
-                        lambda: {"version": "0.5.99",
+                        lambda: {"version": engine.target_version(),
                                  "dist": {"tarball": "https://registry.npmjs.org/9router/-/x.tgz"}})
     monkeypatch.setattr(updater, "_fetch_tarball", lambda url, d: tgz)
     with pytest.raises(engine.PatchError, match="next-cli-build"):
@@ -1264,7 +1264,8 @@ def test_fetch_latest_build_raises_when_build_dir_missing(monkeypatch, tmp_path)
 
 
 def test_fetch_latest_build_raises_when_tarball_url_missing(monkeypatch, tmp_path):
-    monkeypatch.setattr(updater, "_registry_meta", lambda: {"version": "0.5.99", "dist": {}})
+    monkeypatch.setattr(updater, "_registry_meta",
+                        lambda: {"version": engine.target_version(), "dist": {}})
     with pytest.raises(engine.PatchError, match="dist.tarball"):
         updater.fetch_latest_build(tmp_path)
 
@@ -1285,7 +1286,7 @@ def test_dryrun_dead_anchor_includes_locate_diagnosis(monkeypatch, tmp_path):
         # but the cluster of probe tokens survives -> dead anchor + rename-likely
         (root / "8895.js").write_text(p.find.replace("Date.now()-l", "Date.now()-z"),
                                       encoding="utf-8")
-        return "0.5.99", Path(dest) / "package" / "app" / ".next-cli-build"
+        return engine.target_version(), Path(dest) / "package" / "app" / ".next-cli-build"
     monkeypatch.setattr(updater, "fetch_latest_build", fake_fetch)
     s = updater.dryrun_anchors()
     assert s.ok is False
@@ -1296,7 +1297,7 @@ def test_dryrun_dead_anchor_includes_locate_diagnosis(monkeypatch, tmp_path):
 def test_dryrun_diagnosis_failure_does_not_break_the_gate(monkeypatch, tmp_path):
     """locate là phụ trợ: nếu nó nổ thì gate vẫn phải trả Step đỏ với danh sách id."""
     monkeypatch.setattr(updater, "fetch_latest_build",
-                        lambda dest: ("0.5.99", tmp_path))
+                        lambda dest: (engine.target_version(), tmp_path))
     monkeypatch.setattr(updater.engine, "locate", raiser(RuntimeError("boom")))
     s = updater.dryrun_anchors()
     assert s.ok is False and "dead-anchor" in s.log

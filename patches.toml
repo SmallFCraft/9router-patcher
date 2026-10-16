@@ -28,7 +28,16 @@
 # `group`: các patch cùng group nằm cùng một file, áp/gỡ atomic (cả nhóm hoặc không cái nào).
 # `defines`: patch này định nghĩa symbol mà patch khác trong group gọi -> áp ĐẦU TIÊN, gỡ CUỐI CÙNG.
 
-target_version = "0.5.99"
+# 0.5.99 -> 0.5.104: re-minify + upstream thêm logic. 3 anchor chết (0 hấp thụ trên
+#   tarball pristine 0.5.104, scan 48 clean):
+#     p19 (claude-tool-result-canonicalize, 8499.js): upstream thêm loại THINKING rỗng vào
+#         filter content -> tìm tail `!(a?.type===e.R4.THINKING&&!String(a.thinking??...
+#     p24 (log-combo-drop-succeeded, 8895->8910.js): upstream thêm guard zero-usable-content
+#         trước return; biến `b`->`f`. find mở rộng `}}catch{...}` hai bên để replace
+#         `return f` không trúng loạn (engine scan partial vì replace quá ngắn).
+#     p34 (opencode-responses-noeffort-minimal, 318->5330.js): G->E; upstream tự chèn
+#         clamp max/ultra->xhigh ngay sau trim(); (giữ nguyên, patch none/off->minimal vẫn cần).
+target_version = "0.5.104"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -247,8 +256,8 @@ order = 19
 group = "claude-tool-result"
 summary = "Gộp user message tool_result bị tách nhiều message về 1 message chuẩn Anthropic"
 why = "agentrouter.org thi thoảng 400 tool_use-without-tool_result trên history tool nhiều vòng; chuẩn hoá shape để qua mọi backend, không mất dữ liệu"
-find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0)),a.messages=x(a.messages,c)),a}function x(a,b)'
-replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())),a.content.length>0)),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a.messages=x(a.messages,c)),a}function x(a,b)'
+find = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())&&!(a?.type===e.R4.THINKING&&!String(a.thinking??"").trim())),a.content.length>0)),a.messages=x(a.messages,c)),a}function x(a,b)'
+replace = 'return Array.isArray(a.messages)&&(a.messages=a.messages.filter(a=>"string"==typeof a.content?a.content.trim().length>0:!Array.isArray(a.content)||(a.content=a.content.filter(a=>!(a?.type===e.R4.TEXT&&!String(a.text??"").trim())&&!(a?.type===e.R4.THINKING&&!String(a.thinking??"").trim())),a.content.length>0)),a.messages=(()=>{if(!Array.isArray(a.messages))return a.messages;let $ms=a.messages;for(let $i=0;$i<$ms.length;$i++){let $m=$ms[$i];if(!$m||"assistant"!==$m.role||!Array.isArray($m.content))continue;let $tu=0;for(let $b of $m.content)if($b&&"tool_use"===$b.type)$tu++;if(!$tu)continue;let $j=$i+1,$merged=[];while($j<$ms.length&&$ms[$j]&&"user"===$ms[$j].role&&Array.isArray($ms[$j].content)){if(!$ms[$j].content.some($b=>$b&&("tool_result"===$b.type||"web_search_tool_result"===$b.type)))break;$merged.push($ms[$j]);$j++}if($merged.length>1){let $keep={role:"user",content:[]};for(let $u of $merged)for(let $b of $u.content)$keep.content.push($b);$ms.splice($i+1,$merged.length,$keep)}}return $ms})(),a.messages=x(a.messages,c)),a}function x(a,b)'
 # P21-24: log-render-improve group — cosmetic reformat upstream console logs. Does not change
 # any router behavior (classifier, fallback, retry, lock, routing). Idempotent on already-patched
 # build (each find is contained inside its own replace when already-patched, engine sees `clean`).
@@ -285,15 +294,15 @@ find = 'let b=Q?.body?.model||`${ar}/${as}`,e=ak.messages?.length||ak.input?.len
 replace = 'let b=Q?.body?.model||`${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aU?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aE}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${String(j).slice(0,4)}`),k[0]=k[0].slice(0,100),d.line(av,"▶",k.join(" \xb7 "))}'
 
 # P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
-# Anchor: 8910.js `if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b` around line 4570.
+# Anchor: 8910.js `}}catch{}return g.info("COMBO",`Model ${e} succeeded`),f}` (0.5.99 là `if(b.ok)...`),
 # Kept: Trying model, failed/trying next, all models failed, model errors. Removes ~2 lines per success.
 [[patch]]
 id = "log-combo-drop-succeeded"
 order = 24
 summary = "Drop COMBO succeeded lines (keep Trying / failed / all failed)"
 why = "Each success emits 'Model X succeeded' and parent 'Model Y succeeded' (two extra lines per request). DONE line already reports which model won. Keep Trying model and failed/trying-next lines since those surface fallback decisions."
-find = 'if(b.ok)return g.info("COMBO",`Model ${e} succeeded`),b'
-replace = 'if(b.ok)return b'
+find = '}}catch{}return g.info("COMBO",`Model ${e} succeeded`),f}'
+replace = '}}catch{}return f}'
 
 # P25/P26 — MCP bridge spawn trên Windows. `spawn("npx")` không tìm được extension `.cmd`
 # (ENOENT); đổi sang `npx.cmd` lại làm Node ném đồng bộ EINVAL vì .cmd không executable trực tiếp.
@@ -416,8 +425,8 @@ id = "opencode-responses-noeffort-minimal"
 order = 34
 summary = "reasoning effort none/off → minimal cho openai responses (chống 400 THINK:off)"
 why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream chỉ down-clamp max/ultra nên 'none' lọt nguyên → 400 invalid_request_error param reasoning.effort"
-find = 'let f=G(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
-replace = 'let f=G(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
+find = 'let f=E(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
+replace = 'let f=E(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
 
 # P35 — upstream openai-compatible trả SSE kiểu Claude (api.tntapi.io.vn).
 # Đo trực tiếp 2026-09-22: TỪNG request tới /v1/chat/completions → body kiểu

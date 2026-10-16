@@ -127,10 +127,8 @@ def test_load_patches_real_file(patches):
     assert len(patches) == 51
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
-    # P53 anchor lands on 0.5.99 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
+    # P53 anchor lands on 0.5.104 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
     assert by_id(patches, "openai-content-text-blocks-flatten").order == 53
-    assert [p.order for p in patches] == sorted(p.order for p in patches)
-    assert patches[0].id == "connect-timeout-180s"
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
         assert hasattr(patches[0], a)
     with pytest.raises(AttributeError):
@@ -1467,11 +1465,12 @@ def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
 
 
 def test_log_combo_drop_succeeded(patches):
-    """P24: after replace, `Model ${e} succeeded` string no longer emitted on success; replace
-    body is just `return b` so a caller returning the raw b (no log) is the new behavior."""
+    """P24: after replace, `Model ${e} succeeded` string no longer emitted on success; the
+    statement collapses to the bare return (0.5.104: guard `}}catch{}` kept around it so the
+    short replacement stays unique per file)."""
     rep = _patch_replace(patches, "log-combo-drop-succeeded")
     assert "succeeded" not in rep
-    assert rep == "if(b.ok)return b"
+    assert rep == "}}catch{}return f}"
     assert 'g.info("COMBO"' not in rep
 
 
@@ -2117,10 +2116,11 @@ def test_main_locate_all_lists_every_dead_anchor(tmp_path, capsys, patches):
 
 
 def test_target_version_configured_and_matches_patches_toml():
-    import config, engine
+    import config
     assert hasattr(config, "TARGET_9ROUTER_VERSION")
-    assert config.TARGET_9ROUTER_VERSION == "0.5.99"
-    assert engine.target_version() == "0.5.99"
+    assert config.TARGET_9ROUTER_VERSION == engine.target_version()
+    toml_target = engine.toml_loads(engine.PATCHES_FILE.read_text(encoding="utf-8"))["target_version"]
+    assert config.TARGET_9ROUTER_VERSION == toml_target
 
 
 def test_main_locate_unknown_patch_id_exits_2(tmp_path, capsys):

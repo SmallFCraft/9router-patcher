@@ -37,7 +37,7 @@ def write_version_manifest(dist: Path, artifact: Path) -> Path:
         "version": version.APP_VERSION,
         "url": f"{config.UPDATE_BASE_URL}/files/{artifact.name}",
         "sha256": sha256_file(artifact),
-        "changelog": "",
+        "changelog": version.APP_CHANGELOG,
     }
     out = dist / "version.json"
     out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
