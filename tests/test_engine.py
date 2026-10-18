@@ -123,8 +123,9 @@ def test_load_patches_real_file(patches):
     # P41-P42 netlify relay strip + drop content-encoding added 2026-10-10
     # P43-P53 proxy-pool deploy lifecycle added 2026-10-06 (xoa pool phai don tai nguyen);
     #             netlify SSO-off + deploy-meta added 2026-10-10
-    # P53 openai-content-text-blocks-flatten added 2026-10-13 (devora 422 upstream_rejected_request)
-    assert len(patches) == 51
+    # P54 opencode-transport-thinking-format-openai added 2026-10-17 (400 unknown field thinking)
+    # P55 bg-token-refresh-flag-guard added 2026-10-18 (chan refresh nen, toggle dashboard)
+    assert len(patches) == 53
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P53 anchor lands on 0.5.104 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
@@ -141,8 +142,8 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 44 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 50 patches
-    assert len(grouped) == 47
+    # 47 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 53 patches
+    assert len(grouped) == 49
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"

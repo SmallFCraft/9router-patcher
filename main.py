@@ -626,6 +626,8 @@ def index(request: Request):
         "scan_seconds": scan["scan_seconds"],
         "now_epoch": scan["at"],           # thời điểm quét thật — "vừa xong" tính từ đó
         "backup_epoch": backup.timestamp() if backup else None,
+        "bg_refresh_enabled": not _bg_refresh_flag().is_file(),
+        "bg_refresh_applied": _bg_refresh_flag_applied(states),
     })
 
 
@@ -682,6 +684,54 @@ def set_auto_start(request: Request, enabled: Annotated[str, Form()] = "1"):
         "supported": autostart.is_supported(),
         "error": err,
     })
+
+
+_BG_REFRESH_FLAG_NAME = "disable-bg-refresh.flag"
+
+
+def _bg_refresh_flag() -> Path:
+    return app_paths.get_app_data_dir() / _BG_REFRESH_FLAG_NAME
+
+
+@app.get("/api/bg-refresh")
+def bg_refresh_status():
+    return JSONResponse({
+        "enabled": not _bg_refresh_flag().is_file(),
+        "applied": _bg_refresh_flag_applied(),
+    })
+
+
+@app.post("/settings/bg-refresh", dependencies=CSRF)
+def set_bg_refresh(request: Request, enabled: Annotated[str, Form()] = "1"):
+    """Tắt/bật background token refresh của 9router (patch P55 đọc flag file)."""
+    on = enabled in ("1", "true", "True")
+    flag = _bg_refresh_flag()
+    try:
+        if on:
+            flag.unlink(missing_ok=True)
+        else:
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.write_text("disabled", encoding="utf-8")
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    return JSONResponse({
+        "ok": True,
+        "enabled": on,
+        "applied": _bg_refresh_flag_applied(),
+    })
+
+
+def _bg_refresh_flag_applied(states: list | None = None) -> bool:
+    """True khi flag đã nằm trong bản vá router (tick kế sẽ no-op)."""
+    if states is None:
+        # Lấy từ SNAP (đã warm nền, TTL 30s) thay vì engine.scan() đồng bộ ~1.5s mỗi
+        # request API/toggle. _render_snap chỉ quét lại khi SNAP quá cũ (120s).
+        try:
+            states = _render_snap()["scan"]["states"]
+        except Exception:
+            return False
+    return any(s.patch.id == "bg-token-refresh-flag-guard"
+               and s.state == "applied" for s in states)
 
 
 @app.post("/update/self", dependencies=CSRF)

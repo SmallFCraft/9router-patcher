@@ -703,3 +703,50 @@ why = "Devora deepseek-v4.1-flash va mot so provider openai-compatible tu choi (
 find = 'let a5=aE;try{let a=await a1.execute({'
 replace = '(function(){try{if(ak&&Array.isArray(ak.messages)&&("openai"===aV||!aV)){for(let $m of ak.messages){if($m&&Array.isArray($m.content)){let $all=$m.content.every($b=>$b&&("string"==typeof $b||"text"===$b.type||("string"==typeof $b.text&&!$b.type)));if($all){$m.content=$m.content.map($b=>"string"==typeof $b?$b:$b.text||"").join("\n\n")}}}}}catch(e){}})();let a5=aE;try{let a=await a1.execute({'
 
+
+# P54 - opencode free transport thieu thinkingFormat -> fallback nham "zai" -> 400 unknown field thinking.
+# Do 2026-10-17 tren 0.5.104, repro that:
+#   POST claude-opus-5 -> glm-5.3-flash-free, FMT claude->openai, THINK:max, ACC:Publ
+#   -> 400 {"error":{"param":"thinking","type":"invalid_request_error",
+#          "message":"... json: unknown field \"thinking\""}}
+#   URL: https://opencode.ai/inference/v1/chat/completions
+#
+# Chuoi quyet dinh (server/chunks/8499.js, module 52136 `function z`):
+#   1. `f.xq[c]?.thinkingFormat` cua provider "opencode" = undefined (transport khong khai).
+#   2. `getCapabilitiesForModel("opencode","glm-5.3-flash-free")` khong co entry per-provider
+#      (bang 24.js chi co "opencode-go", KHONG co "opencode") -> roi fallback pattern
+#      `*glm-5.3*` -> thinkingFormat:"zai".
+#   3. Set loai tru `m` trong 8499.js KHONG chua "zai" -> nhan "zai" cho target format openai.
+#   4. `case"zai"` set `b.thinking={type:"enabled"}` -> body OpenAI dinh field thinking -> gateway chan.
+#
+# Tien le upstream: provider "opencode-go" DA khai `thinkingFormat:"openai"` cho dung glm-5.3-flash;
+# ban "opencode" free bi sot. Patch khai thang o cap transport, giong opencode-go.
+# Sau patch roi vao `case"openai"` -> chi set reasoning_effort, khong emit `thinking`.
+# Khong anh huong model khac cua provider: muse-spark-1.2/1.3 co targetFormat openai-responses rieng,
+# union-alpha targetFormat claude, jev-1.13 kind systemone - deu route rieng.
+#
+# ANCHOR 4 FILE (server/chunks/1892.js, 6100.js, 7011.js + static/chunks/1321-*.js) - engine.apply
+# ghi moi file chua find, tien le co san (connect-timeout-180s trung 10 file).
+#
+# CACH GO KHI UPSTREAM TU FIX: xoa patch nay khoi patches.toml khi `opencode` (KHONG phai
+# opencode-go) co entry trong bang per-provider capability, hoac transport cua `opencode`
+# trong chunk providers khai `thinkingFormat`. Kiem tra nhanh sau moi lan bump 9router:
+#   grep -o 'id:"opencode",priority:40.\{0,600\}' <chunk>.js | grep thinkingFormat
+#   grep -o '"opencode":{"glm-5.3' <chunk24>.js
+# Neu ca hai co -> upstream da fix -> go patch, chay tools\make_patches_blob.py + pytest.
+
+[[patch]]
+id = "opencode-transport-thinking-format-openai"
+order = 54
+summary = "opencode transport thinkingFormat openai (chong 400 unknown field thinking)"
+why = "opencode.ai gateway la OpenAI-compatible, khong nhan field thinking kieu ZAI. Provider opencode free khong khai thinkingFormat o transport va khong co entry per-provider nen model glm-5.3-flash-free roi fallback pattern *glm-5.3* -> thinkingFormat zai -> case zai set b.thinking={type:enabled} -> 400 unknown field thinking. Khai thinkingFormat openai o cap transport, dung nhu upstream da lam cho opencode-go."
+find = 'forceStream:!0,noAuth:!0,reasoningInject:{scope:"all"},quirks:{forceAutoToolChoiceModels:["muse-spark-1.3-contributor-free"]}'
+replace = 'forceStream:!0,noAuth:!0,thinkingFormat:"openai",reasoningInject:{scope:"all"},quirks:{forceAutoToolChoiceModels:["muse-spark-1.3-contributor-free"]}'
+
+[[patch]]
+id = "bg-token-refresh-flag-guard"
+order = 55
+summary = "Chan background token refresh khi co file flag (toggle tu dashboard)"
+why = "BG_TOKEN_REFRESH tick 5 phut + lead 30 phut -> moi token OAuth bi refresh ~6 lan/gio thay vi 1. Voi nhieu tai khoan Google/antigravity, traffic proactive lien tuc de bi Google flag. Guard dat o dau selectConnectionsNeedingRefresh (chokepoint duy nhat cua tick) trong 6540.js: file flag ton tai -> tra [] ngay -> tick van chay nhung no-op, khong gui request nao. Refresh on-demand (7828.js checkAndRefreshToken) VAN chay khi tai khoan het han duoc dung that -> khong mat chuc nang, chi bo phan refresh som. Dashboard patcher (20129) ghi/xoa %APPDATA%/9router-patch/disable-bg-refresh.flag; bat/tat ap dung o tick ke tiep (<=5 phut), khong can restart router. GO KHI UPSTREAM TU FIX: upstream them co che runtime (env doc moi tick, API stop/start) hoac giam lead time -> go patch, chay tools/make_patches_blob.py + pytest."
+find = 'function m(a,b=Date.now()){if(!Array.isArray(a)||0===a.length)return[];'
+replace = 'function m(a,b=Date.now()){try{if(require("fs").existsSync((process.env.APPDATA||process.env.HOME||"")+"/9router-patch/disable-bg-refresh.flag"))return[]}catch{}if(!Array.isArray(a)||0===a.length)return[];'

@@ -136,11 +136,13 @@ def _exe_locked(exe: Path) -> bool:
 def _release_dist_exe(exe: Path) -> None:
     """Exe của lần build trước còn chạy sẽ giữ file: Nuitka onefile bootstrap unlink fail
     WinError 5 ở dist/, copy staging Permission denied ở files/. Kill theo ĐÚNG image
-    name — KHÔNG dùng /FI "WINDOWTITLE ..." (nó khớp cả cửa sổ File Explorer và kill
-    luôn explorer.exe, đã xảy ra thật 2026-09-21)."""
+    name — KHÔNG dùng /T (tree-kill giết cả process tree: router node.exe + headroom
+    là con detached của exe → mỗi lần build tắt luôn 9router), cũng KHÔNG dùng
+    /FI "WINDOWTITLE ..." (nó khớp cả cửa sổ File Explorer và kill luôn explorer.exe,
+    đã xảy ra thật 2026-09-21). /F /IM đủ: parent+child onefile cùng image name."""
     if not exe.is_file() or not _exe_locked(exe):
         return
-    subprocess.run(["taskkill", "/F", "/T", "/IM", exe.name],
+    subprocess.run(["taskkill", "/F", "/IM", exe.name],
                    shell=False, capture_output=True, text=True)
     # onefile parent+child giải phóng handle KHÔNG đồng bộ: taskkill xong mà file vẫn
     # "locked" thêm vài chục ms (repro build 2.2.6: probe ngay -> vẫn giữ -> copy fail
@@ -166,6 +168,15 @@ def build(fast: bool = False) -> int:
     dist = ROOT / "dist"
     dist.mkdir(parents=True, exist_ok=True)
     _release_dist_exe(dist / "9router-patch.exe")
+
+    # Nuitka ép CLCACHE_NODIRECT=1 (SconsCaching.enableClcache) khi biến chưa có. No-direct
+    # mode chạy `cl /EP` trên TỪNG file để băm preprocessed source TRƯỚC khi tra cache — đo
+    # 2026-10-19: 360 file warm-cache vẫn tốn 170s dù 360/360 hit. Direct mode dùng manifest
+    # (băm include file thay vì preprocess toàn bộ) → cùng 360/360 hit chỉ còn 94s. Đặt =0
+    # trước khi spawn Nuitka; Nuitka tôn trọng biến đã có (chỉ set khi "not in os.environ").
+    # Đánh đổi: manifest bỏ sót include đổi nội dung mà không đổi mtime/size (hiếm); xóa
+    # %LOCALAPPDATA%\Nuitka\Nuitka\Cache\clcache nếu nghi cache trả object cũ.
+    os.environ.setdefault("CLCACHE_NODIRECT", "0")
     t0 = time.monotonic()
 
     print("== Step 1: Encrypting patches.toml ==")

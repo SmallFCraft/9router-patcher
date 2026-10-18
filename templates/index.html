@@ -75,6 +75,27 @@
     <div class="stat-value mono">{{ router.hung }}</div>
     <div class="stat-sub">active requests từ /api/usage/stats</div>
   </article>
+
+  <article class="card stat" data-service="bg-refresh">
+    <div class="stat-label">{{ icon('refresh') }}BG token refresh</div>
+    <div class="stat-value">
+      <span class="dot {{ 'up' if bg_refresh_enabled else 'down' }}"></span>
+      {% if bg_refresh_enabled %}<span class="up">BẬT</span>{% else %}<span class="down">TẮT</span>{% endif %}
+    </div>
+    <div class="stat-sub">
+      {% if bg_refresh_applied %}
+      refresh nền mỗi 5 phút đang {{ 'chạy' if bg_refresh_enabled else 'bị chặn (no-op)' }} · áp dụng ngay tick kế
+      {% else %}
+      chưa có patch P55 — toggle chỉ có tác dụng sau khi bản vá đã áp
+      {% endif %}
+    </div>
+    <div class="stat-actions">
+      <label class="switch">
+        <input type="checkbox" id="bg-refresh-toggle" {% if bg_refresh_enabled %}checked{% endif %}>
+        Bật refresh nền (tắt để chống ban)
+      </label>
+    </div>
+  </article>
 </section>
 
 <section class="card panel">
@@ -268,6 +289,8 @@
         }
       }).catch(function(){});
   }
+  // Expose cho IIFE patch-list dưới (handler bg-refresh toggle gọi sau khi POST xong).
+  window.__9rRefreshCards = refreshCards;
 
   function finalToast(s){
     var ru = s.router && s.router.up, hu = s.headroom && s.headroom.up;
@@ -525,6 +548,32 @@
       currentQuery = e.target.value;
       applyFilter();
     }
+  });
+
+  // Toggle chống spam refresh token nền của 9router (patch P55 đọc flag file).
+  document.addEventListener("change", function(e){
+    if (!e.target || e.target.id !== "bg-refresh-toggle") return;
+    var el = e.target;
+    el.disabled = true;
+    fetch("/settings/bg-refresh", {
+      method: "POST", credentials: "same-origin",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: "enabled=" + (el.checked ? "1" : "0")
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok) {
+          toast(j.enabled ? "Đã bật refresh nền" : "Đã tắt refresh nền — tick kế tiếp sẽ bỏ qua");
+          if (window.__9rRefreshCards) window.__9rRefreshCards();   // vẽ lại dot/BẬT-TẮT + badge
+        } else {
+          el.checked = !el.checked;
+          toast(j.error || "Lỗi lưu cài đặt", "bad");
+        }
+      })
+      .catch(function(){
+        el.checked = !el.checked;
+        toast("Lỗi mạng khi lưu cài đặt", "bad");
+      })
+      .then(function(){ el.disabled = false; });
   });
 
   document.addEventListener("keydown", function(e){

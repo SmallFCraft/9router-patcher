@@ -4,6 +4,16 @@ from pathlib import Path
 import build_app
 
 
+def test_build_sets_clcache_direct_mode():
+    """CLCACHE_NODIRECT=0 bật clcache direct mode: warm-cache 360 file từ ~170s -> ~94s.
+
+    Nuitka ép =1 (no-direct: chạy `cl /EP` mỗi file trước khi tra cache) khi biến chưa có,
+    nên build() phải tự set =0 trước khi spawn Nuitka — nếu không, warm build chậm gấp đôi.
+    """
+    src = Path(build_app.__file__).read_text(encoding="utf-8")
+    assert 'os.environ.setdefault("CLCACHE_NODIRECT", "0")' in src
+
+
 def test_requirements_file_exists_and_contains_deps():
     req = Path("requirements.txt")
     assert req.is_file()
@@ -11,6 +21,10 @@ def test_requirements_file_exists_and_contains_deps():
     for dep in ("nuitka", "fastapi", "uvicorn", "jinja2", "cryptography",
                   "python-multipart"):  # Form() routes chết khi boot nếu thiếu (đo 2026-09-22)
         assert dep in text.lower()
+    # Nuitka 4.3 có bug PEP 649 deferred annotations -> exe crash NameError 'SetStr' khi boot.
+    # 4.3.1 là bản hotfix chính thức đã verify; cấm pin về 4.3.0.
+    assert "nuitka==4.3.1" in text, "requirements.txt phải pin bản 4.3.1 đã qua test boot thật"
+
 
 
 def test_build_app_command_assembly():

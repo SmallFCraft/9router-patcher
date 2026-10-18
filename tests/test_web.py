@@ -980,6 +980,44 @@ def test_toggle_auto_update_setting_roundtrip(web):
     assert self_update.is_enabled() is True
 
 
+def test_toggle_bg_refresh_writes_flag_file(web, monkeypatch, tmp_path):
+    """POST /settings/bg-refresh ghi/xoa file flag mà patch P55 đọc ở tick refresh nền."""
+    import app_paths
+
+    monkeypatch.setattr(app_paths, "get_app_data_dir", lambda: tmp_path)
+    client = web["client"]
+    flag = tmp_path / "disable-bg-refresh.flag"
+
+    # CSRF guard: thiếu Origin -> 403
+    assert client.post("/settings/bg-refresh", data={"enabled": "0"}).status_code == 403
+
+    headers = {"Origin": OWN}
+    r = client.post("/settings/bg-refresh", data={"enabled": "0"}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["ok"] is True and r.json()["enabled"] is False
+    assert flag.is_file()
+
+    assert client.get("/api/bg-refresh").json()["enabled"] is False
+
+    r = client.post("/settings/bg-refresh", data={"enabled": "1"}, headers=headers)
+    assert r.status_code == 200 and r.json()["enabled"] is True
+    assert not flag.is_file()
+    assert client.get("/api/bg-refresh").json()["enabled"] is True
+
+
+def test_bg_refresh_toggle_repaints_card_without_page_reload(web):
+    """Toggle bg-refresh phải vẽ lại card stat ngay, không cần F5.
+
+    POST đã đúng nhưng HTML cũ vẫn hiện TẮT/BẬT → phải reload trang mới thấy.
+    Handler gọi window.__9rRefreshCards() (refreshCards swap .statgrid từ server).
+    """
+    text = web["client"].get("/").text
+    assert "window.__9rRefreshCards = refreshCards;" in text, \
+        "refreshCards phải được expose cho IIFE xử lý toggle bg-refresh"
+    assert "window.__9rRefreshCards()" in text, \
+        "toggle bg-refresh phải gọi refresh lại statgrid sau POST, không chỉ toast"
+
+
 def test_post_update_self_uses_self_update_engine(web, monkeypatch):
     """POST /update/self gọi self_update engine: có bản mới -> tải, không có -> no-op."""
     import self_update
