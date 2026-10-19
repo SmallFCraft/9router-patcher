@@ -122,7 +122,10 @@ document.documentElement.dataset.theme=t;})();
 
   /* ---------- cards & stats (chunky pixel boxes) ---------- */
   .card{background:var(--surface); border:var(--px) solid var(--ink); box-shadow:var(--shadow)}
-  .statgrid{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin-bottom:14px}
+  /* 5 thẻ stat (Phiên bản / 9router / Headroom / Hung / BG refresh). Lưới 4 cột cũ để
+     thẻ thứ 5 rớt xuống hàng riêng chiếm 1/4 bề ngang, trông lệch. 5 cột khi đủ rộng,
+     hạ xuống 3 rồi 2 — 5 thẻ không chia hết cho 4 nên mọi mốc 4 cột đều lẻ 1 thẻ. */
+  .statgrid{display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:14px; margin-bottom:14px}
   .stat{padding:14px 16px; background:var(--surface-2)}
   .stat:hover{background:var(--surface)}
   .stat-label{display:flex; align-items:center; gap:.45rem; font-size:15px;
@@ -201,6 +204,9 @@ document.documentElement.dataset.theme=t;})();
   .meter i{display:block; height:100%; background:var(--accent)}
   .toolbar{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap}
   .toolbar .meta{margin-left:auto; font-size:15px; color:var(--muted); display:inline-flex; align-items:center; gap:.4rem}
+  /* Nút nguy hiểm đứng cuối nhóm nút, cách nhóm an toàn bằng vách mờ — nút revert-all
+     từng nằm sát cạnh Tải lại, dễ bấm nhầm khi hai nút cùng hàng. */
+  .toolbar .gap-danger{margin-left:.6rem; padding-left:.9rem; border-left:2px dashed var(--ink-soft, var(--ink))}
   .toolbar .meta .ic{width:14px; height:14px}
   .switch{display:inline-flex; align-items:center; gap:.5rem; font-size:16px;
           color:var(--text-2); cursor:pointer; min-height:36px; user-select:none}
@@ -217,7 +223,7 @@ document.documentElement.dataset.theme=t;})();
   /* ---------- patch filter bar (flock) ---------- */
   .flock{margin-bottom:14px; padding:12px 14px}
   .flock-row{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap}
-  .flock-row + .flock-row{margin-top:10px; padding-top:10px; border-top:2px solid var(--ink)}
+  .flock-row + .flock-row{margin-top:12px; padding-top:12px; border-top:2px solid var(--ink)}
   .fsearch{
     position:relative; flex:1; min-width:200px; display:flex; align-items:center;
   }
@@ -244,11 +250,11 @@ document.documentElement.dataset.theme=t;})();
   }
   .fview .seg .ic{width:14px; height:14px}
   .fview .seg.on{color:var(--on-accent); background:var(--accent)}
-  .fchips{gap:.45rem}
+  .fchips{gap:.55rem}
   .fchip{
     font:15px var(--font-mono); color:var(--muted); background:var(--surface-2);
-    border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink); padding:2px 8px;
-    cursor:pointer; display:inline-flex; align-items:center; gap:.35rem; text-transform:uppercase;
+    border:2px solid var(--ink); box-shadow:2px 2px 0 var(--ink); padding:4px 10px;
+    cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; text-transform:uppercase;
   }
   .fchip strong{color:var(--text-2); font-weight:normal}
   .fchip:hover{color:var(--text); background:var(--surface)}
@@ -390,6 +396,7 @@ document.documentElement.dataset.theme=t;})();
   #self-update-modal .modal-box{max-width:26rem; width:100%; padding:16px 18px}
 
   /* ---------- responsive ---------- */
+  @media (max-width:1280px){ .statgrid{grid-template-columns:repeat(3,minmax(0,1fr))} }
   @media (max-width:960px){ .statgrid{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @media (min-width:1120px){
     .ggrid:not(.view-compact){grid-template-columns:repeat(2,minmax(0,1fr))}

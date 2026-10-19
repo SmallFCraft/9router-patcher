@@ -119,17 +119,20 @@
       {% endif %}
     </form>
     {% endif %}
-    {% if counts.applied %}
+    <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
+    <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
+    <span class="meta">{{ icon('clock') }}quét {{ scan_seconds }}s · <span data-epoch="{{ now_epoch }}">vừa xong</span></span>
+  </div>
+  {% if counts.applied %}
+  <div class="toolbar" style="margin-top:.7rem">
     <form id="revert-all-form" method="post" action="/revert">
       <input type="hidden" name="group" value="all">
     </form>
     <button class="btn btn-danger" type="submit" form="revert-all-form"
             data-confirm="Revert TẤT CẢ? Sẽ gỡ toàn bộ {{ patch_count }} patch khỏi build (1 backup chung).">{{ icon('undo') }}Revert tất cả</button>
-    {% endif %}
-    <button type="button" class="btn btn-ghost" onclick="location.reload()">{{ icon('refresh') }}Tải lại</button>
-    <label class="switch"><input type="checkbox" id="autorefresh"> Tự động làm mới 15s</label>
-    <span class="meta">{{ icon('clock') }}quét {{ scan_seconds }}s · <span data-epoch="{{ now_epoch }}">vừa xong</span></span>
+    <span class="meta" style="margin-left:0">gỡ toàn bộ patch khỏi build — dùng khi cần đưa 9router về nguyên bản</span>
   </div>
+  {% endif %}
 </section>
 
 <p class="small muted" style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:0 0 14px">
@@ -427,6 +430,7 @@
   function cards(){ return all(".gcard"); }
 
   var K_VIEW = "9r_patch_view", K_FOLDED = "9r_patch_folded";
+  var K_FOLD_SEEN = "9r_patch_fold_seen";     // đã lưu trạng thái gập 1 lần chưa
   // view model lives here, never in the (replaceable) DOM nodes
   var currentState = "all";
   var currentQuery = "";
@@ -452,6 +456,15 @@
       if (c.classList.contains("is-folded")) out[c.getAttribute("data-gname")] = true;
     });
     lsSet(K_FOLDED, JSON.stringify(out));
+  }
+
+  // Nhãn nút fold-all phải theo trạng thái thật sau mỗi lần rehydrate/repaint —
+  // label tĩnh "Thu gọn" trong HTML sai khi 49 group vừa được gập sẵn lần đầu.
+  function syncFoldAllLabel(){
+    var fb = q("fold-all");
+    if (!fb) return;
+    var anyOpen = cards().some(function(c){ return !c.classList.contains("is-folded"); });
+    fb.innerHTML = '{{ icon("chevron") }}' + (anyOpen ? "Mở rộng" : "Thu gọn");
   }
 
   function applyFilter(){
@@ -483,12 +496,23 @@
   function rehydrate(){
     if (!document.querySelector(".ggrid")) return;
     setView(lsGet(K_VIEW) || "card");
-    var folded = {};
-    try { folded = JSON.parse(lsGet(K_FOLDED) || "{}") || {}; } catch(e){ folded = {}; }
+    var folded = null;
+    try { folded = JSON.parse(lsGet(K_FOLDED) || "null"); } catch(e){ folded = null; }
+    if (folded === null){
+      // Lần đầu tiên (user chưa từng gập/mở tay): gập sẵn group đã applied — 49 header
+      // mở bung là ~8600px phải cuộn. Group clean/partial/dead-anchor giữ MỞ vì đó là
+      // những cái cần thấy để xử lý.
+      folded = {};
+      cards().forEach(function(c){
+        if (c.getAttribute("data-state") === "applied") folded[c.getAttribute("data-gname")] = true;
+      });
+      lsSet(K_FOLDED, JSON.stringify(folded));
+    }
     cards().forEach(function(c){
       var n = c.getAttribute("data-gname");
       paintFold(c, !!(n && folded[n]));
     });
+    syncFoldAllLabel();
     all(".fchip[data-state]").forEach(function(b){
       b.classList.toggle("on", b.getAttribute("data-state") === currentState);
     });
@@ -518,9 +542,8 @@
       var list = cards();
       var anyOpen = list.some(function(c){ return !c.classList.contains("is-folded"); });
       list.forEach(function(c){ paintFold(c, anyOpen); });
-      var fb = q("fold-all");
-      if (fb) fb.innerHTML = '{{ icon("chevron") }}' + (anyOpen ? "Mở rộng" : "Thu gọn");
       saveFolded();
+      syncFoldAllLabel();
       return;
     }
 

@@ -1,5 +1,5 @@
 """Single source of truth for 9router Patch Manager application version."""
-APP_VERSION = "2.2.21.5"  # Cập nhật phiên bản ứng dụng tại đây
+APP_VERSION = "2.2.21.6"  # Cập nhật phiên bản ứng dụng tại đây
 
 # Một dòng, hiển thị trong <span> cạnh nút self-update (không pre-wrap) — ngắn gọn, không xuống dòng.
-APP_CHANGELOG = "Fix toggle BG token refresh cap nhat card ngay (khong can F5), nhan switch dung chieu, API toggle dung SNAP cache; Nuitka 4.3.1."
+APP_CHANGELOG = "Toi uu layout: luoi 5 card stat, mac dinh gap group applied, tach nut revert tat ca, gian cach bo loc."
