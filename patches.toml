@@ -750,3 +750,69 @@ summary = "Chan background token refresh khi co file flag (toggle tu dashboard)"
 why = "BG_TOKEN_REFRESH tick 5 phut + lead 30 phut -> moi token OAuth bi refresh ~6 lan/gio thay vi 1. Voi nhieu tai khoan Google/antigravity, traffic proactive lien tuc de bi Google flag. Guard dat o dau selectConnectionsNeedingRefresh (chokepoint duy nhat cua tick) trong 6540.js: file flag ton tai -> tra [] ngay -> tick van chay nhung no-op, khong gui request nao. Refresh on-demand (7828.js checkAndRefreshToken) VAN chay khi tai khoan het han duoc dung that -> khong mat chuc nang, chi bo phan refresh som. Dashboard patcher (20129) ghi/xoa %APPDATA%/9router-patch/disable-bg-refresh.flag; bat/tat ap dung o tick ke tiep (<=5 phut), khong can restart router. GO KHI UPSTREAM TU FIX: upstream them co che runtime (env doc moi tick, API stop/start) hoac giam lead time -> go patch, chay tools/make_patches_blob.py + pytest."
 find = 'function m(a,b=Date.now()){if(!Array.isArray(a)||0===a.length)return[];'
 replace = 'function m(a,b=Date.now()){try{if(require("fs").existsSync((process.env.APPDATA||process.env.HOME||"")+"/9router-patch/disable-bg-refresh.flag"))return[]}catch{}if(!Array.isArray(a)||0===a.length)return[];'
+
+[[patch]]
+id = "combos-picker-kilo-free-models"
+order = 56
+defines = "$9rKilo"
+summary = "Combos picker hien them free models cua Kilo (fetch free-models API, dedupe theo value)"
+why = "Trang provider detail fetch live /api/providers/kilo/free-models nen list model Kilo dong du; bang combos chi build tu static registry 8 model trong 5497-*.js (module 28011 ModelSelectModal) nen thieu toan bo model :free (minimax/minimax-m3.1-flash:free...). Patch them state $9rKilo + fetch khi mo modal, merge vao nhanh passthroughModels cua provider kilocode voi dedupe theo value (kc/<id>) - khong ghi DB, khong trung lap voi trang provider. GO KHI UPSTREAM TU FIX: picker doc them endpoint free-models hoac registry dong -> go patch."
+find = '[V,B]=(0,n.useState)([]),[J,G]=(0,n.useState)({}),H='
+replace = '[V,B]=(0,n.useState)([]),[J,G]=(0,n.useState)({}),[$9rKilo,$9rSetKilo]=(0,n.useState)([]),H='
+
+[[patch]]
+id = "combos-picker-kilo-free-fetch"
+order = 57
+group = "combos-picker-kilo-free-models"
+summary = "Fetch free-models cua Kilo khi mo modal picker"
+why = "Picker khong goi endpoint nay o bat ky dau (chi trang provider detail goi); thieu fetch thi $9rKilo luon rong va buoc merge khong co gi de them."
+find = 'console.error("Error fetching custom models:",e),B([])}};(0,n.useEffect)(()=>{e&&es()},[e]);'
+replace = 'console.error("Error fetching custom models:",e),B([])}};(0,n.useEffect)(()=>{if(!e)return;(async()=>{try{let t=await fetch("/api/providers/kilo/free-models",{cache:"no-store"});if(!t.ok)return;let a=await t.json();$9rSetKilo(Array.isArray(a.models)?a.models:[])}catch{}})()},[e]);(0,n.useEffect)(()=>{e&&es()},[e]);'
+
+[[patch]]
+id = "combos-picker-kilo-free-merge"
+order = 58
+group = "combos-picker-kilo-free-models"
+summary = "Merge free models vao nhanh passthrough cua kilocode, dedupe theo value"
+why = "Nhanh passthroughModels dung chung cho moi provider co co nay; guard theo ten provider de chi kilocode nhan free list. Dedupe bang Set tren value (kc/<id>) nen custom model hoac alias cung tro toi model do khong sinh dong thu hai."
+find = 'o=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...r]}'
+replace = 'o=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...r];if("kilocode"===n){let $9rSeen=new Set(o.map(e=>e.value)),$9rAdd=$9rKilo.map(e=>({id:e.id,name:e.name||e.id,value:`${i}/${e.id}`,kind:"llm"})).filter(e=>e.value&&!$9rSeen.has(e.value));o=[...o,...$9rAdd]}}'
+
+[[patch]]
+id = "combos-picker-kilo-free-deps"
+order = 59
+group = "combos-picker-kilo-free-models"
+summary = "Them $9rKilo vao deps cua memo ed de re-render khi free models ve"
+why = "useMemo ed chi tinh lai khi deps doi; free models ve sau lan render dau (async), thieu $9rKilo trong deps thi danh sach khong cap nhat cho den khi user doi filter."
+find = '[A,S,eo,q,V,J,O,_,R,ee,et,ea,er])'
+replace = '[A,S,eo,q,V,J,O,_,R,ee,et,ea,er,$9rKilo])'
+[[patch]]
+id = "provider-suggested-free-dedupe"
+order = 60
+summary = "Suggested free models (provider page) khong list lai model da co trong Available"
+why = "Bug upstream 0.5.104: bo loc suggested chi tru static registry (tv) ma quen danh sach free models fetch live (eG) dang hien ben tren -> moi model free xuat hien 2 lan: 1 o Available Models, 1 o hang Suggested free models bam vao de add them. Fix 1 dong: them eG vao Set loai tru. GO KHI UPSTREAM TU FIX: upstream them eG vao bo loc -> go patch."
+find = 't=new Set(tv.map(e=>e.id))'
+replace = 't=new Set([...tv,...eG].map(e=>e.id))'
+[[patch]]
+id = "provider-custom-vs-free-dedupe"
+order = 61
+summary = "Trung lap free model taiAvailable khi cung ton tai lam custom model (builtInModels thieu eG)"
+why = "Bug upstream 0.5.104 chuoi 2: ham $ loc custom/alias theo builtInModels nhung chi truyen tv (8 model static). Khi mot free model (vd nvidia/nemotron-3-ultra-550b-a55b:free) duoc bam add o Suggested -> no thanh customModel, nhung eG van chua no bang id giong het -> render Available xuat HAI the: the custom (o.map) va the free (r.map vi $ khong biet eG da co no). Fix: truyen builtInModels=[...tv,...eG] de ham $ loai custom trung voi free list. Patch 60 chi lo suggested hang duoi; patch nay lo duplicate trong Available. GO KHI UPSTREAM TU FIX: upstream truyen eG vao builtInModels -> go patch."
+find = 'o=$({customModels:ex,modelAliases:ep,providerAlias:t$,builtInModels:tv,type:"llm"})'
+replace = 'o=$({customModels:ex,modelAliases:ep,providerAlias:t$,builtInModels:[...tv,...eG],type:"llm"})'
+
+[[patch]]
+id = "openai-compatible-agentrouter-ua-executor"
+order = 62
+summary = "Gan User-Agent claude-cli cho request openai-compatible den agentrouter.org"
+why = "Executor anthropic-compatible (module 96179, server/chunks/6249.js) tu ep User-Agent claude-cli nen agentrouter chay duoc. Executor openai-compatible thi khong -> agentrouter.org tra 401 \"unauthorized client detected\" khi UA mac dinh la \"node\". Chen ngay sau buoc resolve auth, gate theo baseUrl chua agentrouter.org de 217 connection openai-compatible khac (TNT/YZ/freeapi/nightrouter/unorouter) khong doi hanh vi. Do 2026-10-20: UA claude-cli -> /models 200, /responses 200; UA node -> 401 o MOI endpoint."
+find = ',i=f?.auth||q[this.provider]||this.resolveAuthDescriptor();'
+replace = ',i=f?.auth||q[this.provider]||this.resolveAuthDescriptor();if((a?.providerSpecificData?.baseUrl||"").includes("agentrouter.org"))h["User-Agent"]="claude-cli/2.1.92 (external, cli)";'
+
+[[patch]]
+id = "openai-compatible-agentrouter-ua-models"
+order = 63
+summary = "Gan User-Agent claude-cli cho GET /api/providers/[id]/models cua node agentrouter"
+why = "Route models fetch node bang Bearer ma khong cot User-Agent -> agentrouter 401. Them cot User-Agent chi khi baseUrl la agentrouter.org."
+find = 'e=await fetch(b,{method:"GET",headers:{"Content-Type":"application/json",Authorization:`Bearer ${c.apiKey}`}})'
+replace = 'e=await fetch(b,{method:"GET",headers:{"Content-Type":"application/json",...(c.providerSpecificData?.baseUrl||"").includes("agentrouter.org")?{"User-Agent":"claude-cli/2.1.92 (external, cli)"}:{},Authorization:`Bearer ${c.apiKey}`}})'

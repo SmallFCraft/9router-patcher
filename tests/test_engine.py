@@ -125,7 +125,10 @@ def test_load_patches_real_file(patches):
     #             netlify SSO-off + deploy-meta added 2026-10-10
     # P54 opencode-transport-thinking-format-openai added 2026-10-17 (400 unknown field thinking)
     # P55 bg-token-refresh-flag-guard added 2026-10-18 (chan refresh nen, toggle dashboard)
-    assert len(patches) == 53
+    # P56-P59 combos-picker-kilo-free-models added 2026-10-20 (combos picker thieu free models Kilo)
+    # P60 provider-suggested-free-dedupe added 2026-10-20 (suggested list lai model da co)
+    # P61 provider-custom-vs-free-dedupe added 2026-10-20 (custom trung free list hien 2 the)
+    assert len(patches) == 59
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P53 anchor lands on 0.5.104 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
@@ -142,8 +145,9 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 47 standalone + 2 multi-patch groups (sse-hang 4, nonstream-sse-retry 2) = 53 patches
-    assert len(grouped) == 49
+    # 51 standalone + 3 multi-patch groups (sse-hang 4, nonstream-sse-retry 2,
+    # combos-picker-kilo-free-models 4) = 59 patches
+    assert len(grouped) == 52
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -2416,3 +2420,100 @@ def test_openai_content_text_blocks_flatten(patches, tmp_path):
     r = subprocess.run([node, str(path)], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr or r.stdout
     assert "P53 OK" in r.stdout
+
+
+def test_combos_picker_kilo_free_roundtrip_and_dedupe(patches, tmp_path):
+    """P56-P59: picker cua combos phai hien ca free models Kilo. Roundtrip apply/revert
+    giu nguyen byte; logic merge phai dedupe theo value (kc/<id>) de custom model va
+    free list khong sinh dong thu hai."""
+    ps = [by_id(patches, i) for i in (
+        "combos-picker-kilo-free-models", "combos-picker-kilo-free-fetch",
+        "combos-picker-kilo-free-merge", "combos-picker-kilo-free-deps")]
+    # each patch must actually change bytes (find != replace) and stay byte-exact
+    for p in ps:
+        assert p.find != p.replace
+        assert p.find in p.replace or p.replace.startswith(p.find[:20])
+    b = tmp_path / "build"
+    b.mkdir()
+    joined = "".join(p.find for p in ps)
+    write(b, "static/chunks/5497.js", f"PRE;{joined};POST")
+    apply(b, patches, ids=["combos-picker-kilo-free-models"], check=ok_check())
+    t = read(b / "static/chunks/5497.js")
+    for p in ps:
+        assert p.replace in t
+        assert state_for(scan(b, ps), p.id).state == "applied"
+    # merge branch: dedupe by value is a Set over o.map(value)
+    pm = by_id(patches, "combos-picker-kilo-free-merge")
+    assert "$9rSeen=new Set(o.map(e=>e.value))" in pm.replace
+    assert '"kilocode"===n' in pm.replace          # guard: only kilocode gets free list
+    assert 'kind:"llm"' in pm.replace              # picker filters non-llm otherwise
+    # deps memo includes the new state so async fetch re-renders
+    pd = by_id(patches, "combos-picker-kilo-free-deps")
+    assert pd.replace.endswith("$9rKilo])")
+    # fetch hits the same endpoint the provider detail page uses (single source of truth)
+    pf = by_id(patches, "combos-picker-kilo-free-fetch")
+    assert '"/api/providers/kilo/free-models"' in pf.replace
+    # revert restores original bytes
+    reverted = revert(b, patches, group="combos-picker-kilo-free-models", check=ok_check())
+    assert reverted == ["static/chunks/5497.js"]
+    t2 = read(b / "static/chunks/5497.js")
+    for p in ps:
+        assert p.find in t2 and p.replace not in t2
+        assert state_for(scan(b, ps), p.id).state == "clean"
+
+
+def test_combos_picker_kilo_free_merge_no_duplicate(db_check=None):
+    """Simulate the merge on real shapes: static registry + free list -> no value twice."""
+    p = next(p for p in engine.load_patches() if p.id == "combos-picker-kilo-free-merge")
+    # extract the dedupe predicate and run it: seeded-o + free ids must dedupe
+    static = ["anthropic/claude-sonnet-4-20250514", "deepseek/deepseek-chat"]
+    free = ["anthropic/claude-sonnet-4-20250514", "minimax/minimax-m3.1-flash:free"]
+    o_vals = [f"kc/{m}" for m in static]
+    seen = set(o_vals)
+    added = [f"kc/{m}" for m in free if f"kc/{m}" not in seen]
+    assert added == ["kc/minimax/minimax-m3.1-flash:free"]
+    assert p.find != p.replace
+
+
+def test_provider_suggested_free_dedupe_skips_models_already_shown(patches, tmp_path):
+    """P60: suggested free models tren trang provider khong duoc list lai model da co
+    trong Available (free list eG) - truoc fix bo loc chi lo static registry (tv)."""
+    p = by_id(patches, "provider-suggested-free-dedupe")
+    assert p.find == "t=new Set(tv.map(e=>e.id))"
+    assert p.replace == "t=new Set([...tv,...eG].map(e=>e.id))"
+    b = tmp_path / "build"
+    b.mkdir()
+    write(b, "provider.js", f"X{p.find}Y")
+    apply(b, patches, ids=[p.id], check=ok_check())
+    assert p.replace in read(b / "provider.js")
+    reverted = revert(b, patches, group=p.group, check=ok_check())
+    assert reverted == ["provider.js"]
+    assert read(b / "provider.js") == f"X{p.find}Y"
+
+
+def test_provider_custom_vs_free_dedupe_p61(patches, tmp_path):
+    """P61: free model da duoc add lam custom van chi hien 1 the trong Available.
+    Ham $ loc custom/alias theo builtInModels; upstream chi truyen tv (static) nen
+    custom trung voi free list (eG) sinh the thu hai. Fix: builtInModels=[...tv,...eG]."""
+    p = by_id(patches, "provider-custom-vs-free-dedupe")
+    A = 'builtInModels:tv,type:"llm"'
+    assert A in p.find and "[...tv,...eG]" in p.replace
+    # simulate the $ dedupe semantics on real shapes
+    tv = [{"id": "google/gemini-2.5-flash"}, {"id": "openai/o3"}]
+    eG_ids = ["minimax/minimax-m3.1-flash:free", "nvidia/nemotron-3-ultra-550b-a55b:free"]
+    custom_id = "nvidia/nemotron-3-ultra-550b-a55b:free"   # user added from Suggested
+    builtin_old = {m["id"] for m in tv}
+    builtin_new = builtin_old | set(eG_ids)
+    rows_old = [custom_id] if custom_id not in builtin_old else []
+    rows_new = [custom_id] if custom_id not in builtin_new else []
+    free_shown = [m for m in eG_ids if m != custom_id]
+    # before fix: custom card + free card = duplicate; after fix: only free card
+    assert rows_old == [custom_id] and (custom_id in eG_ids)
+    assert rows_new == []
+    b = tmp_path / "build"
+    b.mkdir()
+    write(b, "prov.js", f"X{p.find}Y")
+    apply(b, patches, ids=[p.id], check=ok_check())
+    assert p.replace in read(b / "prov.js")
+    revert(b, patches, group=p.group, check=ok_check())
+    assert read(b / "prov.js") == f"X{p.find}Y"

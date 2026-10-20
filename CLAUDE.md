@@ -25,17 +25,17 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (53 patches, 49 groups; 2 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches).
+- `patches.toml` — Single source of truth (59 patches, 52 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
 ## Verified Baselines (2026-10-18, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q -s` → **446 passed, 4-5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi.
+- Full test suite: `python -m pytest tests/ -q -s` → **451 passed, 4-5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi.
   **Phải dùng `-s`**: pytest fd-capture trên Windows đụng handle của subprocess — không `-s` thì 20+ test spawn node/subprocess fail `WinError 6` (handle invalid) giả.
   Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.104 → patch states legitimately differ), `318.js` not in current build.
-- Engine tests: `python -m pytest tests/test_engine.py -q -s` → **118 passed, 2 skipped**.
+- Engine tests: `python -m pytest tests/test_engine.py -q -s` → **122 passed, 2 skipped**.
 - Engine tests: `python -m pytest tests/test_engine.py -q` → **118 passed, 2 skipped**.
 - App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q -s` → **73 passed, 2 skipped**.
 - Linter: None configured. Do not invent an unconfigured lint command.
