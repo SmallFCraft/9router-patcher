@@ -1,4 +1,5 @@
 """Tests for build pipeline command assembly and pre-flight checks."""
+import json
 from pathlib import Path
 
 import build_app
@@ -79,32 +80,76 @@ def test_exe_locked_detects_free_and_open_file(tmp_path: Path):
     assert build_app._exe_locked(tmp_path / "nonexistent.exe") is True
 
 
-def test_build_app_copies_versioned_artifact(tmp_path, monkeypatch):
-    """build() phải copy exe sang tên có version để upload hosting (9router-patch-vX.Y.Z.exe)."""
-    import build_app
+def test_build_stages_versioned_exe_and_manifest(tmp_path, monkeypatch):
+    """build() stages dist/9router-patch-v<ver>.exe + dist/version.json (không còn files/)."""
+    import subprocess as sp
+
     import version
 
-    # Tên artifact kỳ vọng khớp version.APP_VERSION
-    expected = f"9router-patch-v{version.APP_VERSION}.exe"
-    assert expected.startswith("9router-patch-v")
-    assert expected.endswith(".exe")
+    root = tmp_path / "repo"
+    (root / "dist").mkdir(parents=True)
+    (root / "dist" / "9router-patch.exe").write_bytes(b"MZ-fake")
+    monkeypatch.setattr(build_app, "ROOT", root)
+    monkeypatch.setattr(sp, "run", lambda *a, **k: sp.CompletedProcess(a, 0))
+    monkeypatch.setattr(build_app, "_release_dist_exe", lambda p: None)
 
-    # build() phải tham chiếu tên này (kiểm tra qua source: không chạy build thật 160s)
-    src = (build_app.ROOT / "build_app.py").read_text(encoding="utf-8")
-    assert "9router-patch-v" in src
-    assert "shutil.copyfile" in src
+    assert build_app.build() == 0
+    versioned = root / "dist" / f"9router-patch-v{version.APP_VERSION}.exe"
+    assert versioned.is_file()
+    manifest = json.loads((root / "dist" / "version.json").read_text(encoding="utf-8"))
+    assert manifest["url"].endswith(versioned.name)
+    assert not (root / "dist" / "files").exists()
+
+
+def test_build_fails_when_versioned_copy_fails(tmp_path, monkeypatch, capsys):
+    """Copy fail (exe bị lock) → return 1, không ghi version.json cho binary thiếu."""
+    import subprocess as sp
+
+    root = tmp_path / "repo"
+    (root / "dist").mkdir(parents=True)
+    (root / "dist" / "9router-patch.exe").write_bytes(b"MZ-fake")
+    monkeypatch.setattr(build_app, "ROOT", root)
+    monkeypatch.setattr(sp, "run", lambda *a, **k: sp.CompletedProcess(a, 0))
+    monkeypatch.setattr(build_app, "_release_dist_exe", lambda p: None)
+
+    def boom(src, dst):
+        raise OSError("locked")
+
+    monkeypatch.setattr(build_app.shutil, "copyfile", boom)
+
+    assert build_app.build() == 1
+    assert not (root / "dist" / "version.json").exists()
+    assert "LỖI" in capsys.readouterr().out
 
 
 def test_prune_stale_artifacts_keeps_only_current_build(tmp_path):
-    """prune_stale_artifacts: chỉ giữ bản vừa build, xóa artifact cũ + file rác."""
-    files_dir = tmp_path / "files"
-    files_dir.mkdir()
+    """prune_stale_artifacts: chỉ giữ bản vừa build, xóa artifact cũ khớp pattern;
+    các file khác (trash.bin) được giữ nguyên."""
+    folder = tmp_path / "dist"
+    folder.mkdir()
     for name in ("9router-patch.exe", "9router-patch-v2.1.5.exe",
                  "9router-patch-v2.1.4.exe", "trash.bin"):
-        (files_dir / name).write_bytes(b"x")
+        (folder / name).write_bytes(b"x")
 
-    removed = build_app.prune_stale_artifacts(
-        files_dir, {"9router-patch.exe", "9router-patch-v2.1.5.exe"})
+    removed = build_app.prune_stale_artifacts(folder, {"9router-patch-v2.1.5.exe"},
+                                              pattern="9router-patch*.exe")
     assert removed == 2
-    assert sorted(p.name for p in files_dir.iterdir()) == [
-        "9router-patch-v2.1.5.exe", "9router-patch.exe"]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "9router-patch-v2.1.5.exe", "trash.bin"]
+
+
+def test_write_version_manifest_puts_url_at_base(tmp_path):
+    """Manifest ghi root dist/version.json, url trỏ thẳng UPDATE_BASE_URL/<exe>."""
+    dist = tmp_path / "dist"
+    dist.mkdir(parents=True)
+    artifact = dist / "9router-patch-v9.9.9.exe"
+    artifact.write_bytes(b"MZ-fake")
+
+    out, manifest = build_app.write_version_manifest(dist, artifact)
+    assert out == dist / "version.json"
+    assert out.is_file()
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data == manifest
+    assert data["url"] == f"{build_app.config.UPDATE_BASE_URL}/9router-patch-v9.9.9.exe"
+    assert len(data["sha256"]) == 64
+    assert data["version"]

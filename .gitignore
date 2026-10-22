@@ -17,6 +17,10 @@ docs/*
 Thumbs.db
 .DS_Store
 
+# Throwaway probes from patch-authoring sessions
+.probe_*
+.patches.new.toml
+
 # Agents
 .claude/
 .mimosa/

@@ -211,6 +211,21 @@ replace = 'q=()=>{p(),i=setTimeout(()=>{i=null,m="stream stall timeout",(0,e.s)(
 # tool_calls/function_call/output_text.delta — thinking KHÔNG tính) rồi mới trả stream live;
 # EOF sạch không evidence → {success:!1,status:502} đi đường khóa+fallback vk/hk như 5xx.
 # read() throw → ném tiếp cho combo catch. Anchor duy nhất 1 bản ở 8895.js.
+# 2026-10-21: 3 lỗi đo được trên ar/gpt-6.1-sol (body 773KB, 202k token):
+#  (a) peek chờ EOF → upstream im 195-200s mới kết luận rỗng → $end (terminal event)
+#      cắt vòng đọc ngay khi thấy response.completed/failed/incomplete/error/message_stop.
+#  (b) 502 luôn trả message generic → classifier hk không match t2 {"text":"rate limit"}
+#      → khoá model 30s → 7 account xoay vòng, mỗi vòng lại đẩy 202k token → Azure
+#      rate-limit tầng 2. $why lấy message/reason của upstream để 502 mang lý do thật.
+#  (c) `tool_calls` false-positive với "max_tool_calls":null / "parallel_tool_calls":true
+#      trong response.created → coi stream chết là stream sống. (?<![A-Za-z_]) chặn cả
+#      hai key. 2026-10-21 (review): $ev bỏ content_block_start (empty text block của
+#      text block thường gây false LIVE) và thêm "type":"tool_use" — tool call không
+#      đối số trên claude passthrough chỉ có block start/stop, không delta nào.
+#  (d) $er thêm (?!upstream incomplete) — sentinel P64 (response.incomplete → [Error]
+#      upstream incomplete: ...) là CONTENT hợp lệ, không được covert thành 502, nếu
+#      không vòng khoá-model 30s mà P64 chặn quay lại ngay với client claude-format.
+# Lưu ý: probe đọc stream ĐÃ CONVERT (claude/openai), không phải raw responses.
 # LỊCH SỬ: lần áp đầu (01:4x) TypeError "reading success" — ROOT CAUSE (stack 01:55, diag): tôi
 # biến `return A.catch(...),{success...}` (comma-expr) thành `return A.catch(...);` → early-return
 # chính promise save-requestDetails (resolve undefined) → o/wk resolve undefined → z đọc q.success
@@ -223,7 +238,7 @@ order = 16
 summary = "Peek stream: block đầu có content (text/thinking/tool) → pipe thẳng; rỗng thật → 502"
 why = "am/mt trả stream rỗng (OUT 0) nhưng vẫn success → combo dừng, client nhận rỗng; peek nội dung trước khi trả để stream rỗng đi đường lỗi. 2026-09-25: regex cũ chỉ nhận text_delta/tool_calls nên thinking-only (TokenHarbor mimo-v2.6-flash, thinking adaptive) bị đợi tới 240s P15 deadline rồi gán oan 'empty stream' 502 + khoá key 30s"
 find = ';return(0,m.ox)((0,l.$R)({provider:b,model:c,connectionId:z,latency:{ttft:0,total:Date.now()-y},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,l.Fo)(u,v),providerRequest:x||w||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:J,status:"success"},{id:I})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)}),{success:!0,response:new Response(R,{headers:{...n.RK,...(0,o.d)(a.headers)}})}'
-replace = ';(0,m.ox)((0,l.$R)({provider:b,model:c,connectionId:z,latency:{ttft:0,total:Date.now()-y},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,l.Fo)(u,v),providerRequest:x||w||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:J,status:"success"},{id:I})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)});let $pk=async($ps,$hd)=>{let $rd=$ps.getReader(),$dc=new TextDecoder(),$bf="",$ev=/text_delta|thinking_delta|signature_delta|input_json_delta|content_block_start|"delta":\s*\{"content":\s*"[^"]|"text":\s*"[^"]|"thinking":\s*"[^"]|tool_calls|"type":"function_call|output_text\.delta/;for(;;){let $r2=await $rd.read();if($r2.done)break;$bf+=$dc.decode($r2.value,{stream:!0});if($ev.test($bf)){let $en=new TextEncoder();return{success:!0,response:new Response(new ReadableStream({start($c){$c.enqueue($en.encode($bf));(async()=>{for(;;){let $r3;try{$r3=await $rd.read()}catch{break}if($r3.done)break;$c.enqueue($r3.value)}try{$c.close()}catch{}})()},cancel(){try{$rd.cancel()}catch{}}}),{headers:$hd})}}}try{$rd.cancel()}catch{}return{success:!1,status:502,error:"upstream empty stream (no content)",response:new Response(JSON.stringify({error:{message:"[502]: upstream returned an empty stream (no content)"}}),{status:502,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}};return await $pk(R,{...n.RK,...(0,o.d)(a.headers)})'
+replace = ';(0,m.ox)((0,l.$R)({provider:b,model:c,connectionId:z,latency:{ttft:0,total:Date.now()-y},tokens:{prompt_tokens:0,completion_tokens:0},request:(0,l.Fo)(u,v),providerRequest:x||w||null,providerResponse:"[Streaming - raw response not captured]",response:{content:"[Streaming in progress...]",thinking:null,type:"streaming"},pxpipe:J,status:"success"},{id:I})).catch(a=>{console.error("[RequestDetail] Failed to save streaming request:",a.message)});let $pk=async($ps,$hd)=>{let $rd=$ps.getReader(),$dc=new TextDecoder(),$bf="",$ev=/text_delta|thinking_delta|signature_delta|input_json_delta|"type":"tool_use"|"delta":\s*\{"content":\s*"[^"]|"text":\s*"[^"]|"thinking":\s*"[^"]|(?<![A-Za-z_])tool_calls|"type":"function_call|output_text\.delta/,$er=/"text":"\[Error\] (?!upstream incomplete)((?:[^"\\]|\\.)*)"/,$end=/"type":"(?:response\.(?:completed|done|failed|incomplete)|error|message_stop)"|\[DONE\]/,$why=/"(?:message|reason)":"((?:[^"\\]|\\.){1,500})"/g;for(;;){let $r2=await $rd.read();if($r2.done)break;$bf+=$dc.decode($r2.value,{stream:!0});if($er.test($bf))break;if($ev.test($bf)){let $en=new TextEncoder();return{success:!0,response:new Response(new ReadableStream({start($c){$c.enqueue($en.encode($bf));(async()=>{for(;;){let $r3;try{$r3=await $rd.read()}catch{break}if($r3.done)break;$c.enqueue($r3.value)}try{$c.close()}catch{}})()},cancel(){try{$rd.cancel()}catch{}}}),{headers:$hd})}}if($end.test($bf))break}let $w="";{let $em=$er.exec($bf);if($em)$w=$em[1];}if(!$w){let $wm=null;while(($wm=$why.exec($bf)))$w=$wm[1];}$w&&($w=$w.replace(/\\"/g,"\"").replace(/\\n/g," ").replace(/\s+/g," ").trim().slice(0,200));try{$rd.cancel()}catch{}return{success:!1,status:502,error:"upstream empty stream"+($w?" "+$w:" (no content)"),response:new Response(JSON.stringify({error:{message:"[502]: upstream returned an empty stream"+($w?": "+$w:" (no content)")}}),{status:502,headers:{"Content-Type":"application/json","Access-Control-Allow-Origin":"*"}})}};return await $pk(R,{...n.RK,...(0,o.d)(a.headers)})'
 
 # P17 — đọc error-body có timeout: 503 của motomoto thi thoảng giữ body chunked không đóng
 # (~75s/probe). Race a.text() với 9R_ERRBODY_TIMEOUT_MS (default 8s) + cancel body; cả hai
@@ -808,6 +823,21 @@ summary = "Gan User-Agent claude-cli cho request openai-compatible den agentrout
 why = "Executor anthropic-compatible (module 96179, server/chunks/6249.js) tu ep User-Agent claude-cli nen agentrouter chay duoc. Executor openai-compatible thi khong -> agentrouter.org tra 401 \"unauthorized client detected\" khi UA mac dinh la \"node\". Chen ngay sau buoc resolve auth, gate theo baseUrl chua agentrouter.org de 217 connection openai-compatible khac (TNT/YZ/freeapi/nightrouter/unorouter) khong doi hanh vi. Do 2026-10-20: UA claude-cli -> /models 200, /responses 200; UA node -> 401 o MOI endpoint."
 find = ',i=f?.auth||q[this.provider]||this.resolveAuthDescriptor();'
 replace = ',i=f?.auth||q[this.provider]||this.resolveAuthDescriptor();if((a?.providerSpecificData?.baseUrl||"").includes("agentrouter.org"))h["User-Agent"]="claude-cli/2.1.92 (external, cli)";'
+
+# P64 - response.incomplete cua openai-responses khong duoc converter xu ly: v() roi xuong
+# `return null` -> stream convert ra RONG -> probe p16 ket luan "empty stream (no content)"
+# -> classifier hk khong match t2 -> khoa model 30s -> xoay het account (do duoc: 7 account
+# /40s cho 1 request, moi lan day lai 202k token). Nguyen nhan that thuong la reasoning an
+# het output budget (usage.output_tokens_details.reasoning_tokens = max_output_tokens),
+# KHONG phai loi account. Phat [Error] kem incomplete_details.reason dung pattern nhanh
+# error/response.failed san co -> stream co content -> 200, mot request, khong khoa account.
+[[patch]]
+id = "responses-incomplete-as-error"
+order = 64
+summary = "openai-responses response.incomplete -> phat [Error] kem reason thay vi stream rong"
+why = "converter v() bo qua response.incomplete -> stream convert rong -> p16 bao 'empty stream (no content)' -> khoa model 30s + xoay sach account cho MOT request (7 account/40s, 202k token/lan). Goc la reasoning an het max_output_tokens, khong phai loi account"
+find = 'if("error"===c||"response.failed"===c){if(b.finishReasonSent)return null;let a=d.error||d.response?.error;return a?(b.error=a,b.finishReasonSent=!0,(0,f.k)({id:b.chatId||`chatcmpl-${Date.now()}`,created:b.created||Math.floor(Date.now()/1e3),model:b.model||j.rP},{content:`[Error] ${a.message||JSON.stringify(a)}`},j.bC.STOP)):null}'
+replace = 'if("error"===c||"response.failed"===c){if(b.finishReasonSent)return null;let a=d.error||d.response?.error;return a?(b.error=a,b.finishReasonSent=!0,(0,f.k)({id:b.chatId||`chatcmpl-${Date.now()}`,created:b.created||Math.floor(Date.now()/1e3),model:b.model||j.rP},{content:`[Error] ${a.message||JSON.stringify(a)}`},j.bC.STOP)):null}if("response.incomplete"===c){if(b.finishReasonSent)return null;let $rs=d.response||{};b.finishReasonSent=!0;return(0,f.k)({id:b.chatId||`chatcmpl-${Date.now()}`,created:b.created||Math.floor(Date.now()/1e3),model:b.model||j.rP},{content:"[Error] upstream incomplete"+($rs.incomplete_details?": "+JSON.stringify($rs.incomplete_details):"")},j.bC.STOP)}'
 
 [[patch]]
 id = "openai-compatible-agentrouter-ua-models"

@@ -2,7 +2,8 @@
 
 Quy trình:
 1. Mã hóa patches.toml -> assets/patches.enc
-2. Chạy Nuitka biên dịch app.py thành dist/files/9router-patch.exe
+2. Chạy Nuitka biên dịch app.py thành dist/9router-patch.exe
+3. Stage: dist/9router-patch-v<ver>.exe + dist/version.json (upload 2 file này)
 """
 from __future__ import annotations
 
@@ -31,17 +32,25 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def write_version_manifest(dist: Path, artifact: Path) -> Path:
-    """Sinh `version.json` sẵn để upload — người dùng không phải tự chạy certutil."""
+def write_version_manifest(dist: Path, artifact: Path) -> tuple[Path, dict]:
+    """Sinh `version.json` để upload — người dùng không phải tự chạy certutil.
+
+    Hosting: exe + version.json CÙNG CẤP trong dist/ (không có files/).
+    Cảnh báo: mọi exe đã phát hành compile cứng UPDATE_BASE_URL/version.json.
+    Bỏ bản này khỏi hosting = các máy cũ mất update vĩnh viễn.
+
+    Trả về (path, manifest) — sha256 tính một lần, caller dùng lại từ manifest.
+    """
     manifest = {
         "version": version.APP_VERSION,
-        "url": f"{config.UPDATE_BASE_URL}/files/{artifact.name}",
+        "url": f"{config.UPDATE_BASE_URL}/{artifact.name}",
         "sha256": sha256_file(artifact),
         "changelog": version.APP_CHANGELOG,
     }
+    payload = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
     out = dist / "version.json"
-    out.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return out
+    out.write_text(payload, encoding="utf-8")
+    return out, manifest
 
 
 def win_file_version() -> str:
@@ -51,13 +60,15 @@ def win_file_version() -> str:
     return version.APP_VERSION + (".0" if len(parts) == 3 else "")
 
 
-def prune_stale_artifacts(files_dir: Path, keep: set[str]) -> int:
-    """Xóa artifact cũ trong dist/files/ — chỉ giữ bản vừa build.
-
+def prune_stale_artifacts(folder: Path, keep: set[str],
+                          pattern: str) -> int:
+    """Xóa artifact cũ khớp `pattern` trong `folder` — chỉ giữ bản vừa build.
+    Pattern bắt buộc: mỗi thư mục staging có phạm vi dọn riêng (dist/ phải chỉ khớp exe,
+    không quét cả version.json / kilo-models.json / build-report.xml).
     Không dọn trước khi build: build lỗi vẫn còn bản cũ để upload.
     """
     removed = 0
-    for f in files_dir.iterdir():
+    for f in folder.glob(pattern):
         if f.is_file() and f.name not in keep:
             try:
                 f.unlink()
@@ -135,7 +146,7 @@ def _exe_locked(exe: Path) -> bool:
 
 def _release_dist_exe(exe: Path) -> None:
     """Exe của lần build trước còn chạy sẽ giữ file: Nuitka onefile bootstrap unlink fail
-    WinError 5 ở dist/, copy staging Permission denied ở files/. Kill theo ĐÚNG image
+    WinError 5 ở dist/, copy staging Permission denied ở dist/. Kill theo ĐÚNG image
     name — KHÔNG dùng /T (tree-kill giết cả process tree: router node.exe + headroom
     là con detached của exe → mỗi lần build tắt luôn 9router), cũng KHÔNG dùng
     /FI "WINDOWTITLE ..." (nó khớp cả cửa sổ File Explorer và kill luôn explorer.exe,
@@ -146,7 +157,7 @@ def _release_dist_exe(exe: Path) -> None:
                    shell=False, capture_output=True, text=True)
     # onefile parent+child giải phóng handle KHÔNG đồng bộ: taskkill xong mà file vẫn
     # "locked" thêm vài chục ms (repro build 2.2.6: probe ngay -> vẫn giữ -> copy fail
-    # -> prune xoá artifact cũ, files/ giữ bản lỗi). Chờ rồi mới phán quyết.
+    # -> prune dọn bản cũ rồi giữ bản lỗi). Chờ rồi mới phán quyết.
     for _ in range(20):                  # tổng ~2s
         if not _exe_locked(exe):
             print(f"  đã tắt {exe.name} còn chạy (đang giữ file để build)")
@@ -199,37 +210,39 @@ def build(fast: bool = False) -> int:
 
     exe = dist / "9router-patch.exe"
     if exe.is_file():
-        files_dir = dist / "files"
-        files_dir.mkdir(parents=True, exist_ok=True)
-        versioned = files_dir / f"9router-patch-v{version.APP_VERSION}.exe"
-        standard = files_dir / "9router-patch.exe"
+        versioned = dist / f"9router-patch-v{version.APP_VERSION}.exe"
 
+        copied = False
         try:
-            _release_dist_exe(versioned)      # cùng trick như dist/: app đang chạy trong
-            _release_dist_exe(standard)       # files/ giữ file y hệt image name nên cũng lock
+            _release_dist_exe(versioned)
             shutil.copyfile(exe, versioned)
-            shutil.copyfile(exe, standard)
+            copied = True
         except OSError as e:
-            print(f"CẢNH BÁO: không copy được artifact vào {files_dir.name}/: {e}")
+            print(f"CẢNH BÁO: không copy được artifact có version: {e}")
 
-        # Chỉ dọn sau khi build THÀNH CÔNG: giữ đúng 2 bản vừa build, xóa artifact cũ còn sót.
-        keep = {standard.name, versioned.name}
-        removed = prune_stale_artifacts(files_dir, keep)
+        if not copied:
+            print(f"LỖI: {versioned.name} chưa được stage — không upload được bản này. "
+                  f"Fix lock rồi chạy lại build.")
+            return 1
+        # Chỉ dọn sau khi build THÀNH CÔNG: giữ đúng bản vừa build + version.json.
+        manifest_path, manifest = write_version_manifest(dist, versioned)
+        removed = prune_stale_artifacts(dist, {versioned.name, exe.name},
+                                        pattern="9router-patch*.exe")
         if removed:
-            print(f"Đã dọn {removed} artifact cũ trong files/")
+            print(f"Đã dọn {removed} exe cũ trong dist/")
+        # Layout mới bỏ hẳn thư mục files/ — 2 file upload nằm thẳng trong dist/.
+        legacy = dist / "files"
+        if legacy.is_dir():
+            shutil.rmtree(legacy, ignore_errors=True)
 
         size_mb = exe.stat().st_size / (1024 * 1024)
         print(f"\nEncrypt: {t1 - t0:.1f}s | Nuitka: {t2 - t1:.1f}s | Total: {t2 - t0:.1f}s")
         print(f"SUCCESS: Built {exe} ({size_mb:.1f} MB)")
-        if versioned.is_file():
-            vsize = versioned.stat().st_size / (1024 * 1024)
-            sha = sha256_file(versioned)
-            manifest = write_version_manifest(dist, versioned)
-            print(f"Artifacts staged under: {files_dir.name}/")
-            print(f"  1. {files_dir.name}/{standard.name} (bản chuẩn gửi cho user mới)")
-            print(f"  2. {files_dir.name}/{versioned.name} ({vsize:.1f} MB, bản có version lưu hosting)")
-            print(f"SHA256:          {sha}")
-            print(f"Manifest:        {manifest.name} (upload cùng thư mục gốc hosting)")
+        vsize = versioned.stat().st_size / (1024 * 1024)
+        print(f"Upload 2 file trong dist/ lên {config.UPDATE_BASE_URL}")
+        print(f"  1. {versioned.name} ({vsize:.1f} MB)")
+        print(f"  2. {manifest_path.name}")
+        print(f"SHA256: {manifest['sha256']}")
         return 0
     print(f"\nError: Expected output {exe} was not created!")
     return 1

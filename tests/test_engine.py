@@ -128,9 +128,19 @@ def test_load_patches_real_file(patches):
     # P56-P59 combos-picker-kilo-free-models added 2026-10-20 (combos picker thieu free models Kilo)
     # P60 provider-suggested-free-dedupe added 2026-10-20 (suggested list lai model da co)
     # P61 provider-custom-vs-free-dedupe added 2026-10-20 (custom trung free list hien 2 the)
-    assert len(patches) == 59
+    # P62-P63 agentrouter UA (executor + models route) added 2026-10-20
+    # P64 responses-incomplete-as-error added 2026-10-21 (responses.incomplete -> [Error], no account lock)
+    # P16 empty-stream-fallback tightened 2026-10-21: terminal-event short-circuit + reason extract
+    # count parity with enc blob loader (test_engine_enc) — bump BOTH when adding a patch
+    assert len(patches) == 62
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
+    # P62/P63 agentrouter UA: executor adds claude-cli UA header; models route appends UA header to fetch
+    for pid in ("openai-compatible-agentrouter-ua-executor", "openai-compatible-agentrouter-ua-models"):
+        p = by_id(patches, pid)
+        assert p.find and p.replace, pid
+    assert 'agentrouter.org' in by_id(patches, "openai-compatible-agentrouter-ua-executor").replace
+    assert 'claude-cli/2.1.92' in by_id(patches, "openai-compatible-agentrouter-ua-executor").replace
     # P53 anchor lands on 0.5.104 build (8895.js ak max_tokens guard), 1 file, 1 occurrence
     assert by_id(patches, "openai-content-text-blocks-flatten").order == 53
     for a in ("id", "order", "group", "summary", "why", "find", "replace"):
@@ -145,9 +155,9 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 51 standalone + 3 multi-patch groups (sse-hang 4, nonstream-sse-retry 2,
-    # combos-picker-kilo-free-models 4) = 59 patches
-    assert len(grouped) == 52
+    # 62 patches: 52 standalone (group = own id) + 3 multi-patch groups
+    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 55 group keys
+    assert len(grouped) == 55
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -1271,6 +1281,34 @@ const mk = (frames) => { let i = 0; return { read: async () => i < frames.length
 
   r = await $pk({ getReader: () => mk(['data: {"choices":[{"delta":{"content":"Hi"}}]}\\n\\n', "data: [DONE]\\n\\n"]) }, {});
   if (!r.success) throw new Error("openai content bi coi la empty");
+
+  const shell = ['event: content_block_start\\n', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\\n\\n',
+    'event: content_block_delta\\n', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"[Error] Could not find an existing deployment to match the model in the request."}}\\n\\n',
+    'event: message_stop\\n', 'data: {"type":"message_stop"}\\n\\n'];
+  r = await $pk({ getReader: () => mk(shell) }, {});
+  if (r.success !== false || r.status !== 502) throw new Error("loi in-band phai la 502, khong phai success: " + JSON.stringify(r).slice(0, 140));
+  if (!/deployment/.test(r.error || "")) throw new Error("502 phai keo theo reason: " + r.error);
+
+  r = await $pk({ getReader: () => mk(['data: {"text":"[Error] quota exhausted"}\\n\\n', 'data: {"text":"[Error] rate limited"}\\n\\n']) }, {});
+  if (r.success !== false || r.status !== 502) throw new Error("[Error] text phai thanh 502: " + JSON.stringify(r).slice(0, 140));
+  if (!/quota exhausted/.test(r.error || "")) throw new Error("reason sai: " + r.error);
+
+  // P64 phat sentinel "[Error] upstream incomplete: ..." NHU CONTENT de bao stream ket thuc
+  // vi ly do that (reasoning het budget) — p16 khong duoc bien no thanh 502, neu khong
+  // chinh vong khoa-model 30s ma P64 sinh ra de chan lai quay lai.
+  r = await $pk({ getReader: () => mk(['data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"[Error] upstream incomplete: {\\\\"reason\\\\":\\\\"max_output_tokens\\\\"}"}}\\n\\n', 'data: {"type":"message_stop"}\\n\\n']) }, {});
+  if (!r.success) throw new Error("P64 sentinel bi coi la loi: " + JSON.stringify(r).slice(0, 140));
+  const st = await r.response.text();
+  if (!st.includes("upstream incomplete")) throw new Error("mat sentinel: " + st.slice(0, 140));
+
+  // tool call khong doi so tren claude passthrough: chi co content_block_start(tool_use)
+  // + stop, khong delta nao -> phai la stream SONG, khong duoc 502.
+  r = await $pk({ getReader: () => mk(['data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"t1","name":"ping","input":{}}}\\n\\n', 'data: {"type":"content_block_stop","index":1}\\n\\n', 'data: {"type":"message_stop"}\\n\\n']) }, {});
+  if (!r.success) throw new Error("tool_use khong doi so bi coi la empty: " + JSON.stringify(r).slice(0, 140));
+
+  // parallel_tool_calls / max_tool_calls la key response.created, KHONG phai tool call that
+  r = await $pk({ getReader: () => mk(['data: {"type":"response.created","response":{"parallel_tool_calls":true,"max_tool_calls":null}}\\n\\n', 'data: {"type":"response.completed"}\\n\\n']) }, {});
+  if (r.success !== false || r.status !== 502) throw new Error("response.created echo bi coi la content: " + JSON.stringify(r).slice(0, 140));
 
   r = await $pk({ getReader: () => mk(['event: content_block_start\\n', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}\\n\\n', 'data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}\\n\\n']) }, {});
   if (!r.success) throw new Error("thinking-only phai la stream song");
