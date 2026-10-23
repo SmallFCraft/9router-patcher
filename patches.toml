@@ -718,7 +718,6 @@ why = "Devora deepseek-v4.1-flash va mot so provider openai-compatible tu choi (
 find = 'let a5=aE;try{let a=await a1.execute({'
 replace = '(function(){try{if(ak&&Array.isArray(ak.messages)&&("openai"===aV||!aV)){for(let $m of ak.messages){if($m&&Array.isArray($m.content)){let $all=$m.content.every($b=>$b&&("string"==typeof $b||"text"===$b.type||("string"==typeof $b.text&&!$b.type)));if($all){$m.content=$m.content.map($b=>"string"==typeof $b?$b:$b.text||"").join("\n\n")}}}}}catch(e){}})();let a5=aE;try{let a=await a1.execute({'
 
-
 # P54 - opencode free transport thieu thinkingFormat -> fallback nham "zai" -> 400 unknown field thinking.
 # Do 2026-10-17 tren 0.5.104, repro that:
 #   POST claude-opus-5 -> glm-5.3-flash-free, FMT claude->openai, THINK:max, ACC:Publ
@@ -846,3 +845,105 @@ summary = "Gan User-Agent claude-cli cho GET /api/providers/[id]/models cua node
 why = "Route models fetch node bang Bearer ma khong cot User-Agent -> agentrouter 401. Them cot User-Agent chi khi baseUrl la agentrouter.org."
 find = 'e=await fetch(b,{method:"GET",headers:{"Content-Type":"application/json",Authorization:`Bearer ${c.apiKey}`}})'
 replace = 'e=await fetch(b,{method:"GET",headers:{"Content-Type":"application/json",...(c.providerSpecificData?.baseUrl||"").includes("agentrouter.org")?{"User-Agent":"claude-cli/2.1.92 (external, cli)"}:{},Authorization:`Bearer ${c.apiKey}`}})'
+
+# P65-P67: workbuddy-realm — codebuddy-intl bi Tencent chan 403 code 11128
+# "request illegal / channel verification" (do 2026-10-23 ngay tren may). 9router gia
+# like client IDE (UA IDE/2.108.1 + X-IDE-Type: IDE + thieu Origin/Referer); workbuddy2api
+# (ckldy/workbuddy2api, doc 2026-10-23) chay duoc cung ngay dich vu vi dung realm
+# www.workbuddy.ai + UA CLI/2.63.2 + X-IDE-Type: CLI. Perf thêm Origin/Referer khong lam
+# duoc: adapter 96179 buildHeaders khong co hooks cho oauth, ma providerSpecificData xu
+# ly rieng tung connection (OAuth khong luu uid/enterprise/domain). Chi con dao can:
+# doi ca intl realm sang workbuddy.ai + gia like CLI client. codebuddy-cn (realm
+# copilot.tencent.com) khong bi anh huong — 3 patch nay chi cham chuoi
+# "codebuddy-intl"/"www.codebuddy.ai". id/alias giu nguyen (connection cu van dung duoc).
+# Standalone (khong group): engine bat buoc anchor cua group nam CUNG mot file, ma 3 patch
+# nay trai 4 file (1892/6100/7011/1321). Apply-all van atomic — _preflight raise truoc
+# moi write neu bat ky anchor nao chet.
+
+[[patch]]
+id = "workbuddy-conversation-headers"
+order = 68
+summary = "codebuddy-intl: them X-Conversation-* header family (gate channel verification)"
+why = "Tencent cong verify tra 400 11128 \"request illegal\" khi chat thieu bo header X-Conversation-ID + X-Conversation-Request-ID + X-Conversation-Message-ID (A/B tren 0.5.104 + issue decolua/9router#5005: du 3 -> 200 SSE, thieu 1 -> 400). Executor codebuddy-intl khong override buildHeaders nen chen vao buildHeaders adapter base (6249.js module 96179) sau hook loop, gate theo this.provider. Phai dung globalThis.crypto.randomUUID(): tham so e cua buildHeaders shadow bien module e=node:crypto, goi (0,e.randomUUID)() ra TypeError runtime 502 (do 2026-10-23)."
+find = 'for(let b of i.hooks||[])s[b]?.(h,a);'
+replace = 'for(let b of i.hooks||[])s[b]?.(h,a);if("codebuddy-intl"===this.provider||"workbuddy"===this.provider){let $9rKey=e?.session_id||e?.prompt_cache_key||e?.conversation_id||(e?.messages?.[0]?.content||"wbi");h["X-Conversation-ID"]="wb-"+($9rKey+"").replace(/[^a-z0-9]/gi,"").slice(0,32);h["X-Conversation-Request-ID"]=globalThis.crypto.randomUUID();h["X-Conversation-Message-ID"]=globalThis.crypto.randomUUID()}'
+
+[[patch]]
+id = "workbuddy-provider-def"
+order = 70
+summary = "Provider MOI id:workbuddy (realm workbuddy.ai) — khong dung codebuddy-intl"
+why = "Them entry rieng vao AI_PROVIDERS array. Registry f.sr (oauth config) va f.xq (transport) tu sinh tu mang nay (6070.js module 26070: a.oauth&&(r[a.id]=a.oauth), a.transport&&(p[a.id]=...)), nen chi can 1 patch cho ca phan data. Alias 'wb' khong trung cbai/cbcn. Model list = 23 model hien trong app WorkBuddy."
+find = "features:{usage:!0,usageApikey:!0}},{id:\"zed\",priority:999,alias:\"zd\""
+replace = "features:{usage:!0,usageApikey:!0}},{id:\"workbuddy\",alias:\"wb\",uiAlias:\"wb\",hidden:!1,priority:91,display:{name:\"WorkBuddy\",icon:\"smart_toy\",color:\"#01C886\",website:\"https://www.workbuddy.ai\",notice:{signupUrl:\"https://www.workbuddy.ai\"}},category:\"oauth\",authModes:[\"oauth\",\"apikey\"],hasOAuth:!0,transport:{baseUrl:\"https://www.workbuddy.ai/v2/chat/completions\",forceStream:!0,thinkingFormat:\"openai\",headers:{\"User-Agent\":\"CLI/2.63.2 CodeBuddy/2.63.2\",\"X-Product\":\"SaaS\",\"x-requested-with\":\"XMLHttpRequest\",\"Accept\":\"application/json, text/plain, */*\",\"Origin\":\"https://www.workbuddy.ai\",\"Referer\":\"https://www.workbuddy.ai/\",\"X-No-User-Id\":\"1\",\"X-No-Enterprise-Id\":\"1\",\"X-No-Department-Info\":\"1\"},auth:{combined:!0,header:\"Authorization\",scheme:\"bearer\"},usage:{url:\"https://www.workbuddy.ai/v2/billing/meter/get-user-resource\"}},models:[{id:\"hy4-preview\",name:\"Hy4 preview\"},{id:\"hy3\",name:\"Hy3\"},{id:\"step-5-preview\",name:\"Step-5-Preview\"},{id:\"deepseek-v4.1-flash\",name:\"Deepseek-V4.1-Flash\"},{id:\"gpt-6-astra\",name:\"GPT-6-Astra\"},{id:\"gpt-6.1-sol\",name:\"GPT-6.1-Sol\"},{id:\"gpt-6-sol\",name:\"GPT-6-Sol\"},{id:\"gpt-6-luna\",name:\"GPT-6-Luna\"},{id:\"gpt-5.6-sol\",name:\"GPT-5.6-Sol\"},{id:\"gpt-5.6-terra\",name:\"GPT-5.6-Terra\"},{id:\"gpt-5.6-luna\",name:\"GPT-5.6-Luna\"},{id:\"gpt-5.5\",name:\"GPT-5.5\"},{id:\"gpt-5.4\",name:\"GPT-5.4\"},{id:\"grok-4.7\",name:\"Grok-4.7\"},{id:\"gemini-3.8-flash\",name:\"Gemini-3.8-Flash\"},{id:\"gemini-3.5-flash\",name:\"Gemini-3.5-Flash\"},{id:\"glm-5.3-flash\",name:\"GLM-5.3-Flash\"},{id:\"glm-5.3\",name:\"GLM-5.3\"},{id:\"glm-5.2\",name:\"GLM-5.2\"},{id:\"minimax-m3.1-flash\",name:\"MiniMax-M3.1-Flash\"},{id:\"kimi-k3\",name:\"Kimi-K3\"},{id:\"kimi-k2.6\",name:\"Kimi-K2.6\"},{id:\"kimi-k2.8-preview\",name:\"Kimi-K2.8-Preview\"}],oauth:{baseUrl:\"https://www.workbuddy.ai\",stateUrl:\"https://www.workbuddy.ai/v2/plugin/auth/state\",tokenUrl:\"https://www.workbuddy.ai/v2/plugin/auth/token\",refreshUrl:\"https://www.workbuddy.ai/v2/plugin/auth/token/refresh\",userAgent:\"CLI/2.63.2 CodeBuddy/2.63.2\",platform:\"ide\",pollInterval:5e3},features:{usage:!0,usageApikey:!0}},{id:\"zed\",priority:999,alias:\"zd\""
+
+[[patch]]
+id = "workbuddy-executor"
+order = 71
+summary = "Executor codebuddy-intl nhan tham so provider de dung chung cho workbuddy"
+why = "Class executor module 51349 hardcode super(\"codebuddy-intl\"). Doi ctor nhan tham so (mac dinh giu codebuddy-intl de khong doi hanh vi cu), roi dang ky them workbuddy trong executor map. transformRequest/buildUrl cua class nay doc config tu this.provider nen dung chung duoc."
+find = "constructor(){super(\"codebuddy-intl\")}"
+replace = "constructor(a=\"codebuddy-intl\"){super(a)}"
+
+[[patch]]
+id = "workbuddy-executor-map"
+order = 72
+summary = "Dang ky workbuddy trong executor map"
+why = "Map L{provider:instance} key theo id; thieu entry thi getExecutor roi vao executor generic (sai header/format)."
+find = "\"codebuddy-intl\":new C.m,"
+replace = "\"codebuddy-intl\":new C.m,\"workbuddy\":new C.m(\"workbuddy\"),"
+
+[[patch]]
+id = "workbuddy-oauth-flow"
+order = 73
+summary = "Dang ky workbuddy trong oauth flow map Q"
+why = "Map Q{provider:oauthModule} dieu khien device-code/poll. codebuddy-intl dung module A.A; workbuddy dung cung module nhung config rieng lay tu f.sr.workbuddy."
+find = "\"codebuddy-intl\":A.A,"
+replace = "\"codebuddy-intl\":A.A,\"workbuddy\":{...A.A,config:{baseUrl:\"https://www.workbuddy.ai\",stateUrl:\"https://www.workbuddy.ai/v2/plugin/auth/state\",tokenUrl:\"https://www.workbuddy.ai/v2/plugin/auth/token\",refreshUrl:\"https://www.workbuddy.ai/v2/plugin/auth/token/refresh\",userAgent:\"CLI/2.63.2 CodeBuddy/2.63.2\",platform:\"ide\",pollInterval:5e3}},"
+
+[[patch]]
+id = "workbuddy-refresh"
+order = 74
+summary = "Dang ky workbuddy trong token refresh map L"
+why = "Map L{provider:refreshFn}. Thieu entry -> refreshToken null -> TOKEN_REFRESH fail -> khoa account."
+find = "\"codebuddy-intl\":(a,b)=>y(a.refreshToken,b),"
+replace = "\"codebuddy-intl\":(a,b)=>y(a.refreshToken,b),\"workbuddy\":(a,b)=>y(a.refreshToken,b,\"workbuddy\"),"
+
+[[patch]]
+id = "workbuddy-ui-whitelist"
+order = 75
+summary = "Them workbuddy vao danh sach provider ho tro device-code tren UI"
+why = "Mang whitelist trong client chunk quyet dinh nut Login co goi /api/oauth/<provider>/device-code hay khong; thieu -> nut login im lang khong lam gi."
+find = "\"kilocode\",\"codebuddy-cn\",\"codebuddy-intl\",\"qoder\""
+replace = "\"kilocode\",\"codebuddy-cn\",\"codebuddy-intl\",\"workbuddy\",\"qoder\""
+
+[[patch]]
+id = "workbuddy-quota"
+order = 76
+summary = "Dang ky workbuddy trong quota/usage map"
+why = "Map usage key theo provider; thieu -> the quota tren dashboard trong/loi. Dung chung ham N (codebuddy-intl usage) vi cung endpoint billing."
+find = "\"codebuddy-intl\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
+replace = "\"codebuddy-intl\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),\"workbuddy\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
+
+[[patch]]
+id = "workbuddy-validation"
+order = 77
+summary = "Dang ky workbuddy trong validation map (test connection)"
+why = "Map validation key theo provider; tokenExists:!0 nghia la chi kiem tra co token, khong goi endpoint ngoai."
+find = "\"codebuddy-intl\":{tokenExists:!0},"
+replace = "\"codebuddy-intl\":{tokenExists:!0},\"workbuddy\":{tokenExists:!0},"
+
+[[patch]]
+id = "workbuddy-refresh-fn"
+order = 79
+summary = "Ham y() nhan tham so provider de refresh workbuddy sang workbuddy.ai"
+why = "Ham y() refresh token hardcode provider id 'codebuddy-intl' va host codebuddy.ai. Doi y(a,b,c='codebuddy-intl') de khi goi y(token,log,'workbuddy') thi: h(c,...) ghi dung audit log cho provider workbuddy; d.sr[c] lay dung refreshUrl va userAgent tu config rieng; X-Domain dung www.workbuddy.ai (tranh 401 Authorization Required luc refresh)."
+find = "async function y(a,b){return a?h(\"codebuddy-intl\",a,async()=>{let c=d.sr[\"codebuddy-intl\"]||{},e=await fetch(c.refreshUrl,{method:\"POST\",headers:{\"Content-Type\":\"application/json\",Accept:\"application/json\",\"User-Agent\":c.userAgent,\"X-Requested-With\":\"XMLHttpRequest\",\"X-Domain\":\"www.codebuddy.ai\",\"X-Refresh-Token\":a,\"X-Auth-Refresh-Source\":\"plugin\",\"X-Product\":\"SaaS\"},body:\"{}\"});"
+replace = "async function y(a,b,$p=\"codebuddy-intl\"){return a?h($p,a,async()=>{let c=d.sr[$p]||{},e=await fetch(c.refreshUrl,{method:\"POST\",headers:{\"Content-Type\":\"application/json\",Accept:\"application/json\",\"User-Agent\":c.userAgent,\"X-Requested-With\":\"XMLHttpRequest\",\"X-Domain\":$p===\"workbuddy\"?\"www.workbuddy.ai\":\"www.codebuddy.ai\",\"X-Refresh-Token\":a,\"X-Auth-Refresh-Source\":\"plugin\",\"X-Product\":\"SaaS\"},body:\"{}\"});"
+
+[[patch]]
+id = "workbuddy-icon"
+order = 80
+summary = "Avatar WorkBuddy: tra logo that (teal #01C886) thay vi workbuddy.png (ban copy CodeBuddy)"
+why = "Build upstream co app/public/providers/workbuddy.png nhung file do byte-identical voi codebuddy-intl.png (cung md5 a1664bdd5eda48696699e49d62957f6c) nen dashboard hien avatar CodeBuddy tim cho WorkBuddy. Khong the sua file (engine chi patch text + node --check), va file png moi se mat sau moi lan npm install. Logo that cua www.workbuddy.ai la SVG teal #01C886 (favicon cua site). Patch nham vao resolver icon module 8247 (HY) — chokepoint duy nhat ma providers list, trang [id], quota, combos, basic-chat deu di qua — nen mot cho sua phu het call-site. Tra data-URI base64 de khong phu thuoc file nao tren dia."
+find = 'return t?`/providers/${t}.png`:null}'
+replace = 'return "workbuddy"===t?"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBjbGlwLXBhdGg9InVybCgjY2xpcDBfNTQyXzMzNzApIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHJ4PSIyMCIgZmlsbD0idXJsKCNwYWludDBfbGluZWFyXzU0Ml8zMzcwKSIvPjxwYXRoIGQ9Ik0yOC42IDMuMUMyOSAyLjggMjkgMi44IDI5LjMgMi43QzI5LjggMi43IDMwLjIgMi45IDMwLjkgMy42QzMyLjYgNS4xIDM1IDguMyAzNi40IDExTDM3IDEyLjFMMzcuOCAxMi41QzM4LjYgMTIuOSAzOS45IDEzLjcgNDAuNCAxNC4xQzQwLjYgMTQuMyA0MC43IDE0LjMgNDAuOSAxNC4yQzQyIDEzLjggNDMuNyAxNC4zIDQ1LjEgMTUuN0M0Ni40IDE2LjkgNDcuNiAxOSA0OCAyMC44QzQ4LjEgMjEuMSA0OC4yIDIxLjcgNDguMiAyMi4xQzQ4LjMgMjMuNyA0Ny44IDI1IDQ2LjkgMjUuNUM0Ni43IDI1LjYgNDYuNyAyNS43IDQ2LjcgMjYuMkM0Ni43IDI4LjUgNDYuMSAzMC45IDQ0LjggMzMuMkM0My4zIDM1LjggNDAuNyAzOC41IDM3LjMgNDFDMzUuNCA0Mi40IDMwLjkgNDUgMjguOSA0NS45QzI0LjEgNDggMjAuMyA0OC45IDE2LjkgNDguNUMxNC45IDQ4LjIgMTIuNyA0Ny40IDExLjMgNDYuNUMxMSA0Ni4zIDEwLjkgNDYuMyAxMC43IDQ2LjRDOS4yIDQ2LjggNy40IDQ1LjkgNS44IDQ0LjJDNS4xIDQzLjQgNC4xIDQxLjcgMy44IDQwLjhDMyAzOC42IDMuMiAzNi43IDQuMiAzNS41QzQuNCAzNS4yIDQuNSAzNS4yIDQuNCAzNC43QzQuMyAzMy44IDQuMyAzMi42IDQuMyAzMS44TDQuMyAzMS4xTDMuMiAyOS4xQzEuNSAyNiAwLjQgMjMuNSAtMCAyMS41Qy0wLjIgMjAuNCAtMC4yIDE5LjkgMC4xIDE5LjZDMC4yIDE5LjQgMC44IDE5LjIgMS40IDE5QzMuMSAxOC43IDYuNyAxOSAxMC43IDE5LjdMMTEuMSAxOS44TDEyLjEgMTlDMTMuNiAxNy42IDE0LjYgMTYuOSAxNi41IDE1LjdDMTguNCAxNC41IDIwLjYgMTMuNSAyMy4xIDEyLjdMMjMuOSAxMi40TDI0LjMgMTEuM0MyNS45IDcuMiAyNy41IDQuMSAyOC42IDMuMVpNMTUuNSAyNC4yQzEzLjggMjUuMyAxMi45IDI1LjggMTIuMiAyNi4zQzkuNiAyOC43IDguNiAzMi4zIDkuNyAzNS42QzEwIDM2LjQgMTAuNSAzNy4zIDExLjUgMzkuMUMxMi42IDQwLjkgMTMuMSA0MS43IDEzLjYgNDIuNEMxNS45IDQ1IDE5LjYgNDYgMjIuOSA0NC45QzIzLjcgNDQuNiAyNC42IDQ0LjEgMjYuNCA0My4xTDM2LjUgMzcuMkMzOC4zIDM2LjIgMzkuMiAzNS43IDM5LjggMzUuMUM0Mi41IDMyLjggNDMuNCAyOS4xIDQyLjMgMjUuOEM0MiAyNSA0MS41IDI0LjEgNDAuNSAyMi40QzM5LjUgMjAuNiAzOSAxOS43IDM4LjQgMTkuMUMzNi4xIDE2LjQgMzIuNCAxNS41IDI5LjEgMTYuNkMyOC4zIDE2LjkgMjcuNCAxNy40IDI1LjcgMTguNEwxNS41IDI0LjJaIiBmaWxsPSJ1cmwoI3BhaW50MV9saW5lYXJfNTQyXzMzNzApIi8+PHJlY3QgeD0iMTYuNSIgeT0iMzEuMyIgd2lkdGg9IjQiIGhlaWdodD0iOC4zIiByeD0iMiIgdHJhbnNmb3JtPSJyb3RhdGUoLTMwIDE2LjUgMzEuMykiIGZpbGw9IndoaXRlIi8+PHJlY3QgeD0iMjcuMyIgeT0iMjUuMSIgd2lkdGg9IjQiIGhlaWdodD0iOC4zIiByeD0iMiIgdHJhbnNmb3JtPSJyb3RhdGUoLTMwIDI3LjMgMjUuMSkiIGZpbGw9IndoaXRlIi8+PC9nPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0icGFpbnQwX2xpbmVhcl81NDJfMzM3MCIgeDE9IjIwIiB5MT0iMCIgeDI9IjIwIiB5Mj0iNDAiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBzdG9wLWNvbG9yPSIjMEVDOEE5Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDFDODg2Ii8+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MV9saW5lYXJfNTQyXzMzNzAiIHgxPSIxNC43IiB5MT0iMTEuMSIgeDI9IjMzLjQiIHkyPSI0My41IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agc3RvcC1jb2xvcj0id2hpdGUiIHN0b3Atb3BhY2l0eT0iMC44Ii8+PHN0b3Agb2Zmc2V0PSIwLjQiIHN0b3AtY29sb3I9IndoaXRlIi8+PC9saW5lYXJHcmFkaWVudD48Y2xpcFBhdGggaWQ9ImNsaXAwXzU0Ml8zMzcwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHJ4PSIyMCIgZmlsbD0id2hpdGUiLz48L2NsaXBQYXRoPjwvZGVmcz48L3N2Zz4=":`/providers/${t}.png`}'

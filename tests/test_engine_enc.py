@@ -59,7 +59,7 @@ def test_load_patches_falls_back_to_toml_when_no_enc(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "PATCHES_ENC_FILE", missing)
     patches = engine.load_patches()
     # parity with test_engine.py count comment — bump BOTH when adding a patch
-    assert len(patches) == 62
+    assert len(patches) == 73
     assert patches[0].id == "connect-timeout-180s"
 
 

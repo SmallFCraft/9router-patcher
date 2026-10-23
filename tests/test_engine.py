@@ -131,8 +131,10 @@ def test_load_patches_real_file(patches):
     # P62-P63 agentrouter UA (executor + models route) added 2026-10-20
     # P64 responses-incomplete-as-error added 2026-10-21 (responses.incomplete -> [Error], no account lock)
     # P16 empty-stream-fallback tightened 2026-10-21: terminal-event short-circuit + reason extract
+    # P65-P67 workbuddy-realm added 2026-10-23 (codebuddy-intl -> workbuddy.ai realm, CLI UA)
+    # P80 workbuddy-icon added 2026-10-23 (avatar: build chi co workbuddy.png = ban copy cua codebuddy)
     # count parity with enc blob loader (test_engine_enc) — bump BOTH when adding a patch
-    assert len(patches) == 62
+    assert len(patches) == 73
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P62/P63 agentrouter UA: executor adds claude-cli UA header; models route appends UA header to fetch
@@ -155,9 +157,9 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 62 patches: 52 standalone (group = own id) + 3 multi-patch groups
-    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 55 group keys
-    assert len(grouped) == 55
+    # 73 patches: 63 standalone (group = own id) + 3 multi-patch groups
+    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 66 group keys
+    assert len(grouped) == 66
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -2555,3 +2557,148 @@ def test_provider_custom_vs_free_dedupe_p61(patches, tmp_path):
     assert p.replace in read(b / "prov.js")
     revert(b, patches, group=p.group, check=ok_check())
     assert read(b / "prov.js") == f"X{p.find}Y"
+
+
+# ---------- p65-p66: workbuddy-realm (codebuddy-intl -> workbuddy.ai) ----------
+# 2026-10-23: codebuddy-intl bi Tencent chan 403 code 11128 "request illegal /
+# channel verification" vi 9router gia like client IDE (UA IDE/2.108.1,
+# X-IDE-Type: IDE, thieu Origin/Referer). workbuddy2api (ckldy) chay duoc vi dung
+# realm www.workbuddy.ai + UA CLI/2.63.2 + X-IDE-Type: CLI. Patch doi toan bo
+# intl realm sang workbuddy.ai va gia like CLI client — codebuddy-cn (copilot.tencent.com)
+# KHONG dong chiem.
+
+def _wb_members(patches):
+    return [by_id(patches, "workbuddy-realm-transport"),
+            by_id(patches, "workbuddy-realm-oauth-urls"),
+            by_id(patches, "workbuddy-realm-xdomain")]
+
+
+def test_workbuddy_conversation_headers_patch(patches, tmp_path):
+    p = by_id(patches, "workbuddy-conversation-headers")
+    assert 'this.provider' in p.replace and 'X-Conversation-ID' in p.replace
+    assert 'X-Conversation-Request-ID' in p.replace and 'X-Conversation-Message-ID' in p.replace
+    # bugfix 2026-10-23: tham so e cua buildHeaders shadow bien module e=node:crypto;
+    # (0,e.randomUUID)() nem TypeError runtime 502. Bat bat dung globalThis.crypto.randomUUID.
+    assert "(0,e.randomUUID)" not in p.replace
+    assert "globalThis.crypto.randomUUID" in p.replace
+    # reads transformed body (param 5) for session key, not credentials (param 1)
+    assert "e?.session_id" in p.replace or "e?.prompt_cache_key" in p.replace or "e?.conversation_id" in p.replace
+    assert "a?.body" not in p.replace
+    assert p.order == 68
+    b = tmp_path / "build"
+    b.mkdir()
+    write(b, "6249.js", f"START{p.find}END")
+    apply(b, patches, ids=[p.id], check=ok_check())
+    assert "X-Conversation-ID" in read(b / "6249.js")
+    revert(b, patches, group=p.group, check=ok_check())
+    assert read(b / "6249.js") == f"START{p.find}END"
+
+
+def test_workbuddy_provider_patches_exist(patches):
+    ps = [by_id(patches, i) for i in _WB_IDS]
+    assert [p.order for p in ps] == sorted(p.order for p in ps)
+    for p in ps:
+        assert p.find and p.replace
+        # moi patch phai hoac them id 'workbuddy', hoac la patch ctor tham so hoa
+        assert ("workbuddy" in p.replace.lower()
+                or p.id == "workbuddy-executor"), p.id
+
+
+def test_workbuddy_provider_def_is_separate_entry(patches):
+    """Provider def: entry MOI id:"workbuddy", khong dung vao codebuddy-intl."""
+    p = by_id(patches, "workbuddy-provider-def")
+    assert 'id:"workbuddy"' in p.replace
+    assert 'id:"workbuddy"' not in p.find
+    # entry moi phai tro realm workbuddy.ai + UA CLI + header gate
+    for k in ('https://www.workbuddy.ai/v2/chat/completions',
+              '"User-Agent":"CLI/2.63.2 CodeBuddy/2.63.2"',
+              '"Origin":"https://www.workbuddy.ai"',
+              '"X-No-User-Id":"1"',
+              'stateUrl:"https://www.workbuddy.ai/v2/plugin/auth/state"',
+              'tokenUrl:"https://www.workbuddy.ai/v2/plugin/auth/token"'):
+        assert k in p.replace, k
+    # KHONG duoc chua realm codebuddy.ai trong entry moi
+    assert "www.codebuddy.ai" not in p.replace
+    # alias rieng, khong trung cbai/cbcn
+    assert 'alias:"wb"' in p.replace
+    # mau thuong hieu WorkBuddy la teal #01C886 (logo that), KHONG phai xanh CodeBuddy
+    assert 'color:"#01C886"' in p.replace
+    assert "#006EFF" not in p.replace
+
+
+_WB_IDS = ("workbuddy-provider-def", "workbuddy-executor", "workbuddy-executor-map",
+           "workbuddy-oauth-flow", "workbuddy-refresh", "workbuddy-ui-whitelist",
+           "workbuddy-quota", "workbuddy-validation", "workbuddy-refresh-fn")
+
+def test_workbuddy_never_changes_intl_behaviour(patches):
+    """codebuddy-intl phai giu NGUYEN hanh vi: khong patch nao doi realm/UA/models cua no.
+
+    Ngoai le duy nhat: ctor executor nhan tham so voi default "codebuddy-intl" —
+    hanh vi intl khong doi (van super("codebuddy-intl")), chi cho phep workbuddy dung chung class.
+    """
+    for pid in _WB_IDS:
+        p = by_id(patches, pid)
+        # khong patch nao duoc sua chuoi realm/UA/model cua intl
+        for forbidden in ("www.codebuddy.ai", "IDE/2.108.1", "IDE/2.63.2"):
+            if pid != "workbuddy-refresh-fn":
+                assert forbidden not in p.find, f"{pid} touches intl realm/UA"
+        if pid == "workbuddy-executor":
+            # duy nhat duoc phep: default param giu nguyen id
+            assert 'a="codebuddy-intl"' in p.replace
+            assert p.replace.count("codebuddy-intl") == 1
+        else:
+            # cac patch khac: id intl phai con nguyen trong replace (chi chen them, khong xoa/sua)
+            if "codebuddy-intl" in p.find:
+                assert "codebuddy-intl" in p.replace and "workbuddy" in p.replace, f"{pid}: xoa mat id intl"
+
+
+def test_workbuddy_registries_map_new_id(patches):
+    """6 registry key theo provider id phai co entry 'workbuddy'."""
+    checks = {
+        "workbuddy-executor":      ["constructor(a=\"codebuddy-intl\")"],
+        "workbuddy-executor-map":  ['"workbuddy":new C.m("workbuddy")'],
+        "workbuddy-oauth-flow":    ['"workbuddy":{...A.A,config:'],
+        "workbuddy-refresh":       ['"workbuddy":(a,b)=>y(a.refreshToken,b,"workbuddy")'],
+        "workbuddy-ui-whitelist":  ['"workbuddy"'],
+        "workbuddy-quota":         ['"workbuddy":a=>N('],
+        "workbuddy-validation":    ['"workbuddy":{tokenExists:!0}'],
+    }
+    for pid, needles in checks.items():
+        p = by_id(patches, pid)
+        for n in needles:
+            assert n in p.replace, f"{pid} missing {n}"
+
+
+# ---------- p80: workbuddy-icon (avatar) ----------
+# 2026-10-23: build chi co app/public/providers/workbuddy.png NHUNG file do byte-identical
+# voi codebuddy-intl.png (cung md5) -> dashboard hien avatar CodeBuddy tim cho WorkBuddy.
+# Logo that cua www.workbuddy.ai la teal #01C886 (favicon SVG cua site). Resolver icon
+# (module 8247: HY(id) -> `/providers/<id>.png`) la CHOKEPOINT duy nhat ma moi avatar
+# (providers list, [id] page, quota, combos, basic-chat) deu di qua, nen patch o do phu
+# het call-site ma khong phai sua 8 chunk rieng le.
+
+def test_workbuddy_icon_overrides_codebuddy_png(patches):
+    p = by_id(patches, "workbuddy-icon")
+    assert p.order == 80
+    # phai tra ve data-URI SVG, khong phai /providers/*.png (file do la ban copy CodeBuddy)
+    assert "data:image/svg+xml;base64," in p.replace
+    assert "#01C886" not in p.find
+    # chi map dung id workbuddy; intl/cn khong duoc doi avatar
+    assert '"workbuddy"' in p.replace
+    assert "codebuddy" not in p.replace.lower()
+    # anchor phai la than ham resolver (de no-op khi da apply)
+    assert "HY" not in p.find and "/providers/${t}.png" in p.find
+
+
+def test_workbuddy_icon_applies_and_reverts(patches, tmp_path):
+    p = by_id(patches, "workbuddy-icon")
+    b = tmp_path / "build"
+    b.mkdir()
+    write(b, "5497.js", f"HEAD{p.find}TAIL")
+    apply(b, patches, ids=[p.id], check=ok_check())
+    out = read(b / "5497.js")
+    assert p.replace in out
+    # resolver van phai la ham: id khac di duong cu
+    assert "/providers/${t}.png" in out
+    revert(b, patches, group=p.group, check=ok_check())
+    assert read(b / "5497.js") == f"HEAD{p.find}TAIL"
