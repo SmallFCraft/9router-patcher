@@ -37,7 +37,31 @@
 #         `return f` không trúng loạn (engine scan partial vì replace quá ngắn).
 #     p34 (opencode-responses-noeffort-minimal, 318->5330.js): G->E; upstream tự chèn
 #         clamp max/ultra->xhigh ngay sau trim(); (giữ nguyên, patch none/off->minimal vẫn cần).
-target_version = "0.5.104"
+
+# 0.5.104 -> 0.5.109: re-minify toàn bộ. 23 anchor chết, 0 hấp thụ (scan 50 clean trên
+#   tarball pristine 0.5.109). Không patch nào bị upstream tự fix -> giữ đủ 73.
+#   4 patch có ghi chú "gỡ khi upstream tự fix" đều được kiểm lại trên 0.5.109:
+#   bg-token-refresh-flag-guard, combos-picker-kilo-free-models,
+#   provider-suggested-free-dedupe, provider-custom-vs-free-dedupe — cả 4 vẫn
+#   `find=1, replace_already=0`, upstream CHƯA sửa.
+#   14 anchor remap máy (token alignment cục bộ + declaration-order fallback cho tên chỉ
+#   nằm trong phần inject): sse-close-translate, sse-close-passthrough, gauge-guard,
+#   gauge-flush-route, nonstream-retry-exec, reasoning-effort-body-cap, log-headroom-trim,
+#   log-post-trim, max-tokens-floor, tool-result-remerge-post-headroom,
+#   upstream-claude-sse-passthrough, claude-tool-prefix-strip,
+#   openai-content-text-blocks-flatten, workbuddy-executor-map
+#   9 anchor sửa tay: opencode-transport-thinking-format-openai (2359.js),
+#   log-combo-drop-succeeded (5308.js), 4xx-rotate-instead-of-abort (7187.js),
+#   combos-picker-kilo-free-{models,fetch,merge,deps} (5497-fde2bd4447864eac.js),
+#   provider-{suggested,custom-vs-free}-dedupe (providers/[id]/page-*.js)
+#   Module id đổi: log-combo-drop-succeeded 8910->5308, 4xx-rotate 238->7187,
+#   opencode-transport 1321->2359.
+#   CẠM BẪY mới (2026-10-24): p35 upstream 0.5.109 thêm prologue streamToolCallIds vào
+#   nhánh `if(b===a)return ...` — anchor phải phủ HẾT prologue, nếu không patch chèn guard
+#   vào giữa biểu thức. p8 upstream thêm R/S/U trước T=null; replace phải khai lại đủ
+#   R,S,T,U nếu không test_no_patch_drops_a_binding... bắt được (đúng thiết kế).
+#   combos-picker-kilo-free-deps: find KHÔNG chứa `)` kết thúc biểu thức, replace cũng không.
+target_version = "0.5.109"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -85,8 +109,8 @@ order = 6
 group = "sse-hang"
 summary = "Đóng SSE sau terminal event (nhánh dịch)"
 why = "motomoto.lol giữ TCP mở sau message_stop nên Claude Code quay mãi; terminate() bỏ qua flush() nên phải tự phát tail event, ghi usage (P) và giảm gauge ($G)"
-find = 'N=!0,s&&(M=!0);continue}'
-replace = 'N=!0,s&&(M=!0);{let $z=(0,d.Y8)(c,o,null,C);if($z?.length>0)for(let $y of $z)null!=$y&&f.enqueue(k.encode((0,h.v8)($y,o)));}Q(),$G();setTimeout(()=>{try{f.terminate()}catch{}},50);continue}'
+find = 'R=!0,v&&(Q=!0);continue}'
+replace = 'R=!0,v&&(Q=!0);{let $z=(0,d.Y8)(c,r,null,G);if($z?.length>0)for(let $y of $z)null!=$y&&f.enqueue(n.encode((0,j.v8)($y,r)));}V(),$G();setTimeout(()=>{try{f.terminate()}catch{}},50);continue}'
 
 [[patch]]
 id = "sse-close-passthrough"
@@ -94,8 +118,8 @@ order = 7
 group = "sse-hang"
 summary = "Đóng SSE sau [DONE] (nhánh passthrough)"
 why = "client định dạng openai trên /v1/chat/completions dùng sentinel [DONE]"
-find = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&Q();continue}'
-replace = 'q?.appendConvertedChunk?.(b),f.enqueue(k.encode(b)),d&&Q();if(b&&b.indexOf("[DONE]")>=0){N=!0,Q(),$G(),setTimeout(()=>{try{f.terminate()}catch{}},50)}continue}'
+find = 't?.appendConvertedChunk?.(b),f.enqueue(n.encode(b)),d&&V();continue}'
+replace = "t?.appendConvertedChunk?.(b),f.enqueue(n.encode(b)),d&&V();if(b&&b.indexOf(\"[DONE]\")>=0){R=!0,V(),$G(),setTimeout(()=>{try{f.terminate()}catch{}},50)}continue}"
 
 [[patch]]
 id = "gauge-guard"
@@ -104,8 +128,8 @@ group = "sse-hang"
 defines = "$G"
 summary = "Giảm gauge in-flight đúng một lần ($G)"
 why = "stream kết thúc qua patch 6/7 vẫn phải xoá dòng calling trên trang Usage"
-find = 'O=!1,P=null,Q=()=>{if(P&&(clearTimeout(P),P=null),O)return;O=!0;'
-replace = 'O=!1,P=null,$g=!1,$G=()=>{if($g)return;$g=!0;try{(0,f.uw)(t,p,u,!1)}catch{}},Q=()=>{if(P&&(clearTimeout(P),P=null),O)return;O=!0;'
+find = 'R=!1,S=!1,T=null,U=b===p&&!!f.xq[s]?.quirks?.reasoningAliasFields,V=()=>{if(T&&(clearTimeout(T),T=null),S)return;S=!0;'
+replace = 'R=!1,S=!1,T=null,U=b===p&&!!f.xq[s]?.quirks?.reasoningAliasFields,$g=!1,$G=()=>{if($g)return;$g=!0;try{(0,h.uw)(w,s,x,!1)}catch{}},V=()=>{if(T&&(clearTimeout(T),T=null),S)return;S=!0;'
 
 [[patch]]
 id = "gauge-flush-route"
@@ -113,7 +137,7 @@ order = 9
 group = "sse-hang"
 summary = "Đưa decrement lúc flush() qua cùng guard"
 why = "tránh giảm gauge hai lần khi cả flush() và patch 6/7 cùng chạy"
-find = '(0,f.uw)(t,p,u,!1);try{'
+find = '(0,h.uw)(w,s,x,!1);try{'
 replace = '$G();try{'
 
 # 0.5.69: request non-streaming mà upstream trả text/event-stream rác (AgentRouter thỉnh thoảng
@@ -132,8 +156,8 @@ order = 10
 group = "nonstream-sse-retry"
 summary = "Nhả closure retry (execute stream:true) vào handler non-streaming"
 why = "chỉ caller (92500) có aY.execute; 5016 không tự fetch lại được"
-find = 'let a6={provider:ar,model:as,body:a,stream:aM,translatedBody:ak,finalBody:aq,requestStartTime:at,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a0,reqTag:av,log:d},a7='
-replace = 'let a6={provider:ar,model:as,body:a,stream:aM,translatedBody:ak,finalBody:aq,requestStartTime:at,connectionId:R,apiKey:T,clientRawRequest:Q,onRequestSuccess:O,pxpipe:a0,reqTag:av,log:d,retry:async()=>{let $s2=a3.signal;try{typeof AbortSignal.any=="function"&&($s2=AbortSignal.any([a3.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await a1.execute({model:as,body:typeof ak=="object"&&ak?{...ak,stream:!0}:ak,stream:!0,credentials:c,providerSessionId:au,clientTool:aT,signal:$s2,log:d,proxyOptions:a4});return $e&&$e.response||null}catch{return null}}},a7='
+find = 'let a7={provider:au,model:av,body:a,stream:aP,translatedBody:an,finalBody:at,requestStartTime:aw,connectionId:S,apiKey:U,clientRawRequest:R,onRequestSuccess:P,pxpipe:a1,reqTag:ay,log:d},a8='
+replace = "let a7={provider:au,model:av,body:a,stream:aP,translatedBody:an,finalBody:at,requestStartTime:aw,connectionId:S,apiKey:U,clientRawRequest:R,onRequestSuccess:P,pxpipe:a1,reqTag:ay,log:d,retry:async()=>{let $s2=a4.signal;try{typeof AbortSignal.any==\"function\"&&($s2=AbortSignal.any([a4.signal,AbortSignal.timeout(30000)]))}catch{}try{let $e=await a2.execute({model:av,body:typeof an==\"object\"&&an?{...an,stream:!0}:an,stream:!0,credentials:c,providerSessionId:ax,clientTool:aU,signal:$s2,log:d,proxyOptions:a5,providerOverrides:am});return $e&&$e.response||null}catch{return null}}},a8="
 
 [[patch]]
 id = "nonstream-retry-aggregate"
@@ -180,8 +204,8 @@ id = "reasoning-effort-body-cap"
 order = 14
 summary = "Body >448KB + effort max/xhigh/ultra → hạ high (chống compact treo 7 phút)"
 why = "xhigh trên ~185k token = 7m19s > patience 5 phút của client ZCode; hạ high còn ~2–3 phút thì kịp"
-find = 'a_.length&&d?.line&&d.line(av,"⚙",a_.join(" \xb7 ")),aU&&"claude"===aT&&(0,i._W)(ak);'
-replace = 'a_.length&&d?.line&&d.line(av,"⚙",a_.join(" \xb7 ")),aU&&"claude"===aT&&(0,i._W)(ak);(function(){try{let $z=["max","xhigh","ultra"],$cap=function(v){return "string"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!=="high"&&d?.line&&d.line(av,"⚙",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(ak).length/1024)}KB)`),"high"):v};let $big=JSON.stringify(ak).length>458752;if($big){if(ak&&"string"==typeof ak.reasoning_effort)ak.reasoning_effort=$cap(ak.reasoning_effort);if(ak&&ak.reasoning&&"object"==typeof ak.reasoning&&"string"==typeof ak.reasoning.effort)ak.reasoning.effort=$cap(ak.reasoning.effort)}}catch(e){}})();'
+find = "a0.length&&d?.line&&d.line(ay,\"⚙\",a0.join(\" \\xb7 \")),aV&&\"claude\"===aU&&(0,i._W)(an);"
+replace = "a0.length&&d?.line&&d.line(ay,\"⚙\",a0.join(\" \\xb7 \")),aV&&\"claude\"===aU&&(0,i._W)(an);(function(){try{let $z=[\"max\",\"xhigh\",\"ultra\"],$cap=function(v){return \"string\"==typeof v&&$z.includes(v.toLowerCase())?(v.toLowerCase()!==\"high\"&&d?.line&&d.line(ay,\"⚙\",`THINK-CAP: ${v}→high (body ${Math.round(JSON.stringify(an).length/1024)}KB)`),\"high\"):v};let $big=JSON.stringify(an).length>458752;if($big){if(an&&\"string\"==typeof an.reasoning_effort)an.reasoning_effort=$cap(an.reasoning_effort);if(an&&an.reasoning&&\"object\"==typeof an.reasoning&&\"string\"==typeof an.reasoning.effort)an.reasoning.effort=$cap(an.reasoning.effort)}}catch(e){}})();"
 
 # P15 — deadline tổng per-attempt: env 9R_ATTEMPT_DEADLINE_MS (default 240000, <=0 tắt);
 # cắt bằng c.handleError + c.abort() đúng cơ chế fallback. Watcher g() chỉ 1 bản trong 8895.js.
@@ -295,8 +319,8 @@ id = "log-headroom-trim"
 order = 22
 summary = "HEADROOM line: compact numbers (k/M suffix), hide low-impact body when effective < 10%"
 why = "reported token delta=35732 before=160097 after=124365 (22.3%) | body=614424B→486756B messages=... effective=20.8% is 180 chars. Compress to one line: key number first; omit per-subsection bytes when < 10% effective so line fits terminal width."
-find = 'function m(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):"0";return`reported token delta=${d} before=${b}${c?` after=${c}`:""} (${e}%)`.trim()}function n(a){let b=a?.before,c=a?.after;if(!b||!c)return"";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):"0.0";return`body=${b.bodyBytes}B→${c.bodyBytes}B messages=${b.messageBytes}B→${c.messageBytes}B tools=${b.toolSchemaBytes||0}B→${c.toolSchemaBytes||0}B toolHistory=${b.toolHistoryBytes||0}B→${c.toolHistoryBytes||0}B effective=${d}%`}'
-replace = 'function m(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):"0";let f=x=>x>=1e6?(x/1e6).toFixed(1)+"M":x>=1e3?(x/1e3).toFixed(1)+"k":String(x);return`reported ${f(b)}→${f(c)} (${e}%)`.trim()}/* delta= before= after= body= messages= tools= toolHistory= */function n(a){let b=a?.before,c=a?.after;if(!b||!c)return"";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):"0.0";if(parseFloat(d)<10)return`effective=${d}%`;let f=x=>x>=1e6?(x/1e6).toFixed(1)+"MB":x>=1e3?Math.round(x/1024)+"KB":String(x);return`body ${f(b.bodyBytes)}→${f(c.bodyBytes)} messages ${f(b.messageBytes||0)}→${f(c.messageBytes||0)} toolHistory ${f(b.toolHistoryBytes||0)}→${f(c.toolHistoryBytes||0)} effective=${d}%`}'
+find = "function r(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";return`reported token delta=${d} before=${b}${c?` after=${c}`:\"\"} (${e}%)`.trim()}function s(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";return`body=${b.bodyBytes}B→${c.bodyBytes}B messages=${b.messageBytes}B→${c.messageBytes}B tools=${b.toolSchemaBytes||0}B→${c.toolSchemaBytes||0}B toolHistory=${b.toolHistoryBytes||0}B→${c.toolHistoryBytes||0}B effective=${d}%`}"
+replace = "function r(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"M\":x>=1e3?(x/1e3).toFixed(1)+\"k\":String(x);return`reported ${f(b)}→${f(c)} (${e}%)`.trim()}/* delta= before= after= body= messages= tools= toolHistory= */function s(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";if(parseFloat(d)<10)return`effective=${d}%`;let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"MB\":x>=1e3?Math.round(x/1024)+\"KB\":String(x);return`body ${f(b.bodyBytes)}→${f(c.bodyBytes)} messages ${f(b.messageBytes||0)}→${f(c.messageBytes||0)} toolHistory ${f(b.toolHistoryBytes||0)}→${f(c.toolHistoryBytes||0)} effective=${d}%`}"
 
 # P23 — POST line trim: drop provider UUID, show model prefix, cap ~100 chars, drop empty fields.
 # Anchor: module 92500 POST assembly at `let aO=aN?at:aA;if(d?.line)...` in 8895.js.
@@ -305,8 +329,8 @@ id = "log-post-trim"
 order = 23
 summary = "POST line: trim provider UUID, model prefix, length cap"
 why = "▶ POST claude-opus-5 → anthropic-compatible-107f4d88-50a4-41bc-8a77-501c54955883/glm-5.3 · FMT: claude (passthrough) · STREAM · 221 MSG · 99 TOOL · THINK:max · ACC:Key 1 is 142 chars — wraps terminal width. Model name is the human hook; UUID is noise."
-find = 'let b=Q?.body?.model||`${ar}/${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aU?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aE}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${ar}/${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(av,"▶",k.join(" \xb7 "))}'
-replace = 'let b=Q?.body?.model||`${as}`,e=ak.messages?.length||ak.input?.length||ak.contents?.length||a.messages?.length||a.input?.length||0,f=ak.tools?.length||a.tools?.length||0,h=aU?`FMT: ${aw} (passthrough)`:`FMT: ${aw}→${aE}`,i="grok-cli"!==ar||(0,u.Au)(as)?d.fmtThink?.((0,g.sS)(ak)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||"-",k=[`POST ${b} → ${as}`,h,aM?"STREAM":"JSON",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${String(j).slice(0,4)}`),k[0]=k[0].slice(0,100),d.line(av,"▶",k.join(" \xb7 "))}'
+find = "let b=R?.body?.model||`${au}/${av}`,e=an.messages?.length||an.input?.length||an.contents?.length||a.messages?.length||a.input?.length||0,f=an.tools?.length||a.tools?.length||0,h=aV?`FMT: ${az} (passthrough)`:`FMT: ${az}→${aH}`,i=\"grok-cli\"!==au||(0,u.Au)(av)?d.fmtThink?.((0,g.sS)(an)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||\"-\",k=[`POST ${b} → ${au}/${av}`,h,aP?\"STREAM\":\"JSON\",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${j}`),d.line(ay,\"▶\",k.join(\" \\xb7 \"))}"
+replace = "let b=R?.body?.model||`${av}`,e=an.messages?.length||an.input?.length||an.contents?.length||a.messages?.length||a.input?.length||0,f=an.tools?.length||a.tools?.length||0,h=aV?`FMT: ${az} (passthrough)`:`FMT: ${az}→${aH}`,i=\"grok-cli\"!==au||(0,u.Au)(av)?d.fmtThink?.((0,g.sS)(an)):null,j=c?.connectionName||c?.connectionId?.slice(0,8)||\"-\",k=[`POST ${b} → ${av}`,h,aP?\"STREAM\":\"JSON\",`${e} MSG`];f&&k.push(`${f} TOOL`),i&&k.push(`THINK:${i}`),k.push(`ACC:${String(j).slice(0,8)}`),k[0]=k[0].slice(0,100),d.line(ay,\"▶\",k.join(\" \\xb7 \"))}"
 
 # P24 — Drop COMBO "Model X succeeded" + "Model Y succeeded" duplicate lines.
 # Anchor: 8910.js `}}catch{}return g.info("COMBO",`Model ${e} succeeded`),f}` (0.5.99 là `if(b.ok)...`),
@@ -316,7 +340,7 @@ id = "log-combo-drop-succeeded"
 order = 24
 summary = "Drop COMBO succeeded lines (keep Trying / failed / all failed)"
 why = "Each success emits 'Model X succeeded' and parent 'Model Y succeeded' (two extra lines per request). DONE line already reports which model won. Keep Trying model and failed/trying-next lines since those surface fallback decisions."
-find = '}}catch{}return g.info("COMBO",`Model ${e} succeeded`),f}'
+find = "}}catch{}return h.info(\"COMBO\",`Model ${e} succeeded`),f}"
 replace = '}}catch{}return f}'
 
 # P25/P26 — MCP bridge spawn trên Windows. `spawn("npx")` không tìm được extension `.cmd`
@@ -350,8 +374,8 @@ id = "max-tokens-floor"
 order = 27
 summary = "max_tokens < 16 → 16 trước khi gửi upstream (chống 400 gateway kén chọn)"
 why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2' → router 503 + khoá 30s; floor 16 vô hại với call thật (đều > 1k)"
-find = 'let a1=(0,t.SB)(ar);'
-replace = 'if(ak&&"number"==typeof ak.max_tokens&&ak.max_tokens<16)ak.max_tokens=16;let a1=(0,t.SB)(ar);'
+find = 'let a2=(0,t.getExecutor)(au);'
+replace = "if(an&&\"number\"==typeof an.max_tokens&&an.max_tokens<16)an.max_tokens=16;let a2=(0,t.getExecutor)(au);"
 
 # P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
 # Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
@@ -365,8 +389,8 @@ id = "tool-result-remerge-post-headroom"
 order = 28
 summary = "Re-merge split tool_result user messages after headroom round-trip"
 why = "headroom Claude→OpenAI→Claude back-translate splits one user(2 tool_result) into N user msgs → agentrouter 400 tool_use-without-tool_result (log 18:50 2026-09-09); merge again post-headroom"
-find = 'let a2=ak.messages?.length'
-replace = 'if(ak&&Array.isArray(ak.messages)){let $ms2=ak.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||"assistant"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&"tool_use"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&"user"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&("tool_result"===$b2.type||"web_search_tool_result"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:"user",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let a2=ak.messages?.length'
+find = 'let a3=an.messages?.length'
+replace = "if(an&&Array.isArray(an.messages)){let $ms2=an.messages;for(let $i2=0;$i2<$ms2.length;$i2++){let $m2=$ms2[$i2];if(!$m2||\"assistant\"!==$m2.role||!Array.isArray($m2.content))continue;let $tu2=$m2.content.filter($b2=>$b2&&\"tool_use\"===$b2.type).length;if(!$tu2)continue;let $j2=$i2+1,$mg2=[];while($j2<$ms2.length&&$ms2[$j2]&&\"user\"===$ms2[$j2].role&&Array.isArray($ms2[$j2].content)){if(!$ms2[$j2].content.some($b2=>$b2&&(\"tool_result\"===$b2.type||\"web_search_tool_result\"===$b2.type)))break;$mg2.push($ms2[$j2]);$j2++}if($mg2.length>1){let $kp2={role:\"user\",content:[]};for(let $u2 of $mg2)for(let $b2 of $u2.content)$kp2.content.push($b2);$ms2.splice($i2+1,$mg2.length,$kp2)}}}let a3=an.messages?.length"
 
 # P29 — accept text/plain as SSE: some providers (agentrouter.org/glm-5.3) return valid SSE
 # body under content-type text/plain. The MIME guard blocks ANY non-SSE non-JSON response,
@@ -457,8 +481,8 @@ id = "upstream-claude-sse-passthrough"
 order = 35
 summary = "Upstream openai-compatible trả SSE kiểu Claude → passthrough thay vì drop (chống 502 rỗng)"
 why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_block_delta (không phải OpenAI choices[].delta); Y8 emit 0 byte → peek P16 thấy stream rỗng → 502 + khóa key dù upstream đã tính token"
-find = 'function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];'
-replace = 'function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if("claude"===b&&c&&"string"==typeof c.type&&(c.type.startsWith("message_")||c.type.startsWith("content_block_")||"ping"===c.type))return[c];'
+find = "function ar(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];"
+replace = "function ar(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if(\"claude\"===b&&c&&\"string\"==typeof c.type&&(c.type.startsWith(\"message_\")||c.type.startsWith(\"content_block_\")||\"ping\"===c.type))return[c];"
 
 # P38 — nhánh cuối của classifier `hk/e()` coi MỌI 4xx (trừ 401/402/403/429) là lỗi
 # phía client → `shouldFallback:!1`. Combo loop 8910.js `if(!i)return b` trả thẳng
@@ -483,8 +507,8 @@ id = "4xx-rotate-instead-of-abort"
 order = 38
 summary = "Classifier: 4xx (400/404/406…) → fallback 5s thay vì trả thẳng lỗi cho client"
 why = "nhánh cuối e() coi 4xx là lỗi client nên shouldFallback:!1; combo loop trả raw 400 → Claude Code cancel session. 400 của 1 model là lỗi model-specific, phải xoay model kế tiếp trong combo (403 'Model is disabled' vốn đã xoay được vì nằm ngoài nhánh này). Ca thật: TokenHarbor 400 'does not accept image input' (deepseek-v4-flash:free) giết cả combo harbor lẫn claude-opus-5"
-find = 'return a>=400&&a<500&&401!==a&&402!==a&&403!==a&&429!==a?{shouldFallback:!1,cooldownMs:0}:{shouldFallback:!0,cooldownMs:d.wf}}'
-replace = 'return a>=400&&a<500?{shouldFallback:!0,cooldownMs:5e3}:{shouldFallback:!0,cooldownMs:d.wf}}'
+find = 'return a>=400&&a<500&&401!==a&&402!==a&&403!==a&&429!==a?{shouldFallback:!1,cooldownMs:0,requestScoped:!0}:{shouldFallback:!0,cooldownMs:d.wf}}'
+replace = 'return a>=400&&a<500?{shouldFallback:!0,cooldownMs:5e3,requestScoped:!0}:{shouldFallback:!0,cooldownMs:d.wf}}'
 
 # P37 — topology đọc số request thật. P13 sửa combos; patch này sửa dashboard.
 # Đo 2026-09-25: 3 session Claude song song cùng provider `anthropic-compatible` → topology vẽ
@@ -523,8 +547,8 @@ id = "claude-tool-prefix-strip"
 order = 39
 summary = "Strip namespace prefix (vd default.Grep -> Grep) khỏi tool_use name nếu khớp tools[] thật"
 why = "Harness client vô tình ghi tool_use name có namespace (default.Grep/default.Bash/default.Read) vào history; Bedrock validate tool_use.name ∈ tools[] rất gắt và trả 400 Invalid tool use format trên mọi retry. Strip về tên chuẩn nếu tên sau dấu chấm có trong tools[]. Anchor tại điểm dispatch chung 8895.js vì nhánh passthrough KHÔNG đi qua normalizer 8499.js"
-find = 'let a3=(0,j.jd)({onDisconnect:a=>'
-replace = ';(function(){try{if(!ak||!Array.isArray(ak.tools)||!Array.isArray(ak.messages))return;let $T=new Set(ak.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of ak.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&"tool_use"===$b.type&&"string"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(".");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a3=(0,j.jd)({onDisconnect:a=>'
+find = 'let a4=(0,j.jd)({onDisconnect:a=>'
+replace = ";(function(){try{if(!an||!Array.isArray(an.tools)||!Array.isArray(an.messages))return;let $T=new Set(an.tools.map($t=>$t&&($t.name||$t.function&&$t.function.name)).filter(Boolean));for(let $m of an.messages){if(!Array.isArray($m?.content))continue;for(let $b of $m.content){if($b&&\"tool_use\"===$b.type&&\"string\"==typeof $b.name&&!$T.has($b.name)){let $d=$b.name.indexOf(\".\");if($d>0){let $s=$b.name.slice($d+1);if($T.has($s))$b.name=$s}}}}}catch{}})();let a4=(0,j.jd)({onDisconnect:a=>"
 
 # P40 - Deno Deploy relay: strip header danh tinh client.
 # Template deno-deploy: new Headers(request.headers) roi chi xoa 3 header.
@@ -715,8 +739,8 @@ id = "openai-content-text-blocks-flatten"
 order = 53
 summary = "Flatten content dang mang text blocks thanh string don cho request OpenAI-format (tranh 422 Devora/DeepSeek)"
 why = "Devora deepseek-v4.1-flash va mot so provider openai-compatible tu choi (422 upstream_rejected_request) khi message content la mang text blocks thay vi string. Hop nhat text blocks thanh string neu tat ca block deu la text, giu nguyen array neu co image_url."
-find = 'let a5=aE;try{let a=await a1.execute({'
-replace = '(function(){try{if(ak&&Array.isArray(ak.messages)&&("openai"===aV||!aV)){for(let $m of ak.messages){if($m&&Array.isArray($m.content)){let $all=$m.content.every($b=>$b&&("string"==typeof $b||"text"===$b.type||("string"==typeof $b.text&&!$b.type)));if($all){$m.content=$m.content.map($b=>"string"==typeof $b?$b:$b.text||"").join("\n\n")}}}}}catch(e){}})();let a5=aE;try{let a=await a1.execute({'
+find = 'let a6=aH;try{let a=await a2.execute({'
+replace = "(function(){try{if(an&&Array.isArray(an.messages)&&(\"openai\"===aW||!aW)){for(let $m of an.messages){if($m&&Array.isArray($m.content)){let $all=$m.content.every($b=>$b&&(\"string\"==typeof $b||\"text\"===$b.type||(\"string\"==typeof $b.text&&!$b.type)));if($all){$m.content=$m.content.map($b=>\"string\"==typeof $b?$b:$b.text||\"\").join(\"\\n\\n\")}}}}}catch(e){}})();let a6=aH;try{let a=await a2.execute({"
 
 # P54 - opencode free transport thieu thinkingFormat -> fallback nham "zai" -> 400 unknown field thinking.
 # Do 2026-10-17 tren 0.5.104, repro that:
@@ -754,8 +778,8 @@ id = "opencode-transport-thinking-format-openai"
 order = 54
 summary = "opencode transport thinkingFormat openai (chong 400 unknown field thinking)"
 why = "opencode.ai gateway la OpenAI-compatible, khong nhan field thinking kieu ZAI. Provider opencode free khong khai thinkingFormat o transport va khong co entry per-provider nen model glm-5.3-flash-free roi fallback pattern *glm-5.3* -> thinkingFormat zai -> case zai set b.thinking={type:enabled} -> 400 unknown field thinking. Khai thinkingFormat openai o cap transport, dung nhu upstream da lam cho opencode-go."
-find = 'forceStream:!0,noAuth:!0,reasoningInject:{scope:"all"},quirks:{forceAutoToolChoiceModels:["muse-spark-1.3-contributor-free"]}'
-replace = 'forceStream:!0,noAuth:!0,thinkingFormat:"openai",reasoningInject:{scope:"all"},quirks:{forceAutoToolChoiceModels:["muse-spark-1.3-contributor-free"]}'
+find = "forceStream:!0,noAuth:!0,reasoningInject:{scope:\"all\"},quirks:{forceAutoToolChoiceModels:[\"muse-spark-1.3-contributor-free\"],reasoningAliasFields:!0}"
+replace = "forceStream:!0,noAuth:!0,thinkingFormat:\"openai\",reasoningInject:{scope:\"all\"},quirks:{forceAutoToolChoiceModels:[\"muse-spark-1.3-contributor-free\"],reasoningAliasFields:!0}"
 
 [[patch]]
 id = "bg-token-refresh-flag-guard"
@@ -771,8 +795,8 @@ order = 56
 defines = "$9rKilo"
 summary = "Combos picker hien them free models cua Kilo (fetch free-models API, dedupe theo value)"
 why = "Trang provider detail fetch live /api/providers/kilo/free-models nen list model Kilo dong du; bang combos chi build tu static registry 8 model trong 5497-*.js (module 28011 ModelSelectModal) nen thieu toan bo model :free (minimax/minimax-m3.1-flash:free...). Patch them state $9rKilo + fetch khi mo modal, merge vao nhanh passthroughModels cua provider kilocode voi dedupe theo value (kc/<id>) - khong ghi DB, khong trung lap voi trang provider. GO KHI UPSTREAM TU FIX: picker doc them endpoint free-models hoac registry dong -> go patch."
-find = '[V,B]=(0,n.useState)([]),[J,G]=(0,n.useState)({}),H='
-replace = '[V,B]=(0,n.useState)([]),[J,G]=(0,n.useState)({}),[$9rKilo,$9rSetKilo]=(0,n.useState)([]),H='
+find = '[V,B]=(0,r.useState)([]),[J,G]=(0,r.useState)({}),H='
+replace = '[V,B]=(0,r.useState)([]),[J,G]=(0,r.useState)({}),[$9rKilo,$9rSetKilo]=(0,r.useState)([]),H='
 
 [[patch]]
 id = "combos-picker-kilo-free-fetch"
@@ -780,8 +804,8 @@ order = 57
 group = "combos-picker-kilo-free-models"
 summary = "Fetch free-models cua Kilo khi mo modal picker"
 why = "Picker khong goi endpoint nay o bat ky dau (chi trang provider detail goi); thieu fetch thi $9rKilo luon rong va buoc merge khong co gi de them."
-find = 'console.error("Error fetching custom models:",e),B([])}};(0,n.useEffect)(()=>{e&&es()},[e]);'
-replace = 'console.error("Error fetching custom models:",e),B([])}};(0,n.useEffect)(()=>{if(!e)return;(async()=>{try{let t=await fetch("/api/providers/kilo/free-models",{cache:"no-store"});if(!t.ok)return;let a=await t.json();$9rSetKilo(Array.isArray(a.models)?a.models:[])}catch{}})()},[e]);(0,n.useEffect)(()=>{e&&es()},[e]);'
+find = "console.error(\"Error fetching custom models:\",e),B([])}};(0,r.useEffect)(()=>{e&&es()},[e]);"
+replace = "console.error(\"Error fetching custom models:\",e),B([])}};(0,r.useEffect)(()=>{if(!e)return;(async()=>{try{let t=await fetch(\"/api/providers/kilo/free-models\",{cache:\"no-store\"});if(!t.ok)return;let a=await t.json();$9rSetKilo(Array.isArray(a.models)?a.models:[])}catch{}})()},[e]);(0,r.useEffect)(()=>{e&&es()},[e]);"
 
 [[patch]]
 id = "combos-picker-kilo-free-merge"
@@ -789,8 +813,8 @@ order = 58
 group = "combos-picker-kilo-free-models"
 summary = "Merge free models vao nhanh passthrough cua kilocode, dedupe theo value"
 why = "Nhanh passthroughModels dung chung cho moi provider co co nay; guard theo ten provider de chi kilocode nhan free list. Dedupe bang Set tren value (kc/<id>) nen custom model hoac alias cung tro toi model do khong sinh dong thu hai."
-find = 'o=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...r]}'
-replace = 'o=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...r];if("kilocode"===n){let $9rSeen=new Set(o.map(e=>e.value)),$9rAdd=$9rKilo.map(e=>({id:e.id,name:e.name||e.id,value:`${i}/${e.id}`,kind:"llm"})).filter(e=>e.value&&!$9rSeen.has(e.value));o=[...o,...$9rAdd]}}'
+find = 'l=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...n]}'
+replace = "l=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...n];if(\"kilocode\"===r){let $9rSeen=new Set(l.map(e=>e.value)),$9rAdd=$9rKilo.map(e=>({id:e.id,name:e.name||e.id,value:`${i}/${e.id}`,kind:\"llm\"})).filter(e=>e.value&&!$9rSeen.has(e.value));l=[...l,...$9rAdd]}}"
 
 [[patch]]
 id = "combos-picker-kilo-free-deps"
@@ -798,22 +822,22 @@ order = 59
 group = "combos-picker-kilo-free-models"
 summary = "Them $9rKilo vao deps cua memo ed de re-render khi free models ve"
 why = "useMemo ed chi tinh lai khi deps doi; free models ve sau lan render dau (async), thieu $9rKilo trong deps thi danh sach khong cap nhat cho den khi user doi filter."
-find = '[A,S,eo,q,V,J,O,_,R,ee,et,ea,er])'
-replace = '[A,S,eo,q,V,J,O,_,R,ee,et,ea,er,$9rKilo])'
+find = '},[A,S,el,q,V,J,O,_,z,ee,et,ea,en]'
+replace = '},[A,S,el,q,V,J,O,_,z,ee,et,ea,en,$9rKilo]'
 [[patch]]
 id = "provider-suggested-free-dedupe"
 order = 60
 summary = "Suggested free models (provider page) khong list lai model da co trong Available"
 why = "Bug upstream 0.5.104: bo loc suggested chi tru static registry (tv) ma quen danh sach free models fetch live (eG) dang hien ben tren -> moi model free xuat hien 2 lan: 1 o Available Models, 1 o hang Suggested free models bam vao de add them. Fix 1 dong: them eG vao Set loai tru. GO KHI UPSTREAM TU FIX: upstream them eG vao bo loc -> go patch."
-find = 't=new Set(tv.map(e=>e.id))'
-replace = 't=new Set([...tv,...eG].map(e=>e.id))'
+find = 't=new Set(tj.map(e=>e.id))'
+replace = 't=new Set([...tj,...eZ].map(e=>e.id))'
 [[patch]]
 id = "provider-custom-vs-free-dedupe"
 order = 61
 summary = "Trung lap free model taiAvailable khi cung ton tai lam custom model (builtInModels thieu eG)"
 why = "Bug upstream 0.5.104 chuoi 2: ham $ loc custom/alias theo builtInModels nhung chi truyen tv (8 model static). Khi mot free model (vd nvidia/nemotron-3-ultra-550b-a55b:free) duoc bam add o Suggested -> no thanh customModel, nhung eG van chua no bang id giong het -> render Available xuat HAI the: the custom (o.map) va the free (r.map vi $ khong biet eG da co no). Fix: truyen builtInModels=[...tv,...eG] de ham $ loai custom trung voi free list. Patch 60 chi lo suggested hang duoi; patch nay lo duplicate trong Available. GO KHI UPSTREAM TU FIX: upstream truyen eG vao builtInModels -> go patch."
-find = 'o=$({customModels:ex,modelAliases:ep,providerAlias:t$,builtInModels:tv,type:"llm"})'
-replace = 'o=$({customModels:ex,modelAliases:ep,providerAlias:t$,builtInModels:[...tv,...eG],type:"llm"})'
+find = "builtInModels:tj,type:\"llm\""
+replace = "builtInModels:[...tj,...eZ],type:\"llm\""
 
 [[patch]]
 id = "openai-compatible-agentrouter-ua-executor"
@@ -889,8 +913,8 @@ id = "workbuddy-executor-map"
 order = 72
 summary = "Dang ky workbuddy trong executor map"
 why = "Map L{provider:instance} key theo id; thieu entry thi getExecutor roi vao executor generic (sai header/format)."
-find = "\"codebuddy-intl\":new C.m,"
-replace = "\"codebuddy-intl\":new C.m,\"workbuddy\":new C.m(\"workbuddy\"),"
+find = "\"codebuddy-intl\":new I.m,"
+replace = "\"codebuddy-intl\":new I.m,\"workbuddy\":new I.m(\"workbuddy\"),"
 
 [[patch]]
 id = "workbuddy-oauth-flow"

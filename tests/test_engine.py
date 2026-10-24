@@ -919,6 +919,48 @@ def test_hazard2_teeth_shortened_p9_anchor_fires(patches):
     pytest.fail("shortened p9 anchor did not trip the substring invariant")
 
 
+# ---------- re-anchor hazards (measured 2026-10-24) ----------
+# Both sse-hang closers must call the once-only flush fn of the TARGET build. On 0.5.109
+# the flush fn is `V` and `Q` is a boolean flag: calling Q() throws "Q is not a function"
+# mid-stream the moment the SSE closes (caught only in production logs).
+def test_sse_close_patches_call_the_flush_fn_not_a_boolean_flag(patches):
+    # both names are minifier output, so read them out of anchored upstream text rather
+    # than hardcoding: gauge-guard's find declares the flush fn, each closer's own find
+    # shows the done-flag it must not call.
+    tr = by_id(patches, "sse-close-translate")
+    ps_ = by_id(patches, "sse-close-passthrough")
+    # upstream calls the flush fn itself in the passthrough anchor; the translate anchor
+    # shows the done-flag it must NOT call.
+    flush = re.search(r"&&([A-Za-z_$][\w$]*)\(\);continue\}", ps_.find).group(1)
+    flag = re.search(r"&&\(([A-Za-z_$][\w$]*)=!0\);continue\}", tr.find).group(1)
+    done = re.search(r"([A-Za-z_$][\w$]*)=!0,v&&", tr.find).group(1)
+    for p in (tr, ps_):
+        assert f"{flush}(),$G()" in p.replace, f"{p.id} must call the flush fn {flush}()"
+        assert f"{flag}(),$G()" not in p.replace, f"{p.id} calls {flag}(), which is a boolean flag"
+    # the [DONE] closer must set the stream's done flag, not clobber the event-name counter
+    assert f"{done}=!0,V(),$G()" in ps_.replace, f"{ps_.id} must set the done flag {done}"
+
+
+def test_log_post_trim_reports_format_names_not_the_request_timestamp(patches):
+    """The FMT template is upstream text this patch inherits; what the remap can break is
+    the *changed* region — printing the request timestamp (`aw` is Date.now() on 0.5.109)
+    instead of the format names, which logged `FMT: 1792779480506→null`."""
+    p = by_id(patches, "log-post-trim")
+    assert "`FMT: ${az} (passthrough)`" in p.replace
+    assert "`FMT: ${az}→${aH}`" in p.replace
+    # isolate what the patch actually rewrites, so the negative below cannot be satisfied
+    # by text both sides share; the FMT template itself is inherited (it appears in find),
+    # only check that no *new* FMT wording names the timestamp.
+    f, r = p.find, p.replace
+    i = next(k for k in range(min(len(f), len(r))) if f[k] != r[k])
+    j = next(k for k in range(min(len(f), len(r)) - i) if f[len(f) - 1 - k] != r[len(r) - 1 - k])
+    changed = r[i:len(r) - j]
+    assert "FMT" in changed
+    assert not re.search(r"FMT:[^`]*`\s*:\s*`[^`]*(\bow\b|\$\{aw\})", changed), \
+        f"patch rewrote the FMT template: {changed[:200]}"
+    assert "aw" not in changed, "aw is the request start timestamp on 0.5.109"
+
+
 # ---------- nonstream-sse-retry ----------
 
 def test_nonstream_retry_group_apply_revert(patches, tmp_path):
@@ -1058,29 +1100,37 @@ console.log("NON-SSE-METADATA-OK");
 # ---------- reasoning-effort body cap (p14) ----------
 
 def test_reasoning_effort_cap_mutates_the_body_that_is_sent(patches):
-    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite the sent body (`ak` in 0.5.95,
-    `aj` in 0.5.91, `ai` in 0.5.86). `aX` is the headroom RESPONSE, so capping it is a silent
-    no-op. The IIFE must also size-check the body, not `aX`."""
+    """HAZARD (measured 2026-09-08): the cap IIFE must rewrite the SENT body, not the
+    headroom response. Both are minifier names that change every build (`ak` body vs `aX`
+    response on 0.5.95; `an` body on 0.5.109). Take the body name from the ANCHOR (pristine
+    text, not our own injection) so a patch that caps its own wrong variable cannot validate
+    itself, and keep the headroom response as an explicit decoy."""
     p14 = by_id(patches, "reasoning-effort-body-cap")
     iife = p14.replace[p14.replace.index("(function(){"):]
-    assert "aX" not in iife, "cap still reads/writes aX (headroom response), not body"
+    f = p14.find
+    decoy = re.search(r"&&\(0,[\w$]+\._W\)\(([A-Za-z_$][\w$]*)\)", f)
+    assert decoy, f"cannot read the sent body out of the anchor: {f[:160]}"
+    body = decoy.group(1)
+    capped = set(re.findall(r"([A-Za-z_$][\w$]*)&&\"string\"==typeof \1\.reasoning_effort", iife))
+    assert capped == {body}, f"IIFE caps {capped}, anchor says the sent body is {body}"
     script = """
-const d={line:()=>{}}; const av="t";
-let aX={tokens_before:1,tokens_after:1};
-let ak={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
-let ai=ak;
-%s
-if (ak.reasoning_effort !== "high") throw new Error("body not capped: " + ak.reasoning_effort);
-ak={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
-ai=ak;
-%s
-if (ak.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
-ak={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
-ai=ak;
-%s
-if (ak.reasoning_effort !== "max") throw new Error("small body must not cap");
+const d={line:()=>{}}; const av="t", ay="tag";
+let $resp={tokens_before:1,tokens_after:1};
+let %(b)s={reasoning_effort:"max",messages:[{role:"user",content:"x".repeat(460000)}]};
+let ai=%(b)s;
+%(iife)s
+if (%(b)s.reasoning_effort !== "high") throw new Error("body not capped: " + %(b)s.reasoning_effort);
+%(b)s={reasoning:{effort:"xhigh"},messages:[{role:"user",content:"y".repeat(460000)}]};
+ai=%(b)s;
+%(iife)s
+if (%(b)s.reasoning.effort !== "high") throw new Error("reasoning.effort not capped");
+%(b)s={reasoning_effort:"max",messages:[{role:"user",content:"small"}]};
+ai=%(b)s;
+%(iife)s
+if (%(b)s.reasoning_effort !== "max") throw new Error("small body must not cap");
+if ($resp.reasoning_effort !== undefined) throw new Error("headroom response mutated");
 console.log("P14-BODY-CAP-OK");
-""" % (iife, iife, iife)
+""" % {"b": body, "iife": iife}
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
@@ -1463,9 +1513,13 @@ console.log("DONE-FORMAT-OK");
 
 
 def test_log_headroom_trim_compact_suffix(patches):
-    """P22: m() token numbers become k/M suffix; n() hides body section when effective<10%, keeps
-    it when >=10%. Parse the two function bodies from replace and eval in node."""
+    """P22: token numbers become k/M suffix; the body-summary fn hides its sections when
+    effective<10% and keeps them when >=10%. Function names are re-minified per build, so
+    take the first two from `replace` instead of hardcoding them."""
     rep = _patch_replace(patches, "log-headroom-trim")
+    names = re.findall(r"function ([A-Za-z_$][\w$]*)\(a\)\{", rep)
+    assert len(names) >= 2, rep[:200]
+    tokens_fn, summary_fn = names[0], names[1]
     script = """
 %s
 const cases = [
@@ -1474,15 +1528,15 @@ const cases = [
   [{tokens_before:800, tokens_after:600, tokens_saved:200}, "800→600"],
 ];
 for (const [c, want] of cases) {
-  const s = m(c);
-  if (!s.includes(want)) throw new Error("m(" + JSON.stringify(c) + ")=" + s + " want " + want);
+  const s = %s(c);
+  if (!s.includes(want)) throw new Error("tokens(" + JSON.stringify(c) + ")=" + s + " want " + want);
 }
-let lo = n({ before: { bodyBytes: 100000, messageBytes: 50000, toolSchemaBytes: 100, toolHistoryBytes: 30000 }, after: { bodyBytes: 95000, messageBytes: 48000, toolSchemaBytes: 100, toolHistoryBytes: 28000 } });
+let lo = %s({ before: { bodyBytes: 100000, messageBytes: 50000, toolSchemaBytes: 100, toolHistoryBytes: 30000 }, after: { bodyBytes: 95000, messageBytes: 48000, toolSchemaBytes: 100, toolHistoryBytes: 28000 } });
 if (!lo.startsWith("effective=") || lo.includes("body")) throw new Error("low-eff: " + lo);
-let hi = n({ before: { bodyBytes: 1000000, messageBytes: 600000, toolSchemaBytes: 100, toolHistoryBytes: 300000 }, after: { bodyBytes: 700000, messageBytes: 400000, toolSchemaBytes: 100, toolHistoryBytes: 200000 } });
+let hi = %s({ before: { bodyBytes: 1000000, messageBytes: 600000, toolSchemaBytes: 100, toolHistoryBytes: 300000 }, after: { bodyBytes: 700000, messageBytes: 400000, toolSchemaBytes: 100, toolHistoryBytes: 200000 } });
 if (!hi.includes("body") || !hi.includes("MB")) throw new Error("high-eff: " + hi);
 console.log("HEADROOM-TRIM-OK");
-""" % rep
+""" % (rep, tokens_fn, summary_fn, summary_fn)
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
@@ -1491,15 +1545,22 @@ console.log("HEADROOM-TRIM-OK");
 
 def test_log_post_trim_drops_uuid_caps_length(patches, tmp_path):
     """P23: POST line no longer embeds the provider/model target, adds a 100-char
-    cap and a 4-char ACC short label; the rebuilt statement must still parse as JS."""
+    cap and an 8-char ACC short label; the rebuilt statement must still parse as JS."""
     rep = _patch_replace(patches, "log-post-trim")
-    assert "→ ${ar}/${as}" not in rep          # provider-uuid target dropped
-    assert "`${ar}/${as}`,e=" not in rep        # provider-uuid fallback dropped too
-    assert "slice(0,100)" in rep                # length cap present
-    assert "slice(0,4)" in rep                  # ACC short label
-    # wrap the emitted statement so node can syntax-check it in isolation
-    stmt = rep[rep.index("let b=Q?.body?.model||"):].rstrip("}")
-    script = ("function st(aU,aw,aE,ak,a,d,as,ar,c,Q,av,aM,u,g){"
+    assert "`${au}/${av}`," not in rep           # provider-uuid target dropped
+    assert "`${au}/${av}`,e=" not in rep         # provider-uuid fallback dropped too
+    assert "slice(0,100)" in rep                 # length cap present
+    assert "slice(0,8)" in rep                   # ACC short label (8 chars, e.g. "Account ")
+    # wrap the emitted statement so node can syntax-check it in isolation. Body names are
+    # minifier output, so declare every identifier the statement reads from outside; strip
+    # literals first or the words inside `${}`/strings get declared as parameters.
+    stmt = rep[rep.index("b="):].rstrip("}")
+    bare = re.sub(r"`[^`]*`|\"[^\"\n]*\"|'[^'\n]*'", '""', stmt)
+    assigned = set(re.findall(r"(?<![\w$.])([A-Za-z_$][\w$]*)=(?!=)", bare))
+    used = set(re.findall(r"[A-Za-z_$][\w$]*", bare)) - assigned - {
+        "let", "const", "var", "null", "true", "false", "typeof", "new", "return",
+        "if", "else", "function", "void"}
+    script = ("function st(" + ",".join(sorted(used)) + "){let "
               + stmt + "\n}\n")
     if shutil.which("node") is None:
         pytest.skip("node not installed")
@@ -1571,9 +1632,9 @@ def test_mcp_spawn_pair_applies_together(patches, tmp_path):
 
 def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
-    variable; guard reads `ak`, mutates in place, leaves the anchor statement intact."""
+    variable (`ak` on 0.5.104, `an` on 0.5.109); mutates in place, preserves the anchor."""
     p = by_id(patches, "max-tokens-floor")
-    assert p.replace.startswith('if(ak&&"number"==typeof ak.max_tokens&&ak.max_tokens<16)ak.max_tokens=16;')
+    assert re.match(r'^if\(([A-Za-z_$][\w$]*)&&"number"==typeof \1\.max_tokens&&\1\.max_tokens<16\)\1\.max_tokens=16;', p.replace)
     assert p.replace.endswith(p.find)
 
 
@@ -1779,12 +1840,17 @@ def test_opencode_freetier_native_fix_absorbs_p32(patches):
 def test_upstream_claude_sse_passthrough_guard_logic(patches):
     """Guard logic: Claude-typed events pass through untouched on claude target;
     OpenAI choices must still go through the converter (empty result), non-object
-    and non-claude targets must fall through unchanged."""
+    and non-claude targets must fall through unchanged. The function name is minifier
+    output (`aq` on 0.5.104, `ar` on 0.5.109), so take it from the anchor."""
     p = by_id(patches, "upstream-claude-sse-passthrough")
-    assert p.find == ('function aq(a,b,c,d){if(b===a)return[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];')
+    m = re.match(r"function ([A-Za-z_$][\w$]*)\(a,b,c,d\)\{", p.find)
+    assert m, p.find[:120]
+    fn = m.group(1)
+    assert p.find.startswith(f"function {fn}(a,b,c,d){{if(b===a)return")
     script = """
 const j = { HR: (v) => v };
 const i = { F5: (c) => c };
+const o = { RW: () => {} };
 %s return []; }
 const cl = (t) => ({type: t});
 
@@ -1792,26 +1858,24 @@ const cl = (t) => ({type: t});
 for (const t of ["message_start", "content_block_start", "content_block_delta",
                  "content_block_stop", "message_delta", "message_stop", "ping"]) {
   const ev = cl(t);
-  const r = aq("openai", "claude", ev, {});
+  const r = FN("openai", "claude", ev, {});
   if (r.length !== 1 || r[0] !== ev) throw new Error(t + " not passed through");
 }
 
-// 2. claude target but already-openai-shaped object (choices, no .type) → falls through
-let fell = false;
-const Y8_stub = () => { fell = true; return []; };
-const src = aq.toString();
+// 2. guard must reuse the existing converter (F5), not rewrite the return shape
+const src = FN.toString();
 if (!src.includes("(0,i.F5)") || !src.includes("return[c]"))
   throw new Error("guard rewrote ap shape: " + src.slice(0, 200));
 
 // 3. non-claude target (openai) + claude event → NOT intercepted
 const ev2 = cl("message_stop");
-const r2 = aq("claude", "openai", ev2, {});
+const r2 = FN("claude", "openai", ev2, {});
 if (r2.length === 1 && r2[0] === ev2) throw new Error("openai target must not passthrough");
 
 // 4. null c on claude target → falls through, no crash
-aq("openai", "claude", null, {});
+FN("openai", "claude", null, {});
 console.log("P35-AP-GUARD-OK");
-""" % ("function aq(a,b,c,d){" + p.replace.split("function aq(a,b,c,d){", 1)[1])
+""".replace("FN", fn) % ("function " + fn + "(a,b,c,d){" + p.replace.split("function " + fn + "(a,b,c,d){", 1)[1])
     if shutil.which("node") is None:
         pytest.skip("node not installed")
     r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
@@ -1847,6 +1911,7 @@ def test_p13_content_blocked_and_safety_checks_trigger_fallback(patches):
             'return Math.min(d.EQ.base*Math.pow(2,b),d.EQ.max)}(a),newBackoffLevel:a}}'
             'return{shouldFallback:!0,cooldownMs:b.cooldownMs}}'
             + by_id(patches, "4xx-rotate-instead-of-abort").replace)
+    # upstream already provides the closing brace after the final status path
     script = """
 const d = {
   t2: [
@@ -1892,15 +1957,17 @@ console.log("P13-CONTENT-BLOCK-OK");
 
 
 def test_p38_anchor_hits_real_build(patches):
-    """P38 anchor = the final `return` of classifier e(); byte-measured as
-    exactly 1 occurrence in each bundle (8 in 0.5.86, 9 in 0.5.91). find/replace
-    share no substring, so a re-apply stays a no-op and never recurses."""
+    """P38 anchor = the final `return` of classifier e(); find/replace
+    share no substring, so a re-apply stays a no-op and never recurses.
+    0.5.86/0.5.91 had 8-9 duplicated copies (1 per provider bundle); 0.5.109
+    deduplicated them into one shared module (7187.js, imported by 3 files)
+    — one definition point, patch still reaches every provider through it."""
     if _target_mismatch():
         pytest.skip("install version does not match patches target_version")
     p = by_id(patches, "4xx-rotate-instead-of-abort")
     assert p.find not in p.replace and p.replace not in p.find
     places = _anchor_placements(Path(engine.build_dir()), p)
-    assert sum(places.values()) in (8, 9), places
+    assert sum(places.values()) == 1, places
     assert all(v == 1 for v in places.values()), places
 
 
@@ -2428,9 +2495,15 @@ def test_openai_content_text_blocks_flatten(patches, tmp_path):
     iife_end = p53.replace.index("}})();", iife_start) + len("}})();")
     iife = p53.replace[iife_start:iife_end]
     assert iife.endswith("}})();"), iife[-30:]
+    # body var and target-format var are minifier output (`ak`/`aV` on 0.5.104,
+    # `an`/`aW` on 0.5.109): read them out of the IIFE instead of hardcoding.
+    mv = re.search(r"if\((\w+)&&Array\.isArray\(\1\.messages\)", iife)
+    mf = re.search(r'"openai"===(\w+)\|\|!\1', iife)
+    assert mv and mf, iife[:200]
+    body, fmt = mv.group(1), mf.group(1)
     stub = (
-        "const aV = 'openai';\n"
-        "const ak = {\n"
+        "const " + fmt + " = 'openai';\n"
+        "const " + body + " = {\n"
         "  messages: [\n"
         "    { role: 'system', content: 'sys' },\n"
         "    { role: 'user', content: [{ type: 'text', text: 'part1' }, { type: 'text', text: 'part2' }] },\n"
@@ -2442,7 +2515,7 @@ def test_openai_content_text_blocks_flatten(patches, tmp_path):
         "};\n"
         + iife
         + "\n"
-        "const m = ak.messages;\n"
+        "const m = " + body + ".messages;\n"
         "if (m[1].content !== 'part1\\n\\npart2') throw new Error('text blocks not flattened: ' + JSON.stringify(m[1].content));\n"
         "if (!Array.isArray(m[2].content)) throw new Error('image_url array must stay array');\n"
         "if (m[3].content !== 'reply') throw new Error('assistant text not flattened');\n"
@@ -2482,14 +2555,14 @@ def test_combos_picker_kilo_free_roundtrip_and_dedupe(patches, tmp_path):
     for p in ps:
         assert p.replace in t
         assert state_for(scan(b, ps), p.id).state == "applied"
-    # merge branch: dedupe by value is a Set over o.map(value)
+    # merge branch: dedupe by value is a Set over list.map(value)
     pm = by_id(patches, "combos-picker-kilo-free-merge")
-    assert "$9rSeen=new Set(o.map(e=>e.value))" in pm.replace
-    assert '"kilocode"===n' in pm.replace          # guard: only kilocode gets free list
+    assert re.search(r"\$9rSeen=new Set\(\w+\.map\(e=>e\.value\)\)", pm.replace)
+    assert re.search(r'"kilocode"===\w+', pm.replace)  # guard: only kilocode gets free list
     assert 'kind:"llm"' in pm.replace              # picker filters non-llm otherwise
     # deps memo includes the new state so async fetch re-renders
     pd = by_id(patches, "combos-picker-kilo-free-deps")
-    assert pd.replace.endswith("$9rKilo])")
+    assert pd.replace.endswith("$9rKilo]") and pd.find.endswith("]")
     # fetch hits the same endpoint the provider detail page uses (single source of truth)
     pf = by_id(patches, "combos-picker-kilo-free-fetch")
     assert '"/api/providers/kilo/free-models"' in pf.replace
@@ -2519,8 +2592,15 @@ def test_provider_suggested_free_dedupe_skips_models_already_shown(patches, tmp_
     """P60: suggested free models tren trang provider khong duoc list lai model da co
     trong Available (free list eG) - truoc fix bo loc chi lo static registry (tv)."""
     p = by_id(patches, "provider-suggested-free-dedupe")
-    assert p.find == "t=new Set(tv.map(e=>e.id))"
-    assert p.replace == "t=new Set([...tv,...eG].map(e=>e.id))"
+    # the excluded set and the free-list var are minifier output (`tv`/`eG` on 0.5.104,
+    # `tj`/`eZ` on 0.5.109); assert the SHAPE — free list added to the exclusion set.
+    m = re.fullmatch(r"(\w+)=new Set\((\w+)\.map\(e=>e\.id\)\)", p.find)
+    assert m, p.find
+    var, static = m.groups()
+    m2 = re.fullmatch(
+        rf"{var}=new Set\(\[\.\.\.{static},\.\.\.(\w+)\]\.map\(e=>e\.id\)\)", p.replace)
+    assert m2, p.replace
+    assert m2.group(1) != static
     b = tmp_path / "build"
     b.mkdir()
     write(b, "provider.js", f"X{p.find}Y")
@@ -2536,8 +2616,14 @@ def test_provider_custom_vs_free_dedupe_p61(patches, tmp_path):
     Ham $ loc custom/alias theo builtInModels; upstream chi truyen tv (static) nen
     custom trung voi free list (eG) sinh the thu hai. Fix: builtInModels=[...tv,...eG]."""
     p = by_id(patches, "provider-custom-vs-free-dedupe")
-    A = 'builtInModels:tv,type:"llm"'
-    assert A in p.find and "[...tv,...eG]" in p.replace
+    # names are minifier output (`tv`/`eG` on 0.5.104, `tj`/`eZ` on 0.5.109): the patch
+    # must turn `builtInModels:<static>` into `builtInModels:[...<static>,<free>]`.
+    m = re.search(r"builtInModels:(\w+),type:\"llm\"", p.find)
+    assert m, p.find
+    static = m.group(1)
+    mm = re.search(rf"builtInModels:\[\.\.\.{static},\.\.\.(\w+)\],type:\"llm\"", p.replace)
+    assert mm, p.replace
+    assert mm.group(1) != static
     # simulate the $ dedupe semantics on real shapes
     tv = [{"id": "google/gemini-2.5-flash"}, {"id": "openai/o3"}]
     eG_ids = ["minimax/minimax-m3.1-flash:free", "nvidia/nemotron-3-ultra-550b-a55b:free"]
@@ -2656,7 +2742,9 @@ def test_workbuddy_registries_map_new_id(patches):
     """6 registry key theo provider id phai co entry 'workbuddy'."""
     checks = {
         "workbuddy-executor":      ["constructor(a=\"codebuddy-intl\")"],
-        "workbuddy-executor-map":  ['"workbuddy":new C.m("workbuddy")'],
+        # module alias binding is minifier output (`C.m` on 0.5.104, `I.m` on 0.5.109):
+        # tie the new entry to whatever the codebuddy-intl sibling already uses.
+        "workbuddy-executor-map":  [],
         "workbuddy-oauth-flow":    ['"workbuddy":{...A.A,config:'],
         "workbuddy-refresh":       ['"workbuddy":(a,b)=>y(a.refreshToken,b,"workbuddy")'],
         "workbuddy-ui-whitelist":  ['"workbuddy"'],
@@ -2667,6 +2755,13 @@ def test_workbuddy_registries_map_new_id(patches):
         p = by_id(patches, pid)
         for n in needles:
             assert n in p.replace, f"{pid} missing {n}"
+    # the executor map's ctor is whatever the codebuddy-intl sibling already binds, so
+    # re-derive it instead of hardcoding a minifier letter.
+    p = by_id(patches, "workbuddy-executor-map")
+    ctor = re.search(r'"codebuddy-intl":new ([A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)', p.find)
+    assert ctor, p.find
+    c = ctor.group(1)
+    assert f'"codebuddy-intl":new {c},"workbuddy":new {c}("workbuddy")' in p.replace
 
 
 # ---------- p80: workbuddy-icon (avatar) ----------
