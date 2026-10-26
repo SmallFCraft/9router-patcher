@@ -25,14 +25,14 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (76 patches, 69 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
+- `patches.toml` — Single source of truth (74 patches, 67 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
 
 ## Verified Baselines (2026-10-18, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q -s` → **464 passed, 4 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi. Khi bản `9router` cài thật chưa bằng `TARGET_9ROUTER_VERSION`, thêm ~12 test `test_engine` skip vì version-gated.
+- Full test suite: `python -m pytest tests/ -q -s` → **462 passed, 5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi. Khi bản `9router` cài thật chưa bằng `TARGET_9ROUTER_VERSION`, thêm ~12 test `test_engine` skip vì version-gated.
   **Phải dùng `-s`**: pytest fd-capture trên Windows đụng handle của subprocess — không `-s` thì 20+ test spawn node/subprocess fail `WinError 6` (handle invalid) giả.
   Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.104 → patch states legitimately differ), `318.js` not in current build.
 - Engine tests: `python -m pytest tests/test_engine.py -q -s` → **129 passed, 2 skipped**.
