@@ -32,7 +32,7 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-10-18, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q -s` → **460 passed, 4-5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi.
+- Full test suite: `python -m pytest tests/ -q -s` → **462 passed, 5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi. Khi bản `9router` cài thật chưa bằng `TARGET_9ROUTER_VERSION`, thêm ~12 test `test_engine` skip vì version-gated.
   **Phải dùng `-s`**: pytest fd-capture trên Windows đụng handle của subprocess — không `-s` thì 20+ test spawn node/subprocess fail `WinError 6` (handle invalid) giả.
   Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.104 → patch states legitimately differ), `318.js` not in current build.
 - Engine tests: `python -m pytest tests/test_engine.py -q -s` → **129 passed, 2 skipped**.

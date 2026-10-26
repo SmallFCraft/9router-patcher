@@ -61,7 +61,12 @@
 #   vào giữa biểu thức. p8 upstream thêm R/S/U trước T=null; replace phải khai lại đủ
 #   R,S,T,U nếu không test_no_patch_drops_a_binding... bắt được (đúng thiết kế).
 #   combos-picker-kilo-free-deps: find KHÔNG chứa `)` kết thúc biểu thức, replace cũng không.
-target_version = "0.5.109"
+# 0.5.109 -> 0.5.111: 3 anchor chết, 0 hấp thụ (scan 74 clean trên tarball pristine
+#   0.5.111). locate --all --latest: 0 fixed-likely, 0 applied; không replace nào của
+#   74 patch nào khớp sẵn trong pristine -> upstream chưa tự fix patch nào.
+#   Remap do re-minify: log-headroom-trim (8895.js, r/s->p/q), opencode-responses-
+#   noeffort-minimal (5330.js, E->K), upstream-claude-sse-passthrough (2380.js, ar->as).
+target_version = "0.5.111"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -319,8 +324,8 @@ id = "log-headroom-trim"
 order = 22
 summary = "HEADROOM line: compact numbers (k/M suffix), hide low-impact body when effective < 10%"
 why = "reported token delta=35732 before=160097 after=124365 (22.3%) | body=614424B→486756B messages=... effective=20.8% is 180 chars. Compress to one line: key number first; omit per-subsection bytes when < 10% effective so line fits terminal width."
-find = "function r(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";return`reported token delta=${d} before=${b}${c?` after=${c}`:\"\"} (${e}%)`.trim()}function s(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";return`body=${b.bodyBytes}B→${c.bodyBytes}B messages=${b.messageBytes}B→${c.messageBytes}B tools=${b.toolSchemaBytes||0}B→${c.toolSchemaBytes||0}B toolHistory=${b.toolHistoryBytes||0}B→${c.toolHistoryBytes||0}B effective=${d}%`}"
-replace = "function r(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"M\":x>=1e3?(x/1e3).toFixed(1)+\"k\":String(x);return`reported ${f(b)}→${f(c)} (${e}%)`.trim()}/* delta= before= after= body= messages= tools= toolHistory= */function s(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";if(parseFloat(d)<10)return`effective=${d}%`;let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"MB\":x>=1e3?Math.round(x/1024)+\"KB\":String(x);return`body ${f(b.bodyBytes)}→${f(c.bodyBytes)} messages ${f(b.messageBytes||0)}→${f(c.messageBytes||0)} toolHistory ${f(b.toolHistoryBytes||0)}→${f(c.toolHistoryBytes||0)} effective=${d}%`}"
+find = "function p(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";return`reported token delta=${d} before=${b}${c?` after=${c}`:\"\"} (${e}%)`.trim()}function q(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";return`body=${b.bodyBytes}B→${c.bodyBytes}B messages=${b.messageBytes}B→${c.messageBytes}B tools=${b.toolSchemaBytes||0}B→${c.toolSchemaBytes||0}B toolHistory=${b.toolHistoryBytes||0}B→${c.toolHistoryBytes||0}B effective=${d}%`}"
+replace = "function p(a){if(!a)return null;let b=a.tokens_before||0,c=a.tokens_after||0,d=a.tokens_saved||0,e=b>0?(d/b*100).toFixed(1):\"0\";let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"M\":x>=1e3?(x/1e3).toFixed(1)+\"k\":String(x);return`reported ${f(b)}→${f(c)} (${e}%)`.trim()}/* delta= before= after= body= messages= tools= toolHistory= */function q(a){let b=a?.before,c=a?.after;if(!b||!c)return\"\";let d=b.bodyBytes>0?((b.bodyBytes-c.bodyBytes)/b.bodyBytes*100).toFixed(1):\"0.0\";if(parseFloat(d)<10)return`effective=${d}%`;let f=x=>x>=1e6?(x/1e6).toFixed(1)+\"MB\":x>=1e3?Math.round(x/1024)+\"KB\":String(x);return`body ${f(b.bodyBytes)}→${f(c.bodyBytes)} messages ${f(b.messageBytes||0)}→${f(c.messageBytes||0)} toolHistory ${f(b.toolHistoryBytes||0)}→${f(c.toolHistoryBytes||0)} effective=${d}%`}"
 
 # P23 — POST line trim: drop provider UUID, show model prefix, cap ~100 chars, drop empty fields.
 # Anchor: module 92500 POST assembly at `let aO=aN?at:aA;if(d?.line)...` in 8895.js.
@@ -464,8 +469,8 @@ id = "opencode-responses-noeffort-minimal"
 order = 34
 summary = "reasoning effort none/off → minimal cho openai responses (chống 400 THINK:off)"
 why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream chỉ down-clamp max/ultra nên 'none' lọt nguyên → 400 invalid_request_error param reasoning.effort"
-find = 'let f=E(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
-replace = 'let f=E(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
+find = 'let f=K(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
+replace = 'let f=K(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
 
 # P35 — upstream openai-compatible trả SSE kiểu Claude (api.tntapi.io.vn).
 # Đo trực tiếp 2026-09-22: TỪNG request tới /v1/chat/completions → body kiểu
@@ -481,8 +486,8 @@ id = "upstream-claude-sse-passthrough"
 order = 35
 summary = "Upstream openai-compatible trả SSE kiểu Claude → passthrough thay vì drop (chống 502 rỗng)"
 why = "api.tntapi.io.vn /v1/chat/completions trả event: message_start/content_block_delta (không phải OpenAI choices[].delta); Y8 emit 0 byte → peek P16 thấy stream rỗng → 502 + khóa key dù upstream đã tính token"
-find = "function ar(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];"
-replace = "function ar(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if(\"claude\"===b&&c&&\"string\"==typeof c.type&&(c.type.startsWith(\"message_\")||c.type.startsWith(\"content_block_\")||\"ping\"===c.type))return[c];"
+find = "function as(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];"
+replace = "function as(a,b,c,d){if(b===a)return d&&c&&\"object\"==typeof c&&(d.streamToolCallIds||(d.streamToolCallIds=new Map),(0,o.RW)(c,d.streamToolCallIds)),[(0,j.HR)((0,i.F5)(c,d?.toolNameMap),d?.toolNameMap)];if(\"claude\"===b&&c&&\"string\"==typeof c.type&&(c.type.startsWith(\"message_\")||c.type.startsWith(\"content_block_\")||\"ping\"===c.type))return[c];"
 
 # P38 — nhánh cuối của classifier `hk/e()` coi MỌI 4xx (trừ 401/402/403/429) là lỗi
 # phía client → `shouldFallback:!1`. Combo loop 8910.js `if(!i)return b` trả thẳng
