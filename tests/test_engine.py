@@ -133,8 +133,9 @@ def test_load_patches_real_file(patches):
     # P16 empty-stream-fallback tightened 2026-10-21: terminal-event short-circuit + reason extract
     # P65-P67 workbuddy-realm added 2026-10-23 (codebuddy-intl -> workbuddy.ai realm, CLI UA)
     # P80 workbuddy-icon added 2026-10-23 (avatar: build chi co workbuddy.png = ban copy cua codebuddy)
+    # P81 workbuddy-tool-choice-string added 2026-10-26 (Go backend khai tool_choice string -> 400)
     # count parity with enc blob loader (test_engine_enc) — bump BOTH when adding a patch
-    assert len(patches) == 73
+    assert len(patches) == 74
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P62/P63 agentrouter UA: executor adds claude-cli UA header; models route appends UA header to fetch
@@ -157,9 +158,9 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 73 patches: 63 standalone (group = own id) + 3 multi-patch groups
-    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 66 group keys
-    assert len(grouped) == 66
+    # 74 patches: 64 standalone (group = own id) + 3 multi-patch groups
+    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 67 group keys
+    assert len(grouped) == 67
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"

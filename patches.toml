@@ -917,6 +917,14 @@ find = "\"codebuddy-intl\":new I.m,"
 replace = "\"codebuddy-intl\":new I.m,\"workbuddy\":new I.m(\"workbuddy\"),"
 
 [[patch]]
+id = "workbuddy-tool-choice-string"
+order = 78
+summary = "workbuddy: ha tool_choice tu object ve string (Go backend khai tool_choice string)"
+why = "Claude Code gui tool_choice dang object {type:\"function\",name:...}. Converter claude->openai (module 86171, ham h()) copy NGUYEN the field tool_choice tu body Claude sang body OpenAI, va class executor dung chung (module 51349) khong dong nao toi tool_choice. Backend Go cua workbuddy khai 'tool_choice string' nen object -> json unmarshal loi 'cannot unmarshal object into Go struct field Request.tool_choice of type string' -> HTTP 400 (do that 2026-10-26). 3947 dong workbuddy trong usageHistory deu ok, nen loi chi xay ra voi shape object chu khong phai account/quota. Gate theo this.provider vi class 51349 dung chung cho codebuddy-intl — khong gate thi doi hanh vi codebuddy-intl. Lay shape o day (1 guard) thay vi va tung caller."
+find = 'e.stream=!0;let f=e.reasoning_effort;'
+replace = 'e.stream=!0;if("workbuddy"===this.provider&&e.tool_choice&&"object"==typeof e.tool_choice&&!Array.isArray(e.tool_choice)){let $9rTC=e.tool_choice.type;$9rTC="none"===$9rTC?"none":"auto"===$9rTC?"auto":"required",e.tool_choice=$9rTC}let f=e.reasoning_effort;'
+
+[[patch]]
 id = "workbuddy-oauth-flow"
 order = 73
 summary = "Dang ky workbuddy trong oauth flow map Q"
