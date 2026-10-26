@@ -134,8 +134,9 @@ def test_load_patches_real_file(patches):
     # P65-P67 workbuddy-realm added 2026-10-23 (codebuddy-intl -> workbuddy.ai realm, CLI UA)
     # P80 workbuddy-icon added 2026-10-23 (avatar: build chi co workbuddy.png = ban copy cua codebuddy)
     # P81 workbuddy-tool-choice-string added 2026-10-26 (Go backend khai tool_choice string -> 400)
+    # P82/P83 wreq-js loader added 2026-10-26 ((void 0).resolve -> require.resolve, + tolerate TypeError)
     # count parity with enc blob loader (test_engine_enc) — bump BOTH when adding a patch
-    assert len(patches) == 74
+    assert len(patches) == 76
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P62/P63 agentrouter UA: executor adds claude-cli UA header; models route appends UA header to fetch
@@ -158,9 +159,9 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 74 patches: 64 standalone (group = own id) + 3 multi-patch groups
-    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 67 group keys
-    assert len(grouped) == 67
+    # 76 patches: 66 standalone (group = own id) + 3 multi-patch groups
+    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 69 group keys
+    assert len(grouped) == 69
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"
@@ -176,6 +177,22 @@ def test_no_patch_drops_a_binding_its_anchor_declared(patches):
     decl = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)=(?!=)")
     for p in patches:
         assert not set(decl.findall(p.find)) - set(decl.findall(p.replace)), p.id
+
+
+def test_wreq_js_loader_never_calls_resolve_on_undefined(patches):
+    """Sập thật 2026-10-26: upstream 0.5.109/0.5.111 viết
+    `c(48565)(pathToFileURL((void 0).resolve(a)).href)` trong loader optional-dep (module
+    20742). `(void 0).resolve` ném TypeError, không phải MODULE_NOT_FOUND, nên `m(a)` trả
+    false → rethrow ngay → không bao giờ tới bước npm-install → `/api/.../chat` trả 502
+    "wreq-js unavailable (Cannot read properties of undefined (reading 'resolve'))".
+    Patch phải thay bằng `require.resolve(a)` và không được để lại mẫu `(void 0).resolve`."""
+    p = by_id(patches, "wreq-js-loader-resolve")
+    assert "(void 0).resolve" in p.find
+    assert "require.resolve(a)" in p.replace
+    assert "(void 0)" not in p.replace
+    # m() phải phân loại được TypeError của nhánh resolve là "không tìm thấy"
+    tol = by_id(patches, "wreq-js-loader-tolerate-typeerror")
+    assert "TypeError" in tol.replace and "reading .resolve" in tol.replace
 
 
 def test_scan_empty_build_dead_anchor(patches, tmp_path):
