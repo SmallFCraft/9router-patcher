@@ -66,7 +66,7 @@
 #   74 patch nào khớp sẵn trong pristine -> upstream chưa tự fix patch nào.
 #   Remap do re-minify: log-headroom-trim (8895.js, r/s->p/q), opencode-responses-
 #   noeffort-minimal (5330.js, E->K), upstream-claude-sse-passthrough (2380.js, ar->as).
-target_version = "0.5.111"
+target_version = "0.5.112"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -833,16 +833,16 @@ replace = '},[A,S,el,q,V,J,O,_,z,ee,et,ea,en,$9rKilo]'
 id = "provider-suggested-free-dedupe"
 order = 60
 summary = "Suggested free models (provider page) khong list lai model da co trong Available"
-why = "Bug upstream 0.5.104: bo loc suggested chi tru static registry (tv) ma quen danh sach free models fetch live (eG) dang hien ben tren -> moi model free xuat hien 2 lan: 1 o Available Models, 1 o hang Suggested free models bam vao de add them. Fix 1 dong: them eG vao Set loai tru. GO KHI UPSTREAM TU FIX: upstream them eG vao bo loc -> go patch."
-find = 't=new Set(tj.map(e=>e.id))'
-replace = 't=new Set([...tj,...eZ].map(e=>e.id))'
+why = "Bug upstream 0.5.104: bo loc suggested chi tru static registry (tw) ma quen danh sach free models fetch live (eQ) dang hien ben tren -> moi model free xuat hien 2 lan: 1 o Available Models, 1 o hang Suggested free models bam vao de add them. Fix 1 dong: them eQ vao Set loai tru. GO KHI UPSTREAM TU FIX: upstream them eQ vao bo loc -> go patch."
+find = 't=new Set(tk.map(e=>e.id))'
+replace = 't=new Set([...tk,...eQ].map(e=>e.id))'
 [[patch]]
 id = "provider-custom-vs-free-dedupe"
 order = 61
 summary = "Trung lap free model taiAvailable khi cung ton tai lam custom model (builtInModels thieu eG)"
-why = "Bug upstream 0.5.104 chuoi 2: ham $ loc custom/alias theo builtInModels nhung chi truyen tv (8 model static). Khi mot free model (vd nvidia/nemotron-3-ultra-550b-a55b:free) duoc bam add o Suggested -> no thanh customModel, nhung eG van chua no bang id giong het -> render Available xuat HAI the: the custom (o.map) va the free (r.map vi $ khong biet eG da co no). Fix: truyen builtInModels=[...tv,...eG] de ham $ loai custom trung voi free list. Patch 60 chi lo suggested hang duoi; patch nay lo duplicate trong Available. GO KHI UPSTREAM TU FIX: upstream truyen eG vao builtInModels -> go patch."
-find = "builtInModels:tj,type:\"llm\""
-replace = "builtInModels:[...tj,...eZ],type:\"llm\""
+why = "Bug upstream 0.5.104 chuoi 2: ham $ loc custom/alias theo builtInModels nhung chi truyen tw (8 model static). Khi mot free model (vd nvidia/nemotron-3-ultra-550b-a55b:free) duoc bam add o Suggested -> no thanh customModel, nhung eQ van chua no bang id giong het -> render Available xuat HAI the: the custom (o.map) va the free (r.map vi $ khong biet eQ da co no). Fix: truyen builtInModels=[...tw,...eQ] de ham $ loai custom trung voi free list. Patch 60 chi lo suggested hang duoi; patch nay lo duplicate trong Available. GO KHI UPSTREAM TU FIX: upstream truyen eQ vao builtInModels -> go patch."
+find = "builtInModels:tk,type:\"llm\""
+replace = "builtInModels:[...tk,...eQ],type:\"llm\""
 
 [[patch]]
 id = "openai-compatible-agentrouter-ua-executor"
@@ -957,9 +957,9 @@ replace = "\"kilocode\",\"codebuddy-cn\",\"codebuddy-intl\",\"workbuddy\",\"qode
 id = "workbuddy-quota"
 order = 76
 summary = "Dang ky workbuddy trong quota/usage map"
-why = "Map usage key theo provider; thieu -> the quota tren dashboard trong/loi. Dung chung ham N (codebuddy-intl usage) vi cung endpoint billing."
-find = "\"codebuddy-intl\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
-replace = "\"codebuddy-intl\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),\"workbuddy\":a=>N(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
+why = "Map usage key theo provider; thieu -> the quota tren dashboard trong/loi. Dung chung ham O (codebuddy-intl usage, 0.5.112) vi cung endpoint billing."
+find = "\"codebuddy-intl\":a=>O(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
+replace = "\"codebuddy-intl\":a=>O(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),\"workbuddy\":a=>O(a.accessToken,a.apiKey,a.providerSpecificData,a.proxyOptions),"
 
 [[patch]]
 id = "workbuddy-validation"

@@ -31,3 +31,6 @@ assets/patches.enc
 build/
 dist/
 *.exe
+
+# zcode-api sidecar (own git repo; contains data/credentials.json — never commit)
+zcode-api/

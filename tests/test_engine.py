@@ -2749,7 +2749,7 @@ def test_workbuddy_registries_map_new_id(patches):
         "workbuddy-oauth-flow":    ['"workbuddy":{...A.A,config:'],
         "workbuddy-refresh":       ['"workbuddy":(a,b)=>y(a.refreshToken,b,"workbuddy")'],
         "workbuddy-ui-whitelist":  ['"workbuddy"'],
-        "workbuddy-quota":         ['"workbuddy":a=>N('],
+        "workbuddy-quota":         ['"workbuddy":a=>O('],
         "workbuddy-validation":    ['"workbuddy":{tokenExists:!0}'],
     }
     for pid, needles in checks.items():
