@@ -984,3 +984,44 @@ summary = "Avatar WorkBuddy: tra logo that (teal #01C886) thay vi workbuddy.png 
 why = "Build upstream co app/public/providers/workbuddy.png nhung file do byte-identical voi codebuddy-intl.png (cung md5 a1664bdd5eda48696699e49d62957f6c) nen dashboard hien avatar CodeBuddy tim cho WorkBuddy. Khong the sua file (engine chi patch text + node --check), va file png moi se mat sau moi lan npm install. Logo that cua www.workbuddy.ai la SVG teal #01C886 (favicon cua site). Patch nham vao resolver icon module 8247 (HY) — chokepoint duy nhat ma providers list, trang [id], quota, combos, basic-chat deu di qua — nen mot cho sua phu het call-site. Tra data-URI base64 de khong phu thuoc file nao tren dia."
 find = 'return t?`/providers/${t}.png`:null}'
 replace = 'return "workbuddy"===t?"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBjbGlwLXBhdGg9InVybCgjY2xpcDBfNTQyXzMzNzApIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHJ4PSIyMCIgZmlsbD0idXJsKCNwYWludDBfbGluZWFyXzU0Ml8zMzcwKSIvPjxwYXRoIGQ9Ik0yOC42IDMuMUMyOSAyLjggMjkgMi44IDI5LjMgMi43QzI5LjggMi43IDMwLjIgMi45IDMwLjkgMy42QzMyLjYgNS4xIDM1IDguMyAzNi40IDExTDM3IDEyLjFMMzcuOCAxMi41QzM4LjYgMTIuOSAzOS45IDEzLjcgNDAuNCAxNC4xQzQwLjYgMTQuMyA0MC43IDE0LjMgNDAuOSAxNC4yQzQyIDEzLjggNDMuNyAxNC4zIDQ1LjEgMTUuN0M0Ni40IDE2LjkgNDcuNiAxOSA0OCAyMC44QzQ4LjEgMjEuMSA0OC4yIDIxLjcgNDguMiAyMi4xQzQ4LjMgMjMuNyA0Ny44IDI1IDQ2LjkgMjUuNUM0Ni43IDI1LjYgNDYuNyAyNS43IDQ2LjcgMjYuMkM0Ni43IDI4LjUgNDYuMSAzMC45IDQ0LjggMzMuMkM0My4zIDM1LjggNDAuNyAzOC41IDM3LjMgNDFDMzUuNCA0Mi40IDMwLjkgNDUgMjguOSA0NS45QzI0LjEgNDggMjAuMyA0OC45IDE2LjkgNDguNUMxNC45IDQ4LjIgMTIuNyA0Ny40IDExLjMgNDYuNUMxMSA0Ni4zIDEwLjkgNDYuMyAxMC43IDQ2LjRDOS4yIDQ2LjggNy40IDQ1LjkgNS44IDQ0LjJDNS4xIDQzLjQgNC4xIDQxLjcgMy44IDQwLjhDMyAzOC42IDMuMiAzNi43IDQuMiAzNS41QzQuNCAzNS4yIDQuNSAzNS4yIDQuNCAzNC43QzQuMyAzMy44IDQuMyAzMi42IDQuMyAzMS44TDQuMyAzMS4xTDMuMiAyOS4xQzEuNSAyNiAwLjQgMjMuNSAtMCAyMS41Qy0wLjIgMjAuNCAtMC4yIDE5LjkgMC4xIDE5LjZDMC4yIDE5LjQgMC44IDE5LjIgMS40IDE5QzMuMSAxOC43IDYuNyAxOSAxMC43IDE5LjdMMTEuMSAxOS44TDEyLjEgMTlDMTMuNiAxNy42IDE0LjYgMTYuOSAxNi41IDE1LjdDMTguNCAxNC41IDIwLjYgMTMuNSAyMy4xIDEyLjdMMjMuOSAxMi40TDI0LjMgMTEuM0MyNS45IDcuMiAyNy41IDQuMSAyOC42IDMuMVpNMTUuNSAyNC4yQzEzLjggMjUuMyAxMi45IDI1LjggMTIuMiAyNi4zQzkuNiAyOC43IDguNiAzMi4zIDkuNyAzNS42QzEwIDM2LjQgMTAuNSAzNy4zIDExLjUgMzkuMUMxMi42IDQwLjkgMTMuMSA0MS43IDEzLjYgNDIuNEMxNS45IDQ1IDE5LjYgNDYgMjIuOSA0NC45QzIzLjcgNDQuNiAyNC42IDQ0LjEgMjYuNCA0My4xTDM2LjUgMzcuMkMzOC4zIDM2LjIgMzkuMiAzNS43IDM5LjggMzUuMUM0Mi41IDMyLjggNDMuNCAyOS4xIDQyLjMgMjUuOEM0MiAyNSA0MS41IDI0LjEgNDAuNSAyMi40QzM5LjUgMjAuNiAzOSAxOS43IDM4LjQgMTkuMUMzNi4xIDE2LjQgMzIuNCAxNS41IDI5LjEgMTYuNkMyOC4zIDE2LjkgMjcuNCAxNy40IDI1LjcgMTguNEwxNS41IDI0LjJaIiBmaWxsPSJ1cmwoI3BhaW50MV9saW5lYXJfNTQyXzMzNzApIi8+PHJlY3QgeD0iMTYuNSIgeT0iMzEuMyIgd2lkdGg9IjQiIGhlaWdodD0iOC4zIiByeD0iMiIgdHJhbnNmb3JtPSJyb3RhdGUoLTMwIDE2LjUgMzEuMykiIGZpbGw9IndoaXRlIi8+PHJlY3QgeD0iMjcuMyIgeT0iMjUuMSIgd2lkdGg9IjQiIGhlaWdodD0iOC4zIiByeD0iMiIgdHJhbnNmb3JtPSJyb3RhdGUoLTMwIDI3LjMgMjUuMSkiIGZpbGw9IndoaXRlIi8+PC9nPjxkZWZzPjxsaW5lYXJHcmFkaWVudCBpZD0icGFpbnQwX2xpbmVhcl81NDJfMzM3MCIgeDE9IjIwIiB5MT0iMCIgeDI9IjIwIiB5Mj0iNDAiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBzdG9wLWNvbG9yPSIjMEVDOEE5Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDFDODg2Ii8+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9InBhaW50MV9saW5lYXJfNTQyXzMzNzAiIHgxPSIxNC43IiB5MT0iMTEuMSIgeDI9IjMzLjQiIHkyPSI0My41IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agc3RvcC1jb2xvcj0id2hpdGUiIHN0b3Atb3BhY2l0eT0iMC44Ii8+PHN0b3Agb2Zmc2V0PSIwLjQiIHN0b3AtY29sb3I9IndoaXRlIi8+PC9saW5lYXJHcmFkaWVudD48Y2xpcFBhdGggaWQ9ImNsaXAwXzU0Ml8zMzcwIj48cmVjdCB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHJ4PSIyMCIgZmlsbD0id2hpdGUiLz48L2NsaXBQYXRoPjwvZGVmcz48L3N2Zz4=":`/providers/${t}.png`}'
+
+# P16b — peek-evidence-thinking (5308.js, structured peek của 0.5.112): combo peek stream
+#   chỉ tính text/tool là content; stream thinking-only (glm-5.3-flash THINK:max — 45s đầu
+#   chỉ có thinking_delta) bị giữ trọn EMPTY_PEEK_DEADLINE_MS (45s) rồi mới commit.
+#   Combo lồng nhau nhân đôi thời gian giữ: log 18:05–18:08/2026-10-31 đo được 2 lớp combo
+#   = 90s trắng trong 176s (TTFT chỉ 3.8s). Patch 16 cũ ($pk regex trong 8895.js) ĐÃ có
+#   thinking_delta nhưng path combo passthrough đi structured peek mới trong 5308.js.
+#   Anchor verify 2026-10-31 trên build live: 4 anchor count=1, duy nhất trong mọi chunk.
+#   Bỏ khi upstream tự thêm thinking/reasoning vào detector u()/s() của nó.
+
+[[patch]]
+id = "peek-evidence-thinking-claude"
+order = 81
+summary = "Peek detector: thinking_delta/signature_delta là content (claude branch)"
+why = "Structured peek trong 5308.js chỉ tính text_delta/input_json_delta/tool_use/text; stream THINK:max phát thinking_delta suốt 45s đầu -> combo giữ stream trọn EMPTY_PEEK_DEADLINE_MS (45s) rồi commit muộn. Combo lồng nhau nhân đôi: 2 lớp = 90s trắng (log 2026-10-31). Thêm thinking_delta/signature_delta vào nhánh CONTENT_BLOCK_DELTA của detector s() -> peek commit ngay thinking đầu tiên, client thấy thinking live."
+find = "if(a.type===k.kz.CONTENT_BLOCK_DELTA){let c=a.delta||{};c.type===k.mD.TEXT&&p(c.text)&&(b=!0),c.type===k.mD.INPUT_JSON&&p(c.partial_json)&&(b=!0)}"
+replace = "if(a.type===k.kz.CONTENT_BLOCK_DELTA){let c=a.delta||{};c.type===k.mD.TEXT&&p(c.text)&&(b=!0),c.type===k.mD.INPUT_JSON&&p(c.partial_json)&&(b=!0),(\"thinking_delta\"===c.type&&p(c.thinking)||\"signature_delta\"===c.type&&p(c.signature))&&(b=!0)}"
+
+[[patch]]
+id = "peek-evidence-thinking-content-block-start"
+order = 82
+summary = "Peek detector: thinking block start là content (claude branch)"
+why = "Cùng lỗi với peek-evidence-thinking-claude: thinking block (content_block type=thinking) mở mà không có delta text/tool -> peek vẫn coi là rỗng. Thêm THINKING vào nhánh CONTENT_BLOCK_START."
+find = "else if(a.type===k.kz.CONTENT_BLOCK_START){let c=a.content_block||{};c.type===j.R4.TOOL_USE&&(b=!0),c.type===j.R4.TEXT&&p(c.text)&&(b=!0)}"
+replace = "else if(a.type===k.kz.CONTENT_BLOCK_START){let c=a.content_block||{};c.type===j.R4.TOOL_USE&&(b=!0),c.type===j.R4.TEXT&&p(c.text)&&(b=!0),c.type===j.R4.THINKING&&(b=!0)}"
+
+[[patch]]
+id = "peek-evidence-reasoning-openai"
+order = 83
+summary = "Peek detector: reasoning_content/output_reasoning là content (openai branch)"
+why = "Nhánh openai của detector s() tính content khi delta có content/tool_calls/output_text; stream chỉ có reasoning_content (glm thinking mode trả openai-format) -> 45s trắng y hệt claude branch. Thêm reasoning_content."
+find = "return!!(\"string\"==typeof b&&b.length>0||Array.isArray(b)&&b.length>0||Array.isArray(a.tool_calls)&&a.tool_calls.length>0)||\"string\"==typeof a.output_text&&!!(a.output_text.length>0)"
+replace = "return!!(\"string\"==typeof b&&b.length>0||Array.isArray(b)&&b.length>0||Array.isArray(a.tool_calls)&&a.tool_calls.length>0)||\"string\"==typeof a.output_text&&!!(a.output_text.length>0)||\"string\"==typeof a.reasoning_content&&!!(a.reasoning_content.length>0)"
+
+[[patch]]
+id = "peek-evidence-responses-reasoning"
+order = 84
+summary = "Peek detector: response.reasoning_text.delta là content (responses branch)"
+why = "Nhánh openai-responses của detector chỉ tính OUTPUT_TEXT_DELTA/FUNCTION_CALL/CUSTOM_TOOL_CALL delta; reasoning summary delta (response.reasoning_text.delta) không tính -> 45s trắng cho model thinking-only qua responses format."
+find = "case k.eI.OUTPUT_TEXT_DELTA:case k.eI.FUNCTION_CALL_ARGUMENTS_DELTA:case k.eI.CUSTOM_TOOL_CALL_INPUT_DELTA:b=p(a.delta);break;"
+replace = "case k.eI.OUTPUT_TEXT_DELTA:case k.eI.FUNCTION_CALL_ARGUMENTS_DELTA:case k.eI.CUSTOM_TOOL_CALL_INPUT_DELTA:b=p(a.delta);break;case \"response.reasoning_text.delta\":case \"response.reasoning_summary_text.delta\":b=p(a.delta);break;"
