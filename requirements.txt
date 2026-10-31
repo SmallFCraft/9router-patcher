@@ -3,8 +3,9 @@ uvicorn>=0.46.0
 jinja2>=3.1.6
 cryptography>=43.0.0
 python-multipart>=0.0.18
-# Nuitka 4.3.1: hotfix ban PEP 649 deferred annotations trong 4.3 (annotation trong block
+# Nuitka 4.3.x: hotfix ban PEP 649 deferred annotations trong 4.3 (annotation trong block
 # if TYPE_CHECKING: bi include vao __annotations__ khac CPython) -> exe crash NameError
 # 'SetStr' khi boot (pydantic v1 BaseModel qua fastapi). 4.3.1 da fix (xac nhan changelog
-# "Fixed in 4.3.1 already") va da test build + boot exe that.
-nuitka==4.3.1
+# "Fixed in 4.3.1 already"); 4.3.3 (2026-10-29) chi bugfix, khong đụng PEP 649, da build +
+# boot test exe that 2026-10-31. Cấm pin về 4.3.0.
+nuitka==4.3.3

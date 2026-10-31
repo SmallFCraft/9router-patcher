@@ -23,8 +23,9 @@ def test_requirements_file_exists_and_contains_deps():
                   "python-multipart"):  # Form() routes chết khi boot nếu thiếu (đo 2026-09-22)
         assert dep in text.lower()
     # Nuitka 4.3 có bug PEP 649 deferred annotations -> exe crash NameError 'SetStr' khi boot.
-    # 4.3.1 là bản hotfix chính thức đã verify; cấm pin về 4.3.0.
-    assert "nuitka==4.3.1" in text, "requirements.txt phải pin bản 4.3.1 đã qua test boot thật"
+    # 4.3.1 là bản hotfix; 4.3.3 (2026-10-29, chỉ bugfix, không đụng PEP 649) đã build+boot
+    # test thật 2026-10-31. Cấm pin về 4.3.0.
+    assert "nuitka==4.3.3" in text, "requirements.txt phải pin bản 4.3.3 đã qua test boot thật"
 
 
 
