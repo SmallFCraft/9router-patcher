@@ -5,6 +5,7 @@ Every subprocess/urlopen call is monkeypatched; nothing writes into node_modules
 import http.client
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -1098,16 +1099,32 @@ def test_npm_stream_pushes_lines_and_reports_failure(monkeypatch):
 
 # ---------- router stack on/off ----------
 
-def test_pid_on_port_parses_netstat(monkeypatch):
-    out = ("\n  TCP    0.0.0.0:20128    0.0.0.0:0    LISTENING    26372"
-           "\n  TCP    127.0.0.1:8787    0.0.0.0:0    LISTENING    15244"
-           "\n  UDP    0.0.0.0:5353    *:*                         9999\n")
-    monkeypatch.setattr(subprocess, "run", Run((0, out, "")))
-    assert updater.pid_on_port(20128) == 26372
-    assert updater.pid_on_port(8787) == 15244
-    assert updater.pid_on_port(9999) is None          # UDP row is not a LISTENING tcp entry
-    monkeypatch.setattr(subprocess, "run", Run((0, "", "")))
-    assert updater.pid_on_port(80) is None
+def test_pid_on_port_finds_live_listener_of_own_process():
+    """2026-10-31: netstat.exe trên máy này chớp nhoáng mất LISTEN rows (thấy 7/29 bảng
+    kernel) -> _kill_port tưởng service đã chết, không kill, UI báo "vẫn đang nghe".
+    pid_on_port phải đọc bảng kernel GetExtendedTcpTable — nguồn sự thật ổn định."""
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+    try:
+        assert updater.pid_on_port(port) == os.getpid()
+        assert updater.pid_on_port(999999) is None      # port không ai nghe
+    finally:
+        srv.close()
+
+
+def test_pid_on_port_finds_ipv6_listener_of_own_process():
+    srv = socket.socket(socket.AF_INET6)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("::1", 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+    try:
+        assert updater.pid_on_port(port) == os.getpid()
+    finally:
+        srv.close()
 
 
 def test_stop_router_stack_sequential_and_saves_cmdlines(monkeypatch, tmp_path):
@@ -1116,12 +1133,12 @@ def test_stop_router_stack_sequential_and_saves_cmdlines(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "_wait_port_closed", lambda port, timeout=10.0: True)
     seq = []
 
+    monkeypatch.setattr(updater, "pid_on_port",
+                        lambda port: 111 if port == updater.ROUTER_PORT
+                        else (222 if port == updater.HEADROOM_PORT else None))
+
     def fake_run(cmd, **kw):
         name = cmd[0]
-        if name == "netstat":
-            out = ("  TCP    0.0.0.0:20128    0.0.0.0:0    LISTENING    111\n"
-                   "  TCP    127.0.0.1:8787     0.0.0.0:0    LISTENING    222\n")
-            return subprocess.CompletedProcess(cmd, 0, out, "")
         if name == "powershell":
             pid = "111" if "111" in cmd[-1] else "222"
             return subprocess.CompletedProcess(cmd, 0, f"proc-{pid}.exe --flag", "")

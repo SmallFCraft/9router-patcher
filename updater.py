@@ -30,6 +30,9 @@ import app_paths
 import engine
 from engine import PatchError
 
+TCP_TABLE_OWNER_MODULE_LISTENER = 3
+if sys.platform == "win32":
+    from ctypes import wintypes
 REGISTRY_HOST = "registry.npmjs.org"       # allowlist: the only outbound host this tool may use
 REGISTRY_PATH = "/9router/latest"
 NODE = shutil.which("node")
@@ -449,17 +452,37 @@ def _wait_port_closed(port: int, timeout: float = 10.0) -> bool:
 
 
 def pid_on_port(port: int) -> int | None:
-    """PID đang LISTEN trên port (netstat -ano); None nếu không có ai nghe."""
-    r = subprocess.run(["netstat", "-ano"], shell=False,
-                       stdin=subprocess.DEVNULL, creationflags=SILENT_FLAGS,
-                       capture_output=True, text=True, timeout=15)
-    for line in (r.stdout or "").splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and parts[3].upper() == "LISTENING" and parts[1].endswith(f":{port}"):
-            try:
-                return int(parts[4])
-            except ValueError:
-                continue
+    """PID đang nghe trên port; None nếu không có ai nghe.
+
+    Đọc bảng kernel GetExtendedTcpTable (TCP_TABLE_OWNER_MODULE_LISTENER) thay vì
+    spawn `netstat -ano`: trên một số máy netstat.exe trả thiếu LISTEN rows chớp
+    nhoáng (đo 2026-10-31: thấy 7/29 bảng kernel) -> _kill_port tưởng service đã
+    chết, bỏ qua kill, UI báo "vẫn đang nghe — kiểm tra lại" vô hạn. Bảng listener
+    của kernel luôn đủ; state field của nó không đáng tin nên không lọc theo state.
+    """
+    port = int(port)
+    for af, row_size, port_off, pid_off in (
+            (2, 24, 8, 20),      # AF_INET  MIB_TCPROW_OWNER_MODULE (phần đầu 6 DWORD)
+            (23, 56, 20, 52),    # AF_INET6 MIB_TCP6ROW_OWNER_MODULE
+    ):
+        size = wintypes.DWORD(0)
+        if ctypes.windll.iphlpapi.GetExtendedTcpTable(
+                None, ctypes.byref(size), False, af, TCP_TABLE_OWNER_MODULE_LISTENER, 0
+        ) != 122:                                    # ERROR_INSUFFICIENT_BUFFER
+            continue
+        buf = ctypes.create_string_buffer(size.value)
+        if ctypes.windll.iphlpapi.GetExtendedTcpTable(
+                buf, ctypes.byref(size), False, af, TCP_TABLE_OWNER_MODULE_LISTENER, 0
+        ) != 0:
+            continue
+        n = ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD)).contents.value
+        for i in range(n):
+            off = 4 + i * row_size                   # 4 bytes đầu là DWORD đếm row
+            raw = int.from_bytes(buf.raw[off + port_off:off + port_off + 4], "little")
+            if ((raw >> 8) | ((raw & 0xFF) << 8)) == port:
+                pid = int.from_bytes(buf.raw[off + pid_off:off + pid_off + 4], "little")
+                if pid := _valid_pid(pid):
+                    return pid
     return None
 
 
