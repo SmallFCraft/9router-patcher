@@ -20,10 +20,10 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 - `app.py` — Standalone desktop launcher (boots uvicorn + opens default browser).
 - `main.py` — FastAPI dashboard bound to `127.0.0.1:20129`. Refuses non-localhost.
-- `updater.py` — Update pipeline + port lifecycle (router `:20128`, headroom `:8787`). Router gốc KHÔNG tự bật headroom; chính updater spawn nó. Headroom cold-start 40-50s KHÔNG được block boot: boot chỉ chờ `HEADROOM_BOOT_WAIT = 3s` rồi để nó chạy nền, router lên là stack OK (bước [5/5] không treo).
+- `updater.py` — Update pipeline + port lifecycle (router `:20128`, headroom `:8787`). Upstream router does NOT auto-start headroom; the updater spawns it. Headroom cold-start 40-50s must NEVER block boot: boot only waits `HEADROOM_BOOT_WAIT = 3s`, then headroom keeps running in background — router up = stack OK (step [5/5] never hangs).
 - `engine.py` — Atomic find/replace engine, snapshots, `node --check`, rollback.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
-- `autostart.py` — Khởi động cùng Windows qua **Startup Folder + VBS ẩn** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). KHÔNG dùng `HKCU\...\Run` (exe console → cửa sổ đen treo lúc logon) hay Task Scheduler (`schtasks /sc onlogon` đòi Admin, WinError 5). `set_enabled()` bắt buộc chốt `exe.is_file()` trước khi ghi VBS (nếu không, argv[0] rác → logon lỗi 80070002). Tự dọn Run key + VBS tên cũ.
+- `autostart.py` — Boots with Windows via **Startup Folder + hidden VBS** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). Do NOT use `HKCU\...\Run` (exe console → black console window hanging at logon) or Task Scheduler (`schtasks /sc onlogon` requires Admin, WinError 5). `set_enabled()` must confirm `exe.is_file()` before writing the VBS (otherwise argv[0] is garbage → logon error 80070002). Self-cleans old Run key + old VBS names.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
 - `patches.toml` — Single source of truth (74 patches, 67 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
@@ -32,8 +32,8 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 
 ## Verified Baselines (2026-10-18, re-verified live)
 
-- Full test suite: `python -m pytest tests/ -q -s` → **462 passed, 5 skipped** (Nuitka 4.3.1, Python 3.14.3). Số skip biến động 4↔5 vì `test_e2e_binary` skip khi port 20129 đang bận (dashboard của user) — không phải lỗi. Khi bản `9router` cài thật chưa bằng `TARGET_9ROUTER_VERSION`, thêm ~12 test `test_engine` skip vì version-gated.
-  **Phải dùng `-s`**: pytest fd-capture trên Windows đụng handle của subprocess — không `-s` thì 20+ test spawn node/subprocess fail `WinError 6` (handle invalid) giả.
+- Full test suite: `python -m pytest tests/ -q -s` → **462 passed, 5 skipped** (Nuitka 4.3.1, Python 3.14.3). Skip count drifts 4↔5 because `test_e2e_binary` skips when port 20129 is busy (user's running dashboard) — not a failure. When the installed `9router` is not `TARGET_9ROUTER_VERSION`, ~12 extra `test_engine` tests skip as version-gated.
+  **Always use `-s`**: pytest fd-capture on Windows clashes with subprocess handles — without `-s`, 20+ tests spawning node/subprocess fail with fake `WinError 6` (handle invalid).
   Skip reasons: `test_e2e_binary` (port 20129 in use by running dashboard), engine measurements version-locked to 0.5.65 (install is 0.5.104 → patch states legitimately differ), `318.js` not in current build.
 - Engine tests: `python -m pytest tests/test_engine.py -q -s` → **129 passed, 2 skipped**.
 - App launcher & build tests: `python -m pytest tests/test_app_paths.py tests/test_app_launcher.py tests/test_build_pipeline.py tests/test_engine_enc.py tests/test_boot_doctor.py tests/test_logs_route.py tests/test_tray.py -q -s` → **75 passed, 2 skipped**.
@@ -52,24 +52,24 @@ Output: `dist\9router-patch.exe` (Nuitka onefile executable).
 - Runs with dedicated console window (`--windows-console-mode=force` in `build_app.py`; interactive prompt + boot doctor). Console hides to system tray on `[H]`.
 - Auto-opens `http://127.0.0.1:20129` on launch.
 - Web UI provides shutdown button (power icon) to terminate process and release port `:20129`.
-- `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,wsproto,yaml,rich,pygments`. `rich` & `pygments` (321 C source files, 47% tổng số C files) bị loại — pydantic lazy import in debug schema, app không dùng.
+- `--jobs=14` on 16 cores + `--nofollow-import-to=tzdata,watchfiles,httptools,websockets,wsproto,yaml,rich,pygments`. `rich` & `pygments` (321 C source files, 47% of all C files) are excluded — pydantic lazy-imports them in a debug schema; the app never uses them.
 - Use `--fast` for anything that is not a release build — do not burn minutes re-verifying UI changes.
-- **Cạm bẫy Nuitka**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
+- **Nuitka trap**: never put `orjson` in `--nofollow-import-to` — FastAPI imports it via raw `importlib.import_module`, which Nuitka deployment-mode turns into a hard ImportError that kills the exe at boot. `click` also must stay (uvicorn.main eager import).
 
 ### Release artifacts & hosting layout (2026-10-21)
 
-Build sản xuất **2 file trong `dist/`** (không có thư mục `files/`):
-1. `dist/9router-patch-v<APP_VERSION>.exe` — artifact có version, upload lên hosting
+Production build produces **2 files in `dist/`** (no `files/` directory):
+1. `dist/9router-patch-v<APP_VERSION>.exe` — versioned artifact, upload to hosting
 2. `dist/version.json` — manifest: `{version, url, sha256, changelog}`
 
-URL trong manifest trỏ **gốc hosting** (`UPDATE_BASE_URL/9router-patch-vX.Y.Z.exe`), **KHÔNG** có `/files/`.
+The manifest URL points at the **hosting root** (`UPDATE_BASE_URL/9router-patch-vX.Y.Z.exe`), **NOT** `/files/`.
 
-**Upload order (QUAN TRỌNG):** exe trước → verify HTTP 200 → sau đó mới upload `version.json`.
-Mọi exe đã phát hành compile cứng `UPDATE_BASE_URL/version.json` (URL gốc không bao giờ đổi).
-Nếu upload manifest trước exe, máy cũ self-update sẽ 404 ngay.
+**Upload order (CRITICAL):** exe first → verify HTTP 200 → only then upload `version.json`.
+Every released exe has `UPDATE_BASE_URL/version.json` (the root URL) compiled in — it never changes.
+If the manifest lands before the exe, old machines self-update into a 404.
 
-Upload thủ công 2 file này lên: `https://phmyhu1710.dev/update/9router-patcher/` (cùng cấp).
-Dọn hosting 1 lần: xóa thư mục `files/` cũ (không còn ai trỏ tới sau khi manifest mới lên).
+Manually upload both files to: `https://phmyhu1710.dev/update/9router-patcher/` (side by side).
+One-time hosting cleanup: delete the old `files/` directory (nothing points at it after the new manifest).
 
 ## GitNexus — Code Intelligence
 
