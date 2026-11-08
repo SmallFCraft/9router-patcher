@@ -1721,7 +1721,7 @@ def test_responses_thinking_disabled_only_for_ambiguous_tool_history(patches):
     (thinking param, reasoning_effort, reasoning, output_config.effort) and every other
     provider must pass through untouched — Claude Code's native requests stay adaptive."""
     p = by_id(patches, "responses-thinking-history-400")
-    assert p.find == ('c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}}'
+    assert p.find == ('c.content=i,m&&!f&&a&&c.content.unshift(u(b,l))}}}}'
                       'if(a.tools&&Array.isArray(a.tools)){')
     i = p.replace.index(";(function(){")
     j = p.replace.index("})();if(a.tools", i) + len("})();")

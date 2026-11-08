@@ -66,7 +66,10 @@
 #   74 patch nào khớp sẵn trong pristine -> upstream chưa tự fix patch nào.
 #   Remap do re-minify: log-headroom-trim (8895.js, r/s->p/q), opencode-responses-
 #   noeffort-minimal (5330.js, E->K), upstream-claude-sse-passthrough (2380.js, ar->as).
-target_version = "0.5.112"
+# 0.5.112 -> 0.5.116: 1 anchor chết, 0 hấp thụ (scan 80 clean trên tarball pristine
+#   0.5.116). Remap do re-minify: responses-thinking-history-400 (2380.js, l/m -> m/l —
+#   upstream hoán đổi 2 biến cục bộ của block normalize messages, find + replace cùng nhau).
+target_version = "0.5.116"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -441,8 +444,8 @@ id = "responses-thinking-history-400"
 order = 31
 summary = "openai-responses + tool history → thinking:{type:disabled} (AgentRouter 400 thinking-replay)"
 why = "responses→claude translator không sinh thinking block, normalizer lại gate dummy-thinking sau thinking.type===\"enabled\" nên body không có thinking param; relay DeepSeek của agentrouter.org chạy thinking mặc định và 400 'content[].thinking must be passed back' cho mọi key"
-find = 'c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}}if(a.tools&&Array.isArray(a.tools)){'
-replace = 'c.content=i,l&&!f&&a&&c.content.unshift(u(b,m))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
+find = 'c.content=i,m&&!f&&a&&c.content.unshift(u(b,l))}}}}if(a.tools&&Array.isArray(a.tools)){'
+replace = 'c.content=i,m&&!f&&a&&c.content.unshift(u(b,l))}}}};(function(){try{if(!a||"string"!=typeof b)return;if(!b.startsWith("anthropic-compatible"))return;if(a.thinking||a.reasoning_effort||a.reasoning||a.output_config&&a.output_config.effort)return;if(!Array.isArray(a.messages))return;if(!a.messages.some($m=>$m&&"assistant"===$m.role&&Array.isArray($m.content)&&$m.content.some($x=>$x&&"tool_use"===$x.type)))return;a.thinking={type:"disabled"}}catch{}})();if(a.tools&&Array.isArray(a.tools)){'
 
 # P33/P34 — openai-responses param 400 trên opencode.ai/zen/v1/responses (muse-spark-*).
 # Cả hai lỗi phát sinh trong CÙNG transformRequest của class K (chunks/318.js) — bước cuối

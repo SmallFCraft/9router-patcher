@@ -29,7 +29,12 @@ def _port_busy() -> bool:
 @pytest.mark.skipif(_port_busy(), reason="port 20129 already in use (dev dashboard running)")
 def test_compiled_binary_boots_serves_html_and_hides_plaintext():
     """The compiled binary boots uvicorn, answers HTTP, and never unpacks plaintext patches."""
-    proc = subprocess.Popen([str(EXE_PATH)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # stdin=DEVNULL + CREATE_NO_WINDOW: exe không thừa kế console thật của shell —
+    # nếu thừa kế, isatty()==True khiến exe đọc console và lúc terminate() write ra
+    # console đang đóng -> OSError 22 -> _fatal MessageBox popup giữa lần chạy test.
+    proc = subprocess.Popen([str(EXE_PATH)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            stdin=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     html = ""
     try:
         deadline = time.time() + READY_TIMEOUT

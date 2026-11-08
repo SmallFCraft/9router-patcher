@@ -324,6 +324,10 @@ def main(argv: list[str] | None = None) -> None:
                 cmd = _read_console_line(console_ui.prompt_label(), shutdown_event)
             except KeyboardInterrupt:
                 break
+            except OSError:
+                # Console exe onefile teardown giữa chừng (process bị terminate, msvcrt
+                # write vào handle đã đóng) — nuốt như _console_banner, thoát sạch.
+                break
             if cmd is None:
                 # shutdown_event đã set (khay Thoát) — thoát loop
                 break
