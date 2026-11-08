@@ -25,7 +25,7 @@ This repo manages the local proxy copy; it does not contain the proxy source.
 - `app_paths.py` — Centralized path resolution (repo tree in dev, `%APPDATA%\9router-patch` when frozen).
 - `autostart.py` — Boots with Windows via **Startup Folder + hidden VBS** (`shell:startup\9router-patch.vbs`, `WshShell.Run "...",0` = SW_HIDE). Do NOT use `HKCU\...\Run` (exe console → black console window hanging at logon) or Task Scheduler (`schtasks /sc onlogon` requires Admin, WinError 5). `set_enabled()` must confirm `exe.is_file()` before writing the VBS (otherwise argv[0] is garbage → logon error 80070002). Self-cleans old Run key + old VBS names.
 - `build_app.py` — Automated build pipeline (encrypts patches -> compiles via Nuitka).
-- `patches.toml` — Single source of truth (74 patches, 67 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
+- `patches.toml` — Single source of truth (81 patches, 74 groups; 3 multi-patch groups: `sse-hang` 4 patches, `nonstream-sse-retry` 2 patches, `combos-picker-kilo-free-models` 4 patches).
 - `templates/` — Jinja2 templates (8-bit cartoon pixel theme, embedded VT323 font, pixel icons).
 - Upstream: global npm package `9router` (build at `app/.next-cli-build/server/`).
 - Python 3.11+ (tested on 3.14.3). Windows-specific (`taskkill /T /F`, drive letters).
