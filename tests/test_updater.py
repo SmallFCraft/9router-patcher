@@ -1248,6 +1248,66 @@ def test_start_router_injects_node_path_with_runtime(monkeypatch, tmp_path):
     assert any("app" in p and "node_modules" in p for p in parts), f"bundled missing in {node_path}"
 
 
+def test_start_router_ignores_saved_cmd_when_script_gone(monkeypatch, tmp_path):
+    """Hồi quy 2026-11-08: stack.json giữ cmdline bản cũ (Roaming) -> khi npm global
+    lên bản mới, Bật lại vẫn spawn bản cũ; sau khi xóa bản cũ thì node chết
+    MODULE_NOT_FOUND mỗi lần Bật. Cmdline lưu trỏ .js không còn tồn tại phải bị bỏ."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "custom-server.js").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(engine, "install_dir", lambda: tmp_path)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    (tmp_path / "stack.json").write_text(json.dumps({
+        "router_cmd": f'node "C:\\gone\\9router\\app\\server.js"'}), encoding="utf-8")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+    assert updater.start_router(lambda e: None)
+    assert any("custom-server.js" in c for c in pops)
+
+
+def test_start_router_ignores_saved_cmd_from_other_install_dir(monkeypatch, tmp_path):
+    """Cmdline lưu trỏ .js tồn tại nhưng nằm NGOÀI install_dir hiện tại = bản cài cũ
+    (chưa patch) -> phải bỏ, spawn bản mặc định từ install_dir."""
+    other = tmp_path / "old-install"
+    (other / "app").mkdir(parents=True)
+    (other / "app" / "server.js").write_text("x", encoding="utf-8")
+    cur = tmp_path / "cur-install"
+    (cur / "app").mkdir(parents=True)
+    (cur / "app" / "custom-server.js").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(engine, "install_dir", lambda: cur)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    (tmp_path / "stack.json").write_text(json.dumps({
+        "router_cmd": f'node "{other / "app" / "server.js"}"'}), encoding="utf-8")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+    assert updater.start_router(lambda e: None)
+    assert any("custom-server.js" in c for c in pops)
+
+
+def test_start_router_keeps_saved_cmd_from_current_install_dir(monkeypatch, tmp_path):
+    """Cmdline lưu trỏ script nằm TRONG install_dir hiện tại -> giữ nguyên hành vi
+    'Bật lại y nguyên' (giữ flag/args người dùng tự chạy)."""
+    cur = tmp_path / "cur-install"
+    (cur / "app").mkdir(parents=True)
+    (cur / "app" / "custom-server.js").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(engine, "install_dir", lambda: cur)
+    monkeypatch.setattr(updater, "STACK_STATE_FILE", tmp_path / "stack.json")
+    (tmp_path / "stack.json").write_text(json.dumps({
+        "router_cmd": f'node "{cur / "app" / "custom-server.js"}" --my-flag'}), encoding="utf-8")
+    monkeypatch.setattr(updater, "pid_on_port", lambda port: None)
+    monkeypatch.setattr(updater, "_wait_port", lambda port, timeout: True)
+    pops = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: pops.append(cmd) or type("P", (), {"pid": 1})())
+    assert updater.start_router(lambda e: None)
+    assert pops == [f'node "{cur / "app" / "custom-server.js"}" --my-flag']
+
+
 # ---------- fetch_latest_build ----------
 
 def test_fetch_latest_build_returns_version_and_build_dir(monkeypatch, tmp_path):

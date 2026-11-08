@@ -723,8 +723,26 @@ def stop_router(emit) -> bool:
     return _kill_port(ROUTER_PORT, "9router", emit)
 
 
+def _saved_router_cmd_stale(saved: str) -> bool:
+    """Cmdline đã lưu chỉ dùng lại khi script .js của nó nằm TRONG install_dir hiện tại
+    và tồn tại. Ngoài hai điều kiện đó = bản cài cũ (chưa patch) hoặc đã bị xóa —
+    spawn nó thì bật bản cũ hoặc chết MODULE_NOT_FOUND (hồi quy 2026-11-08)."""
+    for tok in saved.replace('"', " ").split():
+        if tok.lower().endswith(".js"):
+            p = Path(tok)
+            if not p.is_file():
+                return True
+            try:
+                p.relative_to(engine.install_dir())
+            except ValueError:
+                return True
+            return False
+    return True                             # không tìm ra .js nào — không tin được
+
+
 def start_router(emit) -> bool:
-    cmd = _stack_cmdlines().get("router_cmd") or _default_router_cmd()
+    saved = _stack_cmdlines().get("router_cmd") or ""
+    cmd = ("" if _saved_router_cmd_stale(saved) else saved) or _default_router_cmd()
     if not cmd:
         emit({"type": "line", "text": "  Không tìm thấy node/custom-server.js"})
         return False
