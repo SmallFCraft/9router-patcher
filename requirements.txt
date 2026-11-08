@@ -7,5 +7,6 @@ python-multipart>=0.0.18
 # if TYPE_CHECKING: bi include vao __annotations__ khac CPython) -> exe crash NameError
 # 'SetStr' khi boot (pydantic v1 BaseModel qua fastapi). 4.3.1 da fix (xac nhan changelog
 # "Fixed in 4.3.1 already"); 4.3.3 (2026-10-29) chi bugfix, khong đụng PEP 649, da build +
-# boot test exe that 2026-10-31. Cấm pin về 4.3.0.
-nuitka==4.3.3
+# boot test exe that 2026-10-31. Cấm pin về 4.3.0. 4.3.5 (2026-11-06) bugfix hotfix cuối
+# (reverse built-in crash clone, pyodbc macOS DLL, urllib3 resolver imports), da build + boot test 2026-11-08.
+nuitka==4.3.5

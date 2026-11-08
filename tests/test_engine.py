@@ -136,8 +136,9 @@ def test_load_patches_real_file(patches):
     # P81 workbuddy-tool-choice-string added 2026-10-26 (Go backend khai tool_choice string -> 400)
     # P82a-d peek-evidence-thinking added 2026-10-31 (structured peek chỉ tính text/tool,
     #   stream thinking-only bị giữ 45s/combo lớp)
+    # P85/P86 usage-fresh-prompt added 2026-11-08 (claude→openai SSE converter đếm đôi cache_read)
     # count parity with enc blob loader (test_engine_enc) — bump BOTH when adding a patch
-    assert len(patches) == 78
+    assert len(patches) == 81
     assert [p.order for p in patches] == sorted(p.order for p in patches)
     assert patches[0].id == "connect-timeout-180s"
     # P62/P63 agentrouter UA: executor adds claude-cli UA header; models route appends UA header to fetch
@@ -160,9 +161,10 @@ def test_load_patches_real_file(patches):
         "sse-close-translate", "sse-close-passthrough", "gauge-guard", "gauge-flush-route",
     ]
     grouped = groups(patches)
-    # 78 patches: 74 standalone (group = own id) + 3 multi-patch groups
-    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 71 group keys
-    assert len(grouped) == 71
+    # 81 patches: 77 standalone (group = own id) + 3 multi-patch groups
+    # (sse-hang 4, nonstream-sse-retry 2, combos-picker-kilo-free-models 4) = 74 group keys
+    # (P85/P86 usage-fresh-prompt + P87 responses-tool-image: thêm 2026-11-08)
+    assert len(grouped) == 74
     ns = [p for p in patches if p.group == "nonstream-sse-retry"]
     assert [p.id for p in ns] == ["nonstream-retry-exec", "nonstream-retry-aggregate"]
     assert by_id(patches, "claude-system-hoist").group == "claude-system-hoist"

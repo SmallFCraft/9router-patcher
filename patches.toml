@@ -1025,3 +1025,49 @@ summary = "Peek detector: response.reasoning_text.delta là content (responses b
 why = "Nhánh openai-responses của detector chỉ tính OUTPUT_TEXT_DELTA/FUNCTION_CALL/CUSTOM_TOOL_CALL delta; reasoning summary delta (response.reasoning_text.delta) không tính -> 45s trắng cho model thinking-only qua responses format."
 find = "case k.eI.OUTPUT_TEXT_DELTA:case k.eI.FUNCTION_CALL_ARGUMENTS_DELTA:case k.eI.CUSTOM_TOOL_CALL_INPUT_DELTA:b=p(a.delta);break;"
 replace = "case k.eI.OUTPUT_TEXT_DELTA:case k.eI.FUNCTION_CALL_ARGUMENTS_DELTA:case k.eI.CUSTOM_TOOL_CALL_INPUT_DELTA:b=p(a.delta);break;case \"response.reasoning_text.delta\":case \"response.reasoning_summary_text.delta\":b=p(a.delta);break;"
+
+# P85 — usage-double-cache-read (2380.js, module 29675 anthropic→openai SSE converter).
+#   Converter set b.usage.prompt_tokens = INCLUSIVE (input + cache_read + cache_creation)
+#   nhưng VẪN GIỮ key cache_read_input_tokens/cache_creation_input_tokens. Đường /v1/responses
+#   (client responses API → anthropic upstream) đưa usage này qua qr() → _6() (73483 j),
+#   _6 thấy cached_tokens===undefined && cache_read_input_tokens tồn tại → cộng cache_read
+#   LẦN NỮA → prompt_tokens = input + 2×cache_read (đo thật 2026-11-08: proxy in=105 cr=270656
+#   → DB pt=541417; proxy in=3907 cr=41856 → DB pt=82637 = 45763+41856). Endpoint /v1/messages
+#   (MK giữ prompt=fresh) không dính. Fix: giữ prompt_tokens = FRESH input (a / d), để _6 tự
+#   cộng cache đúng 1 lần. Client vẫn nhận usage đúng (consumers đọc input_tokens trước);
+#   P21 DONE CTX = d+f+g vẫn = inclusive đúng.
+#   Bỏ khi upstream sửa converter thành cached_tokens hoặc bỏ cộng inclusive.
+
+[[patch]]
+id = "usage-fresh-prompt-message-start"
+order = 85
+summary = "Claude→openai SSE converter: prompt_tokens giữ FRESH input (message_start), không inclusive"
+why = "Đếm đôi cache_read trên usageHistory/UI: converter set prompt_tokens=input+cache_read (inclusive) rồi vẫn giữ key cache_read_input_tokens; _6() cộng lại lần 2 khi dịch record (đo 2026-11-08: 541417 = 105+2×270656). Giữ prompt_tokens=fresh để _6 cộng đúng 1 lần."
+find = 'let a="number"==typeof d.input_tokens?d.input_tokens:0,c="number"==typeof d.cache_read_input_tokens?d.cache_read_input_tokens:0,e="number"==typeof d.cache_creation_input_tokens?d.cache_creation_input_tokens:0,f=a+c+e;b.usage={prompt_tokens:f,completion_tokens:0,total_tokens:f,input_tokens:a,output_tokens:0},c>0&&(b.usage.cache_read_input_tokens=c),e>0&&(b.usage.cache_creation_input_tokens=e)}'
+replace = 'let a="number"==typeof d.input_tokens?d.input_tokens:0,c="number"==typeof d.cache_read_input_tokens?d.cache_read_input_tokens:0,e="number"==typeof d.cache_creation_input_tokens?d.cache_creation_input_tokens:0,f=a;b.usage={prompt_tokens:a,completion_tokens:0,total_tokens:a,input_tokens:a,output_tokens:0},c>0&&(b.usage.cache_read_input_tokens=c),e>0&&(b.usage.cache_creation_input_tokens=e)}'
+
+[[patch]]
+id = "usage-fresh-prompt-message-delta"
+order = 86
+summary = "Claude→openai SSE converter: prompt_tokens giữ FRESH input (message_delta), không inclusive"
+why = "Cùng lỗi với usage-fresh-prompt-message-start: message_delta set prompt_tokens=h=d+f+g (inclusive cộng dồn) rồi giữ cache_read_input_tokens -> _6() cộng đôi. Giữ prompt_tokens=d (fresh)."
+find = 'let c=b.usage||{},d="number"==typeof a.usage.input_tokens?a.usage.input_tokens:c.input_tokens||0,e="number"==typeof a.usage.output_tokens?a.usage.output_tokens:0,f="number"==typeof a.usage.cache_read_input_tokens?a.usage.cache_read_input_tokens:c.cache_read_input_tokens||0,g="number"==typeof a.usage.cache_creation_input_tokens?a.usage.cache_creation_input_tokens:c.cache_creation_input_tokens||0,h=d+f+g;b.usage={prompt_tokens:h,completion_tokens:e,total_tokens:h+e,input_tokens:d,output_tokens:e},f>0&&(b.usage.cache_read_input_tokens=f),g>0&&(b.usage.cache_creation_input_tokens=g)}'
+replace = 'let c=b.usage||{},d="number"==typeof a.usage.input_tokens?a.usage.input_tokens:c.input_tokens||0,e="number"==typeof a.usage.output_tokens?a.usage.output_tokens:0,f="number"==typeof a.usage.cache_read_input_tokens?a.usage.cache_read_input_tokens:c.cache_read_input_tokens||0,g="number"==typeof a.usage.cache_creation_input_tokens?a.usage.cache_creation_input_tokens:c.cache_creation_input_tokens||0,h=d;b.usage={prompt_tokens:d,completion_tokens:e,total_tokens:d+e,input_tokens:d,output_tokens:e},f>0&&(b.usage.cache_read_input_tokens=f),g>0&&(b.usage.cache_creation_input_tokens=g)}'
+
+# P87 — responses tool_result image flatten (2380.js, module 65377 OPENAI_RESPONSES→OPENAI converter).
+#   Converter stringifies a.output ARRAY thành JSON-string: tool_result content thành TEXT chứa
+#   1.62MB base64 data URL của screenshot Android Studio -> glm đếm ~400K+ token -> 400
+#   [1261] prompt is too long. Claude Code desktop không dính vì /v1/messages gửi image block
+#   thật. Fix: output array -> anthropic tool_result content blocks (input_image dataURL ->
+#   {type:image,source:base64}, input_text -> {type:text}), giữ string/JSON.stringify cho
+#   shape cũ. Đo 2026-11-08 21:48: 5 request 400 liên tiếp, target body 2.16MB trong khi
+#   source 1.9MB đều nằm trong 1 tool_result string.
+#   Bỏ khi upstream converter tự xử lý input_image.
+
+[[patch]]
+id = "responses-tool-image-blocks"
+order = 87
+summary = "Converter responses→openai: tool_result output array chứa input_image -> image block thay vì JSON.stringify"
+why = "Screenshot Android Studio qua /v1/responses bị 400 prompt is too long: converter stringify list [input_text,input_image(1.62MB dataURL)] thành text -> glm đếm base64 ~400K token. Map sang image_url block (chuẩn openai chat) — wb nhận trực tiếp; anthropic-compat qua converter openai→claude đổi thành image base64 (nhánh x4.IMAGE_URL có sẵn)."
+find = 'e.messages.push({role:g.z7.TOOL,tool_call_id:a.call_id,content:"string"==typeof a.output?a.output:JSON.stringify(a.output)})'
+replace = 'e.messages.push({role:g.z7.TOOL,tool_call_id:a.call_id,content:"string"==typeof a.output?a.output:Array.isArray(a.output)?a.output.map($b=>"input_image"===$b.type&&($b.image_url||"")?{type:"image_url",image_url:{url:$b.image_url}}:"input_text"===$b.type?{type:"text",text:$b.text||""}:$b):JSON.stringify(a.output)})'
