@@ -1636,10 +1636,15 @@ def test_mcp_spawn_pair_applies_together(patches, tmp_path):
 
 
 def test_max_tokens_floor_rewrites_small_values_only(patches):
-    """P27: injected guard floors numeric max_tokens < 16 to 16 on the pre-dispatch body
-    variable (`ak` on 0.5.104, `an` on 0.5.109); mutates in place, preserves the anchor."""
+    """P27: injected guard floors every numeric max-token field < 16 to 16 on the pre-dispatch
+    body variable (`ak` on 0.5.104, `an` on 0.5.109). All three field names must be covered:
+    the anchor sits AFTER format translation, so a claude→openai-responses request arrives
+    here with the value already renamed to `max_output_tokens` (AgentRouter 400, 2026-11-09)."""
     p = by_id(patches, "max-tokens-floor")
-    assert re.match(r'^if\(([A-Za-z_$][\w$]*)&&"number"==typeof \1\.max_tokens&&\1\.max_tokens<16\)\1\.max_tokens=16;', p.replace)
+    assert re.match(
+        r'^if\(([A-Za-z_$][\w$]*)\)for\(const \$k of \['
+        r'"max_tokens","max_output_tokens","max_completion_tokens"\]\)'
+        r'if\("number"==typeof \1\[\$k\]&&\1\[\$k\]<16\)\1\[\$k\]=16;', p.replace)
     assert p.replace.endswith(p.find)
 
 

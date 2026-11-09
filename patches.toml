@@ -376,14 +376,19 @@ replace = 'let f;try{f=d(e.command,e.args,{stdio:["pipe","pipe","pipe"],env:proc
 # classifier/probe max_tokens<=2 → 9router bọc 503 + khoá model 30s oan (log 13:20 2026-09-09).
 # Anchor = lời gọi transform claude trong provider-registry h() — mỗi request claude→openai
 # đi qua đây một lần; floor chạy trước dịch body, không đụng provider nào khác.
+# 2026-11-09: guard cũ chỉ floor `max_tokens`, NHƯNG anchor nằm SAU bước dịch format. Với provider
+# openai-compatible apiType=responses (AgentRouter), converter claude→openai-responses đã đổi tên
+# field thành `max_output_tokens` → guard cũ không thấy gì → gửi nguyên `max_output_tokens:1`
+# → 400 "Expected a value >= 16, but got 1" rồi khoá account. Đo bằng harness chạy chính bundle
+# 0.5.116: body {max_tokens:1} → out {max_output_tokens:1}. Floor cả 3 tên field đang lưu hành.
 
 [[patch]]
 id = "max-tokens-floor"
 order = 27
-summary = "max_tokens < 16 → 16 trước khi gửi upstream (chống 400 gateway kén chọn)"
-why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2' → router 503 + khoá 30s; floor 16 vô hại với call thật (đều > 1k)"
+summary = "max_tokens/max_output_tokens/max_completion_tokens < 16 → 16 trước khi gửi upstream"
+why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2'; AgentRouter responses 400 'max_output_tokens Expected a value >= 16, but got 1' — anchor nằm sau bước dịch format nên field đã đổi tên, guard cũ bỏ sót"
 find = 'let a2=(0,t.getExecutor)(au);'
-replace = "if(an&&\"number\"==typeof an.max_tokens&&an.max_tokens<16)an.max_tokens=16;let a2=(0,t.getExecutor)(au);"
+replace = "if(an)for(const $k of [\"max_tokens\",\"max_output_tokens\",\"max_completion_tokens\"])if(\"number\"==typeof an[$k]&&an[$k]<16)an[$k]=16;let a2=(0,t.getExecutor)(au);"
 
 # P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
 # Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
