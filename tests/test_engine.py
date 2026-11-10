@@ -1639,12 +1639,21 @@ def test_max_tokens_floor_rewrites_small_values_only(patches):
     """P27: injected guard floors every numeric max-token field < 16 to 16 on the pre-dispatch
     body variable (`ak` on 0.5.104, `an` on 0.5.109). All three field names must be covered:
     the anchor sits AFTER format translation, so a claude→openai-responses request arrives
-    here with the value already renamed to `max_output_tokens` (AgentRouter 400, 2026-11-09)."""
+    here with the value already renamed to `max_output_tokens` (AgentRouter 400, 2026-11-09).
+    2026-11-10: the same guard must strip reasoning_effort for openai-compatible providers
+    whose apiType resolves to chat (codex.fosta.app 400 "Unsupported parameter:
+    reasoning_effort"); apiType=responses keeps reasoning."""
     p = by_id(patches, "max-tokens-floor")
-    assert re.match(
+    m = re.match(
         r'^if\(([A-Za-z_$][\w$]*)\)for\(const \$k of \['
         r'"max_tokens","max_output_tokens","max_completion_tokens"\]\)'
         r'if\("number"==typeof \1\[\$k\]&&\1\[\$k\]<16\)\1\[\$k\]=16;', p.replace)
+    assert m
+    body = m.group(1)
+    assert re.match(
+        rf'if\({body}&&([A-Za-z_$][\w$]*)&&String\(\1\)\.startsWith\("openai-compatible-"\)'
+        rf'&&"responses"!==\(0,[A-Za-z_$][\w$]*\.jD\)\(\1,[A-Za-z_$][\w$]*\)\)'
+        rf'delete {body}\.reasoning_effort;', p.replace[m.end():])
     assert p.replace.endswith(p.find)
 
 

@@ -381,14 +381,19 @@ replace = 'let f;try{f=d(e.command,e.args,{stdio:["pipe","pipe","pipe"],env:proc
 # field thành `max_output_tokens` → guard cũ không thấy gì → gửi nguyên `max_output_tokens:1`
 # → 400 "Expected a value >= 16, but got 1" rồi khoá account. Đo bằng harness chạy chính bundle
 # 0.5.116: body {max_tokens:1} → out {max_output_tokens:1}. Floor cả 3 tên field đang lưu hành.
+# 2026-11-10: thêm strip reasoning_effort cho openai-compatible apiType=chat. Upstream capability
+# table gán reasoning:!0 cho mọi *gpt-6* → mapper thinking từng case "openai" inject b.reasoning_effort,
+# gateway chat chuẩn (codex.fosta.app — FastAPI strict) 400 "Unsupported parameter: reasoning_effort"
+# rồi khoá account 5s. apiType=responses giữ nguyên (AgentRouter nhận reasoning). e.jD (module 57647,
+# import sẵn trong 8895) đọc c.providerSpecificData.apiType để phân hai nhánh.
 
 [[patch]]
 id = "max-tokens-floor"
 order = 27
-summary = "max_tokens/max_output_tokens/max_completion_tokens < 16 → 16 trước khi gửi upstream"
-why = "classifier/probe gửi max_tokens<=2, gateway.agents.ai.vn 400 'must be greater than 2'; AgentRouter responses 400 'max_output_tokens Expected a value >= 16, but got 1' — anchor nằm sau bước dịch format nên field đã đổi tên, guard cũ bỏ sót"
+summary = "Floor max_tokens<16 + strip reasoning_effort trên openai-compatible apiType=chat trước khi gửi upstream"
+why = "floor: gateway 400 max_tokens<16 (AgentRouter responses); strip: mapper thinking inject reasoning_effort cho mọi model gpt-6 trên openai-compatible-chat nhưng gateway chat chuẩn (codex.fosta.app) từ chối tham số → 400 + khoá account 5s"
 find = 'let a2=(0,t.getExecutor)(au);'
-replace = "if(an)for(const $k of [\"max_tokens\",\"max_output_tokens\",\"max_completion_tokens\"])if(\"number\"==typeof an[$k]&&an[$k]<16)an[$k]=16;let a2=(0,t.getExecutor)(au);"
+replace = "if(an)for(const $k of [\"max_tokens\",\"max_output_tokens\",\"max_completion_tokens\"])if(\"number\"==typeof an[$k]&&an[$k]<16)an[$k]=16;if(an&&au&&String(au).startsWith(\"openai-compatible-\")&&\"responses\"!==(0,e.jD)(au,c))delete an.reasoning_effort;let a2=(0,t.getExecutor)(au);"
 
 # P28 — re-merge tool_result messages AFTER headroom round-trip: headroom translates
 # Claude→OpenAI→compress→OpenAI→Claude; back-translate emits one user message per tool_result
