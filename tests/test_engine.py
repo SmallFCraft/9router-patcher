@@ -1924,7 +1924,7 @@ def test_p13_content_blocked_and_safety_checks_trigger_fallback(patches):
     # the final 400-status return) stays in the upstream file. Re-assemble the full body so
     # the guard is exercised the way it runs in production. The final return comes from P38
     # (not hardcoded) so the two patches cannot drift apart here.
-    tail = ('if((!b.provider||b.provider===f)&&(b.text&&g&&g.includes(b.text)||b.status&&b.status===a)){'
+    tail = ('if((!b.provider||b.provider===g)&&(b.text&&h&&h.includes(b.text)||b.status&&b.status===a)){'
             'if(b.backoff){let a=Math.min(c+1,d.EQ.maxLevel);'
             'return{shouldFallback:!0,cooldownMs:function(a=0){let b=Math.max(0,a-1);'
             'return Math.min(d.EQ.base*Math.pow(2,b),d.EQ.max)}(a),newBackoffLevel:a}}'
@@ -1962,7 +1962,7 @@ const cases = [
 ];
 
 for (const [st, msg, expFb, expCd] of cases) {
-  const r = e(st, msg);
+  const r = f(st, msg);
   if (!r || r.shouldFallback !== expFb || r.cooldownMs !== expCd) {
     throw new Error(`st=${st} msg=${msg} -> ${JSON.stringify(r)} (want fallback=${expFb} cd=${expCd})`);
   }

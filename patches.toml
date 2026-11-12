@@ -69,7 +69,14 @@
 # 0.5.112 -> 0.5.116: 1 anchor chết, 0 hấp thụ (scan 80 clean trên tarball pristine
 #   0.5.116). Remap do re-minify: responses-thinking-history-400 (2380.js, l/m -> m/l —
 #   upstream hoán đổi 2 biến cục bộ của block normalize messages, find + replace cùng nhau).
-target_version = "0.5.116"
+# 0.5.116 -> 0.5.119: 7 anchor chết, 0 hấp thụ (scan 74 clean trên tarball pristine
+#   0.5.119; 81 patch, dead: 13/34/kilo56-59/60/61). Remap do re-minify:
+#   service-error-fast-recover (7187.js, e/g->f/h), opencode-responses-noeffort-minimal
+#   (5330.js, K->O), combos-picker-kilo-free-{models,fetch,deps} (5497 chunk đổi hash,
+#   V/B/J/G/es -> B/J/G/Q/eo), kilo-free-merge (prefix var i->s), provider-*-free-dedupe
+#   (page chunk đổi hash, tk/eQ -> tN/eX). Upstream 0.5.119 tự fetch kilo free models
+#   (modelsFetcher openrouter-free) cho trang provider nhưng combos picker vẫn KHÔNG có.
+target_version = "0.5.119"
 
 [[patch]]
 id = "connect-timeout-180s"
@@ -199,8 +206,8 @@ id = "service-error-fast-recover"
 order = 13
 summary = "400 service_error / content-blocked / content-safety: fallback ngay, khoá model 5s thay vì default 30s"
 why = "provider trả 400 tạm thời (code service_error) nhưng t2 không phân loại được → khoá model 30s chết hàng loạt; 5s đủ skip burst retry rồi tự thử lại. 2026-09-25: AgentRouter trả 400 {code:'content-blocked',type:'agent_router_api_error'} và relay trả 400 'flagged as high risk by model provider content safety check' — cũng không nằm trong t2 nên e() rơi xuống nhánh `400===a && !401/402/403/429` → shouldFallback:!1 → combo loop 8910.js `if(!i) return b` trả thẳng 400 cho client, Claude Code ngắt session, KHÔNG xoay provider kế tiếp"
-find = 'function e(a,b,c=0,f=null){let g=b?("string"==typeof b?b:JSON.stringify(b)).toLowerCase():"";for(let b of d.t2)'
-replace = 'function e(a,b,c=0,f=null){let g=(b instanceof Error?String(b.message||b):b?("string"==typeof b?b:JSON.stringify(b)):"").toLowerCase();if(b instanceof Error||400===a&&(g.includes("service_error")||g.includes("content-blocked")||g.includes("content_blocked")||g.includes("high risk")||g.includes("content safety")||g.includes("cyber security")||g.includes("agent_router_api_error"))||g.includes("upstream non-sse"))return{shouldFallback:!0,cooldownMs:5e3};for(let b of d.t2)'
+find = 'function f(a,b,c=0,g=null){let h=b?("string"==typeof b?b:JSON.stringify(b)).toLowerCase():"";for(let b of d.t2)'
+replace = 'function f(a,b,c=0,g=null){let h=(b instanceof Error?String(b.message||b):b?("string"==typeof b?b:JSON.stringify(b)):"").toLowerCase();if(b instanceof Error||400===a&&(h.includes("service_error")||h.includes("content-blocked")||h.includes("content_blocked")||h.includes("high risk")||h.includes("content safety")||h.includes("cyber security")||h.includes("agent_router_api_error"))||h.includes("upstream non-sse"))return{shouldFallback:!0,cooldownMs:5e3};for(let b of d.t2)'
 
 # P14 — cap effort theo body size (compact hang 7m19s > patience 5m client): body >448KB mà
 # effort ∈ {max,xhigh,ultra} → hạ "high". Chèn sau HEADROOM+PXPIPE (anchor "⚙" aW-line; CHÚ Ý
@@ -482,8 +489,8 @@ id = "opencode-responses-noeffort-minimal"
 order = 34
 summary = "reasoning effort none/off → minimal cho openai responses (chống 400 THINK:off)"
 why = "muse-spark chỉ nhận [minimal,low,medium,high,xhigh,max]; upstream chỉ down-clamp max/ultra nên 'none' lọt nguyên → 400 invalid_request_error param reasoning.effort"
-find = 'let f=K(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
-replace = 'let f=K(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
+find = 'let f=O(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();('
+replace = 'let f=O(a||b.model),g=(0,i.k)("opencode",f),h=e.toLowerCase().trim();"none"!==h&&"off"!==h||(h="minimal"),('
 
 # P35 — upstream openai-compatible trả SSE kiểu Claude (api.tntapi.io.vn).
 # Đo trực tiếp 2026-09-22: TỪNG request tới /v1/chat/completions → body kiểu
@@ -813,8 +820,8 @@ order = 56
 defines = "$9rKilo"
 summary = "Combos picker hien them free models cua Kilo (fetch free-models API, dedupe theo value)"
 why = "Trang provider detail fetch live /api/providers/kilo/free-models nen list model Kilo dong du; bang combos chi build tu static registry 8 model trong 5497-*.js (module 28011 ModelSelectModal) nen thieu toan bo model :free (minimax/minimax-m3.1-flash:free...). Patch them state $9rKilo + fetch khi mo modal, merge vao nhanh passthroughModels cua provider kilocode voi dedupe theo value (kc/<id>) - khong ghi DB, khong trung lap voi trang provider. GO KHI UPSTREAM TU FIX: picker doc them endpoint free-models hoac registry dong -> go patch."
-find = '[V,B]=(0,r.useState)([]),[J,G]=(0,r.useState)({}),H='
-replace = '[V,B]=(0,r.useState)([]),[J,G]=(0,r.useState)({}),[$9rKilo,$9rSetKilo]=(0,r.useState)([]),H='
+find = '[B,J]=(0,r.useState)([]),[G,Q]=(0,r.useState)({}),H='
+replace = '[B,J]=(0,r.useState)([]),[G,Q]=(0,r.useState)({}),[$9rKilo,$9rSetKilo]=(0,r.useState)([]),H='
 
 [[patch]]
 id = "combos-picker-kilo-free-fetch"
@@ -822,8 +829,8 @@ order = 57
 group = "combos-picker-kilo-free-models"
 summary = "Fetch free-models cua Kilo khi mo modal picker"
 why = "Picker khong goi endpoint nay o bat ky dau (chi trang provider detail goi); thieu fetch thi $9rKilo luon rong va buoc merge khong co gi de them."
-find = "console.error(\"Error fetching custom models:\",e),B([])}};(0,r.useEffect)(()=>{e&&es()},[e]);"
-replace = "console.error(\"Error fetching custom models:\",e),B([])}};(0,r.useEffect)(()=>{if(!e)return;(async()=>{try{let t=await fetch(\"/api/providers/kilo/free-models\",{cache:\"no-store\"});if(!t.ok)return;let a=await t.json();$9rSetKilo(Array.isArray(a.models)?a.models:[])}catch{}})()},[e]);(0,r.useEffect)(()=>{e&&es()},[e]);"
+find = "console.error(\"Error fetching custom models:\",e),J([])}};(0,r.useEffect)(()=>{e&&eo()},[e]);"
+replace = "console.error(\"Error fetching custom models:\",e),J([])}};(0,r.useEffect)(()=>{if(!e)return;(async()=>{try{let t=await fetch(\"/api/providers/kilo/free-models\",{cache:\"no-store\"});if(!t.ok)return;let a=await t.json();$9rSetKilo(Array.isArray(a.models)?a.models:[])}catch{}})()},[e]);(0,r.useEffect)(()=>{e&&eo()},[e]);"
 
 [[patch]]
 id = "combos-picker-kilo-free-merge"
@@ -832,7 +839,7 @@ group = "combos-picker-kilo-free-models"
 summary = "Merge free models vao nhanh passthrough cua kilocode, dedupe theo value"
 why = "Nhanh passthroughModels dung chung cho moi provider co co nay; guard theo ten provider de chi kilocode nhan free list. Dedupe bang Set tren value (kc/<id>) nen custom model hoac alias cung tro toi model do khong sinh dong thu hai."
 find = 'l=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...n]}'
-replace = "l=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...n];if(\"kilocode\"===r){let $9rSeen=new Set(l.map(e=>e.value)),$9rAdd=$9rKilo.map(e=>({id:e.id,name:e.name||e.id,value:`${i}/${e.id}`,kind:\"llm\"})).filter(e=>e.value&&!$9rSeen.has(e.value));l=[...l,...$9rAdd]}}"
+replace = "l=[...e,...t.filter(t=>!e.some(e=>e.value===t.value)),...n];if(\"kilocode\"===r){let $9rSeen=new Set(l.map(e=>e.value)),$9rAdd=$9rKilo.map(e=>({id:e.id,name:e.name||e.id,value:`${s}/${e.id}`,kind:\"llm\"})).filter(e=>e.value&&!$9rSeen.has(e.value));l=[...l,...$9rAdd]}}"
 
 [[patch]]
 id = "combos-picker-kilo-free-deps"
@@ -840,22 +847,22 @@ order = 59
 group = "combos-picker-kilo-free-models"
 summary = "Them $9rKilo vao deps cua memo ed de re-render khi free models ve"
 why = "useMemo ed chi tinh lai khi deps doi; free models ve sau lan render dau (async), thieu $9rKilo trong deps thi danh sach khong cap nhat cho den khi user doi filter."
-find = '},[A,S,el,q,V,J,O,_,z,ee,et,ea,en]'
-replace = '},[A,S,el,q,V,J,O,_,z,ee,et,ea,en,$9rKilo]'
+find = '},[z,O,ed,K,B,G,W,A,R,et,ea,en,ei]'
+replace = '},[z,O,ed,K,B,G,W,A,R,et,ea,en,ei,$9rKilo]'
 [[patch]]
 id = "provider-suggested-free-dedupe"
 order = 60
 summary = "Suggested free models (provider page) khong list lai model da co trong Available"
 why = "Bug upstream 0.5.104: bo loc suggested chi tru static registry (tw) ma quen danh sach free models fetch live (eQ) dang hien ben tren -> moi model free xuat hien 2 lan: 1 o Available Models, 1 o hang Suggested free models bam vao de add them. Fix 1 dong: them eQ vao Set loai tru. GO KHI UPSTREAM TU FIX: upstream them eQ vao bo loc -> go patch."
-find = 't=new Set(tk.map(e=>e.id))'
-replace = 't=new Set([...tk,...eQ].map(e=>e.id))'
+find = 't=new Set(tN.map(e=>e.id))'
+replace = 't=new Set([...tN,...eX].map(e=>e.id))'
 [[patch]]
 id = "provider-custom-vs-free-dedupe"
 order = 61
 summary = "Trung lap free model taiAvailable khi cung ton tai lam custom model (builtInModels thieu eG)"
 why = "Bug upstream 0.5.104 chuoi 2: ham $ loc custom/alias theo builtInModels nhung chi truyen tw (8 model static). Khi mot free model (vd nvidia/nemotron-3-ultra-550b-a55b:free) duoc bam add o Suggested -> no thanh customModel, nhung eQ van chua no bang id giong het -> render Available xuat HAI the: the custom (o.map) va the free (r.map vi $ khong biet eQ da co no). Fix: truyen builtInModels=[...tw,...eQ] de ham $ loai custom trung voi free list. Patch 60 chi lo suggested hang duoi; patch nay lo duplicate trong Available. GO KHI UPSTREAM TU FIX: upstream truyen eQ vao builtInModels -> go patch."
-find = "builtInModels:tk,type:\"llm\""
-replace = "builtInModels:[...tk,...eQ],type:\"llm\""
+find = "builtInModels:tN,type:\"llm\""
+replace = "builtInModels:[...tN,...eX],type:\"llm\""
 
 [[patch]]
 id = "openai-compatible-agentrouter-ua-executor"
